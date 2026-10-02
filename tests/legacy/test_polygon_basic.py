@@ -4,14 +4,14 @@ import pandas as pd
 import pytest
 
 from liualgotrader.common import config
-from liualgotrader.common.types import (QueueMapper, TimeScale, WSConnectState,
+from liualgotrader.common.types import (SymbolQueueMap, TimeScale, WSConnectState,
                                         WSEventType)
 from liualgotrader.data.polygon import PolygonData
 
 
 @pytest.mark.devtest
 def test_polygon_aapl_data_day() -> bool:
-    polygon = PolygonData()
+    polygon = PolygonData(config.polygon)
     print(
         polygon.get_symbol_data(
             "AAPL",
@@ -25,7 +25,7 @@ def test_polygon_aapl_data_day() -> bool:
 
 @pytest.mark.devtest
 def test_polygon_aapl_data_min() -> bool:
-    polygon = PolygonData()
+    polygon = PolygonData(config.polygon)
     print(
         polygon.get_symbol_data(
             "AAPL",
@@ -38,7 +38,7 @@ def test_polygon_aapl_data_min() -> bool:
 
 @pytest.mark.devtest
 def test_polygon_get_symbols() -> bool:
-    polygon = PolygonData()
+    polygon = PolygonData(config.polygon)
     symbols = polygon.get_symbols()
     print(f"{len(symbols)} symbols are retrieved from Polygon")
     return True
@@ -47,7 +47,7 @@ def test_polygon_get_symbols() -> bool:
 # this test may fail if your Polygon account is not in premium plan
 @pytest.mark.devtest
 def test_polygon_get_market_snapshot() -> bool:
-    polygon = PolygonData()
+    polygon = PolygonData(config.polygon)
     market_snapshots = polygon.get_market_snapshot()
     print(
         f"{len(market_snapshots)} tickers of market snapshots are retrieved from Polygon"

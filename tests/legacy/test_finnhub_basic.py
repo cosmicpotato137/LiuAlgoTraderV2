@@ -4,28 +4,28 @@ import pandas as pd
 import pytest
 
 from liualgotrader.common import config
-from liualgotrader.common.types import (QueueMapper, TimeScale, WSConnectState,
+from liualgotrader.common.types import (SymbolQueueMap, TimeScale, WSConnectState,
                                         WSEventType)
 from liualgotrader.data.finnhub import FinnhubData
 
 
 @pytest.mark.devtest
 def test_create_finnhub() -> bool:
-    finnhub = FinnhubData()
+    finnhub = FinnhubData(config.finnhub)
     print(finnhub.stock_exchanges)
     return True
 
 
 @pytest.mark.devtest
 def test_finnhub_us_symbols() -> bool:
-    finnhub = FinnhubData()
+    finnhub = FinnhubData(config.finnhub)
     print(finnhub.get_symbols())
     return True
 
 
 @pytest.mark.devtest
 def test_finnhub_aapl_data_day() -> bool:
-    finnhub = FinnhubData()
+    finnhub = FinnhubData(config.finnhub)
     print(
         finnhub.get_symbol_data(
             "AAPL",
@@ -39,7 +39,7 @@ def test_finnhub_aapl_data_day() -> bool:
 
 @pytest.mark.devtest
 def test_finnhub_aapl_data_min() -> bool:
-    finnhub = FinnhubData()
+    finnhub = FinnhubData(config.finnhub)
     print(
         finnhub.get_symbol_data(
             "AAPL",

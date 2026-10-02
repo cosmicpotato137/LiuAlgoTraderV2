@@ -4,6 +4,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, Order, TimeScale
 from liualgotrader.db.session import create_db_connection
@@ -16,7 +17,7 @@ tradier_trader: TradierTrader
 async def db_connection():
     global tradier_trader
     await create_db_connection()
-    tradier_trader = TradierTrader()
+    tradier_trader = TradierTrader(config.tradier)
 
 
 @pytest.mark.asyncio

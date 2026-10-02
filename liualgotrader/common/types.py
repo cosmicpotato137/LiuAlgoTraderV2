@@ -193,7 +193,7 @@ class Trade:
     updated_at: pd.Timestamp
 
 
-class QueueMapper:
+class SymbolQueueMap:
     """A case-insensitive mapping from symbols to multiprocessing queues.
 
     Attributes

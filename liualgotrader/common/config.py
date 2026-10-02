@@ -1,21 +1,20 @@
 """Framework-wide configuration settings.
 
 Most settings are module-level variables, many read from environment
-variables at import time, such as the data connector, broker, API
-credentials, database DSN and performance parameters. Shared run-time
-values, such as the batch ID, are set later.
-
-Classes
--------
-polygon
-    Configuration settings specific to Polygon data.
+variables at import time, such as the data connector, broker, database DSN
+and performance parameters. Shared run-time values, such as the batch ID, are
+set later.
 """
 
 import os
-from dataclasses import dataclass
 from typing import List, Optional
 
 from liualgotrader.common.types import BrokerType, DataConnectorType
+from liualgotrader.data.alpaca import AlpacaConfig
+from liualgotrader.data.finnhub import FinnhubConfig
+from liualgotrader.data.gemini import GeminiConfig
+from liualgotrader.data.polygon import PolygonConfig
+from liualgotrader.data.tradier import TradierConfig
 
 tradeplan_folder: str = (
     os.getenv("TRADEPLAN_DIR", ".")
@@ -33,7 +32,6 @@ data_connector: DataConnectorType = DataConnectorType[os.getenv("DATA_CONNECTOR"
 trace_enabled = bool(int(os.getenv("LIU_TRACE_ENABLED", 0)))
 debug_enabled = bool(int(os.getenv("LIU_DEBUG_ENABLED", 0)))
 gcp_logger = bool(int(os.getenv("GCP_STACKDRIVER", 0)))
-detailed_dl_debug_enabled: bool = False
 
 #
 # Broker
@@ -51,30 +49,51 @@ filename: str
 batch_id: str
 
 #
-# API keys
+# Data providers and brokers
 #
 # Replace these with your API connection info from the dashboard
-polygon_api_key = os.getenv("POLYGON_API_KEY")
-
-alpaca_base_url = os.getenv("APCA_API_BASE_URL")
-alpaca_crypto_base_url = "https://data.alpaca.markets/v1beta2/crypto"
-alpaca_api_key: str = os.getenv("APCA_API_KEY_ID", "")
-alpaca_api_secret: str = os.getenv("APCA_API_SECRET_KEY", "")
-alpaca_data_feed = os.getenv("ALPACA_DATA_FEED", "sip")
-alpaca_stream_url = os.getenv("ALPACA_STREAM_URL")
-
-tradier_base_url = os.getenv(
-    "TRADIER_BASE_URL", "https://sandbox.tradier.com/v1/"
+alpaca = AlpacaConfig(
+    api_key=os.getenv("APCA_API_KEY_ID", AlpacaConfig.api_key),
+    api_secret=os.getenv("APCA_API_SECRET_KEY", AlpacaConfig.api_secret),
+    base_url=os.getenv("APCA_API_BASE_URL", AlpacaConfig.base_url),
+    data_feed=os.getenv("ALPACA_DATA_FEED", AlpacaConfig.data_feed),
+    stream_url=os.getenv("ALPACA_STREAM_URL", AlpacaConfig.stream_url),
+    broker_api_base_url=os.getenv(
+        "ALPACA_BROKER_API_BASEURL", AlpacaConfig.broker_api_base_url
+    ),
+    broker_api_key=os.getenv(
+        "ALPACA_BROKER_API_KEY", AlpacaConfig.broker_api_key
+    ),
+    broker_api_secret=os.getenv(
+        "ALPACA_BROKER_API_SECRET", AlpacaConfig.broker_api_secret
+    ),
+    debug_enabled=debug_enabled,
 )
-tradier_websocket_base = os.getenv(
-    "TRADIER_WS_URL", "wss://ws.tradier.com/v1/"
-)
-tradier_account_number: Optional[str] = os.getenv("TRADIER_ACCOUNT_NUMBER")
-tradier_access_token: Optional[str] = os.getenv("TRADIER_ACCESS_TOKEN")
 
-finnhub_api_key = os.getenv("FINNHUB_API_KEY")
-finnhub_base_url = os.getenv("FINNHUB_BASE_URL")
-finnhub_websocket_limit = 50
+polygon = PolygonConfig(
+    api_key=os.getenv("POLYGON_API_KEY", PolygonConfig.api_key),
+)
+
+gemini = GeminiConfig(
+    api_key=os.getenv("GEMINI_API_KEY", GeminiConfig.api_key),
+    api_secret=os.getenv("GEMINI_API_SECRET", GeminiConfig.api_secret),
+    debug_enabled=debug_enabled,
+)
+
+tradier = TradierConfig(
+    base_url=os.getenv("TRADIER_BASE_URL", TradierConfig.base_url),
+    websocket_base=os.getenv("TRADIER_WS_URL", TradierConfig.websocket_base),
+    account_number=os.getenv(
+        "TRADIER_ACCOUNT_NUMBER", TradierConfig.account_number
+    ),
+    access_token=os.getenv("TRADIER_ACCESS_TOKEN", TradierConfig.access_token),
+)
+
+finnhub = FinnhubConfig(
+    api_key=os.getenv("FINNHUB_API_KEY", FinnhubConfig.api_key),
+    base_url=os.getenv("FINNHUB_BASE_URL", FinnhubConfig.base_url),
+)
+
 #
 # Execution details (env variable)
 dsn: str = os.getenv("DSN", "")
@@ -104,18 +123,3 @@ proc_factor: float = float(os.getenv("CPU_FACTOR", "2.0"))
 num_consumers: int = int(os.getenv("NUM_CONSUMERS", "0"))
 
 num_consumer_processes_ratio: int
-# polygon parameters
-polygon_seconds_timeout = 60
-
-
-@dataclass
-class polygon:
-    """Configuration settings specific to Polygon data.
-
-    Attributes
-    ----------
-    MAX_DAYS_TO_LOAD: int
-        The maximum number of days of data to load.
-    """
-
-    MAX_DAYS_TO_LOAD: int = 7

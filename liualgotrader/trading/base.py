@@ -13,11 +13,11 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
-from liualgotrader.common.types import Order, QueueMapper
+from liualgotrader.common.types import Order, SymbolQueueMap
 from liualgotrader.db.models.algo_run import AlgoRun
 
 
-class Trader:
+class TraderAPI:
     """Abstract base class for broker trading integrations.
 
     Subclasses must implement every public method except create_session,
@@ -79,7 +79,7 @@ class Trader:
 
     __instance: object = None
 
-    def __init__(self, queues: QueueMapper = None):
+    def __init__(self, queues: SymbolQueueMap = None):
         """Initialize the trader and make it the shared instance.
 
         Parameters
@@ -88,7 +88,7 @@ class Trader:
             The queue mapper that receives trade updates, or None.
         """
         self.queues = queues
-        Trader.__instance = self
+        TraderAPI.__instance = self
 
     def __repr__(self):
         """Return the name of the concrete trader class."""

@@ -11,6 +11,7 @@ import streamlit as st
 
 from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_runs, load_trades)
+from liualgotrader.common import config
 from liualgotrader.data.polygon import PolygonData
 from liualgotrader.db.session import create_db_connection
 
@@ -115,7 +116,7 @@ for element in how_was_my_day:
 
 if st.sidebar.checkbox("Show details"):
     session = requests.session()
-    polygon_data = PolygonData()
+    polygon_data = PolygonData(config.polygon)
 
     minute_history = {}
 

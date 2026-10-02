@@ -33,7 +33,7 @@ from liualgotrader.common.types import DataConnectorType
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner
 from liualgotrader.scanners.momentum import Momentum
-from liualgotrader.trading.base import Trader
+from liualgotrader.trading.base import TraderAPI
 from liualgotrader.trading.trader_factory import trader_factory
 
 nyc = timezone("America/New_York")
@@ -89,7 +89,7 @@ async def scanner_runner(scanner: Scanner, queue: mp.Queue) -> None:
 
 
 async def create_momentum_scanner(
-    trader: Trader, data_loader: DataLoader, scanner_details: Dict
+    trader: TraderAPI, data_loader: DataLoader, scanner_details: Dict
 ) -> Momentum:
     """Create a Momentum scanner from its configuration.
 
@@ -133,7 +133,7 @@ async def create_momentum_scanner(
 
 
 async def create_scanners(
-    trader: Trader, data_loader: DataLoader, scanners_conf: Dict
+    trader: TraderAPI, data_loader: DataLoader, scanners_conf: Dict
 ) -> List[Scanner]:
     """Create the scanners listed in scanners_conf.
 
@@ -178,7 +178,7 @@ async def create_scanners(
 
 
 async def scanners_runner(
-    scanners_conf: Dict, queue: mp.Queue, trader: Trader
+    scanners_conf: Dict, queue: mp.Queue, trader: TraderAPI
 ) -> None:
     """Run all configured scanners concurrently until they finish.
 

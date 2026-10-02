@@ -21,7 +21,7 @@ from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.keystore import KeyStore
-from liualgotrader.trading.base import Trader
+from liualgotrader.trading.base import TraderAPI
 
 
 class StrategyType(Enum):
@@ -190,7 +190,7 @@ class Strategy(object):
         data_loader: DataLoader,
         now: datetime,
         portfolio_value: float = None,
-        trader: Trader = None,
+        trader: TraderAPI = None,
         debug: bool = False,
         backtesting: bool = False,
         fee_buy_percentage: float = 0.0,

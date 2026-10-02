@@ -1,5 +1,6 @@
 import pytest
 
+from liualgotrader.common import config
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.trading.alpaca import AlpacaTrader
 
@@ -12,7 +13,7 @@ account_id: str = "f6c9596e-e7ce-4ecc-8ed8-fe6c9720e96a"
 async def db_connection():
     global alpaca_trader
     await create_db_connection()
-    alpaca_trader = AlpacaTrader()
+    alpaca_trader = AlpacaTrader(config.alpaca)
 
 
 @pytest.mark.asyncio

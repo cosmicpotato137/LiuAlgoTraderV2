@@ -5,7 +5,8 @@ from threading import Thread
 
 import pytest
 
-from liualgotrader.common.types import QueueMapper, WSEventType
+from liualgotrader.common import config
+from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.data.alpaca import AlpacaStream
 
 stop: bool = False
@@ -27,8 +28,8 @@ def listener(q: Queue):
 @pytest.mark.asyncio
 async def test_crypto_stream():
     global stop
-    queues = QueueMapper()
-    alpaca_stream = AlpacaStream(queues)
+    queues = SymbolQueueMap()
+    alpaca_stream = AlpacaStream(queues, config.alpaca)
     await alpaca_stream.run()
 
     print("going to subscribe")

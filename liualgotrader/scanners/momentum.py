@@ -23,7 +23,7 @@ from liualgotrader.data.polygon import PolygonData
 from liualgotrader.db.models.ticker_data import StockOhlc
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import session_scope
-from liualgotrader.trading.base import Trader
+from liualgotrader.trading.base import TraderAPI
 
 from .base import Scanner
 
@@ -81,7 +81,7 @@ class Momentum(Scanner):
         recurrence: Optional[timedelta],
         target_strategy_name: Optional[str],
         data_loader: DataLoader,
-        trading_api: Trader,
+        trading_api: TraderAPI,
         max_share_price: float,
         min_share_price: float,
         min_last_dv: float,

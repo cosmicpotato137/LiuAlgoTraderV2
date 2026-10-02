@@ -38,7 +38,6 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
 import pandas as pd
-from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetCalendarRequest
 from pytz import timezone
 
@@ -47,12 +46,13 @@ from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.tlog import tlog, tlog_exception
 from liualgotrader.common.types import AssetType, TimeScale
+from liualgotrader.data.alpaca import AlpacaData
 from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner  # type: ignore
 from liualgotrader.scanners_runner import create_momentum_scanner
 from liualgotrader.strategies.base import Strategy
-from liualgotrader.trading.base import Trader
+from liualgotrader.trading.base import TraderAPI
 from liualgotrader.trading.trader_factory import trader_factory
 
 run_scanners: Dict[Scanner, datetime] = {}
@@ -358,7 +358,7 @@ async def do_strategy_all(
     now: pd.Timestamp,
     strategy: Strategy,
     symbols: List[str],
-    trader: Trader,
+    trader: TraderAPI,
     buy_fee_percentage: float,
     sell_fee_percentage: float,
 ):
@@ -483,7 +483,7 @@ async def do_strategy(
     now: pd.Timestamp,
     strategy: Strategy,
     symbols: List[str],
-    trader: Trader,
+    trader: TraderAPI,
     buy_fee_percentage: float,
     sell_fee_percentage: float,
 ):
@@ -573,7 +573,7 @@ async def backtest_day(
     scale,
     data_loader,
     asset_type: AssetType,
-    trader: Trader,
+    trader: TraderAPI,
     buy_fee_percentage: float,
     sell_fee_percentage: float,
 ):
@@ -712,12 +712,7 @@ async def backtest_time_range(
     Raise AssertionError for any other asset type.
     """
     if asset_type == AssetType.US_EQUITIES:
-        trade_api = TradingClient(
-            api_key=config.alpaca_api_key,
-            secret_key=config.alpaca_api_secret,
-            paper=False,
-            url_override=config.alpaca_base_url,
-        )
+        trade_api = AlpacaData(config.alpaca).trading_client
         calendars = trade_api.get_calendar(
             GetCalendarRequest(start=from_date, end=to_date)
         )

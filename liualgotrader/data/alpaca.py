@@ -2,6 +2,8 @@
 
 Classes
 -------
+AlpacaConfig
+    Connection settings for the Alpaca APIs.
 AlpacaData
     Market data provider for the Alpaca REST and crypto APIs.
 AlpacaStream
@@ -13,6 +15,7 @@ import concurrent.futures
 import queue
 import time
 import traceback
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from random import randint
 from typing import Callable, Dict, List, Optional, Tuple, Union, cast
@@ -43,10 +46,9 @@ from alpaca.trading.models import Asset, Calendar
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 from dateutil.parser import parse as date_parser
 
-from liualgotrader.common import config
 from liualgotrader.common.list_utils import chunks
 from liualgotrader.common.tlog import tlog, tlog_exception
-from liualgotrader.common.types import QueueMapper, TimeScale, WSEventType
+from liualgotrader.common.types import SymbolQueueMap, TimeScale, WSEventType
 from liualgotrader.data.data_base import DataAPI
 from liualgotrader.data.streaming_base import StreamingAPI
 
@@ -183,16 +185,47 @@ def _to_framework_bars(bars: pd.DataFrame) -> pd.DataFrame:
     ]
 
 
-def _trading_base_url() -> str:
-    """Return the configured Alpaca trading API base URL.
+@dataclass
+class AlpacaConfig:
+    """Connection settings for the Alpaca APIs.
 
-    Returns
-    -------
-    Return the URL without a trailing slash or API version, or the live
-    trading URL if APCA_API_BASE_URL is not set.
+    Attributes
+    ----------
+    api_key: str
+        The API key ID.
+    api_secret: str
+        The API secret key.
+    base_url: Optional[str]
+        The trading API base URL, or None for the live trading URL.
+    crypto_base_url: str
+        The crypto market data API base URL.
+    data_feed: str
+        The name of the equity data feed to stream.
+    stream_url: Optional[str]
+        The streaming API URL.
+    broker_api_base_url: Optional[str]
+        The Broker API base URL, for orders of external accounts.
+    broker_api_key: Optional[str]
+        The Broker API key.
+    broker_api_secret: Optional[str]
+        The Broker API secret.
+    debug_enabled: bool
+        Whether to print the traceback of errors in event handlers.
+    detailed_dl_debug_enabled: bool
+        Whether to log each historical data request.
     """
-    base_url = config.alpaca_base_url or BaseURL.TRADING_LIVE.value
-    return base_url.rstrip("/").removesuffix("/v2")
+
+    api_key: str = ""
+    api_secret: str = ""
+    base_url: Optional[str] = None
+    crypto_base_url: str = "https://data.alpaca.markets/v1beta2/crypto"
+    data_feed: str = "sip"
+    stream_url: Optional[str] = None
+    broker_api_base_url: Optional[str] = None
+    broker_api_key: Optional[str] = None
+    broker_api_secret: Optional[str] = None
+    debug_enabled: bool = False
+    detailed_dl_debug_enabled: bool = False
 
 
 class AlpacaData(DataAPI):
@@ -203,6 +236,8 @@ class AlpacaData(DataAPI):
 
     Attributes
     ----------
+    config: AlpacaConfig
+        The connection settings.
     stock_data_client: StockHistoricalDataClient
         The Alpaca client for equity bars.
     raw_stock_data_client: StockHistoricalDataClient
@@ -225,8 +260,6 @@ class AlpacaData(DataAPI):
         Return snapshots of the tradable US equities.
     get_last_trading
         Return the time of the most recent trade.
-    get_trading_holidays
-        Return the NYSE holiday dates.
     get_trading_day
         Return a datetime shifted by trading days.
     num_trading_minutes
@@ -237,39 +270,43 @@ class AlpacaData(DataAPI):
         Return the data point limit per request.
     trading_days_slice
         Adjust a datetime slice to trading sessions.
-    crypto_get_symbol_data
-        Return historical bars for a crypto pair.
     get_symbols_data
         Return historical bars for several symbols.
     get_symbol_data
         Return historical bars for one symbol.
     """
 
-    def __init__(self):
+    def __init__(self, config: AlpacaConfig):
         """Initialize the Alpaca REST clients.
+
+        Parameters
+        ----------
+        config: AlpacaConfig
+            The connection settings.
 
         Raises
         ------
         Raise ValueError if the API key or secret is not configured, and
         AssertionError if a client cannot be created.
         """
+        self.config = config
         self.stock_data_client = StockHistoricalDataClient(
-            api_key=config.alpaca_api_key,
-            secret_key=config.alpaca_api_secret,
+            api_key=config.api_key,
+            secret_key=config.api_secret,
         )
         self.raw_stock_data_client = StockHistoricalDataClient(
-            api_key=config.alpaca_api_key,
-            secret_key=config.alpaca_api_secret,
+            api_key=config.api_key,
+            secret_key=config.api_secret,
             raw_data=True,
         )
         self.crypto_data_client = CryptoHistoricalDataClient(
-            api_key=config.alpaca_api_key,
-            secret_key=config.alpaca_api_secret,
+            api_key=config.api_key,
+            secret_key=config.api_secret,
         )
-        base_url = _trading_base_url()
+        base_url = self._trading_base_url()
         self.trading_client = TradingClient(
-            api_key=config.alpaca_api_key,
-            secret_key=config.alpaca_api_secret,
+            api_key=config.api_key,
+            secret_key=config.api_secret,
             paper="paper" in base_url,
             url_override=base_url,
         )
@@ -285,6 +322,17 @@ class AlpacaData(DataAPI):
         # for requesting market snapshots by chunk of symbols
         self.symbol_chunk_size = 1000
         self.datetime_cache: Dict[datetime, datetime] = {}
+
+    def _trading_base_url(self) -> str:
+        """Return the configured trading API base URL.
+
+        Returns
+        -------
+        Return the URL without a trailing slash or API version, or the live
+        trading URL if config.base_url is not set.
+        """
+        base_url = self.config.base_url or BaseURL.TRADING_LIVE.value
+        return base_url.rstrip("/").removesuffix("/v2")
 
     def get_symbols(self) -> List[str]:
         """Return the symbols of all active, tradable US equities."""
@@ -474,7 +522,7 @@ class AlpacaData(DataAPI):
 
         return pd.Timestamp(min_bar["t"]).tz_convert(NY)
 
-    def get_trading_holidays(self) -> List[str]:
+    def _get_trading_holidays(self) -> List[str]:
         """Return the holiday dates of the NYSE calendar."""
         nyse = pandas_market_calendars.get_calendar("NYSE")
         return nyse.holidays().holidays
@@ -500,7 +548,7 @@ class AlpacaData(DataAPI):
             cbd_offset = timedelta(days=offset)
         else:
             cbd_offset = pd.tseries.offsets.CustomBusinessDay(
-                n=offset - 1, holidays=self.get_trading_holidays()
+                n=offset - 1, holidays=self._get_trading_holidays()
             )
         return (
             nytz.localize(now + cbd_offset)
@@ -552,7 +600,7 @@ class AlpacaData(DataAPI):
                     start,
                     end,
                     freq=pd.tseries.offsets.CustomBusinessDay(
-                        holidays=self.get_trading_holidays()
+                        holidays=self._get_trading_holidays()
                     ),
                 )
             )
@@ -609,7 +657,7 @@ class AlpacaData(DataAPI):
 
         return new_slice
 
-    def crypto_get_symbol_data(
+    def _crypto_get_symbol_data(
         self,
         symbol: str,
         start: str,
@@ -815,11 +863,11 @@ class AlpacaData(DataAPI):
         t = _DAY if scale == TimeScale.day else _MINUTE
 
         try:
-            if config.detailed_dl_debug_enabled:
+            if self.config.detailed_dl_debug_enabled:
                 tlog(f"symbol={symbol}, timeframe={t}, range=({_start, _end})")
 
             data = (
-                self.crypto_get_symbol_data(
+                self._crypto_get_symbol_data(
                     symbol=symbol, start=_start, end=_end, timeframe=t
                 )
                 if _is_crypto_symbol(symbol)
@@ -856,6 +904,8 @@ class AlpacaStream(StreamingAPI):
 
     Attributes
     ----------
+    config: AlpacaConfig
+        The connection settings.
     stock_ws_client: StockDataStream
         The Alpaca WebSocket client for equities.
     crypto_ws_client: CryptoDataStream
@@ -869,41 +919,32 @@ class AlpacaStream(StreamingAPI):
     -------
     run
         Start the WebSocket clients in the background.
-    bar_handler
-        Enqueue an equity minute bar event.
-    crypto_bar_handler
-        Enqueue a crypto minute bar event.
-    trades_handler
-        Enqueue an equity trade event.
-    crypto_trades_handler
-        Enqueue a crypto trade event.
-    quotes_handler
-        Discard a quote message.
     subscribe
         Subscribe to event types for the given symbols.
     close
         Stop the WebSocket clients.
     """
 
-    def __init__(self, queues: QueueMapper):
+    def __init__(self, queues: SymbolQueueMap, config: AlpacaConfig):
         """Initialize the WebSocket clients and register the shared instance.
-
-        Use the equity data feed named by config.alpaca_data_feed.
 
         Parameters
         ----------
         queues: QueueMapper
             The mapper from each symbol to its event queue.
+        config: AlpacaConfig
+            The connection settings.
 
         Raises
         ------
-        Raise ValueError if config.alpaca_data_feed is not an Alpaca data
-        feed, and AssertionError if a client cannot be created.
+        Raise ValueError if config.data_feed is not an Alpaca data feed, and
+        AssertionError if a client cannot be created.
         """
-        feed = DataFeed(config.alpaca_data_feed.lower())
+        self.config = config
+        feed = DataFeed(config.data_feed.lower())
         self.stock_ws_client = StockDataStream(
-            api_key=config.alpaca_api_key,
-            secret_key=config.alpaca_api_secret,
+            api_key=config.api_key,
+            secret_key=config.api_secret,
             feed=feed if feed in _STREAM_FEEDS else DataFeed.SIP,
             # the client only accepts the IEX and SIP feeds by name
             url_override=(
@@ -913,8 +954,8 @@ class AlpacaStream(StreamingAPI):
             ),
         )
         self.crypto_ws_client = CryptoDataStream(
-            api_key=config.alpaca_api_key,
-            secret_key=config.alpaca_api_secret,
+            api_key=config.api_key,
+            secret_key=config.api_secret,
         )
 
         if not (self.stock_ws_client and self.crypto_ws_client):
@@ -1028,7 +1069,7 @@ class AlpacaStream(StreamingAPI):
             tlog(f"[EXCEPTION] subscribe(): {type(e).__name__} {e}")
 
     @classmethod
-    async def bar_handler(cls, msg):
+    async def _bar_handler(cls, msg):
         """Convert an equity bar into an "AM" event and enqueue it.
 
         In the event, average holds the volume-weighted price and vwap is NaN.
@@ -1068,15 +1109,15 @@ class AlpacaStream(StreamingAPI):
             tlog(
                 f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
             )
-            if config.debug_enabled:
+            if cls.get_instance().config.debug_enabled:
                 traceback.print_exc()
 
     @classmethod
-    async def crypto_bar_handler(cls, msg):
+    async def _crypto_bar_handler(cls, msg):
         """Convert a crypto bar into an "AM" event and enqueue it.
 
         Name the pair as it was subscribed. Otherwise behave like
-        bar_handler.
+        _bar_handler.
 
         Parameters
         ----------
@@ -1114,11 +1155,11 @@ class AlpacaStream(StreamingAPI):
             tlog(
                 f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
             )
-            if config.debug_enabled:
+            if cls.get_instance().config.debug_enabled:
                 traceback.print_exc()
 
     @classmethod
-    async def trades_handler(cls, msg):
+    async def _trades_handler(cls, msg):
         """Convert an equity trade into a "T" event and enqueue it.
 
         Occasionally log a warning for trades more than ten seconds old.
@@ -1173,15 +1214,15 @@ class AlpacaStream(StreamingAPI):
             tlog(
                 f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
             )
-            if config.debug_enabled:
+            if cls.get_instance().config.debug_enabled:
                 traceback.print_exc()
 
     @classmethod
-    async def crypto_trades_handler(cls, msg):
+    async def _crypto_trades_handler(cls, msg):
         """Convert a crypto trade into a "T" event and enqueue it.
 
         Name the pair as it was subscribed. Otherwise behave like
-        trades_handler.
+        _trades_handler.
 
         Parameters
         ----------
@@ -1235,11 +1276,11 @@ class AlpacaStream(StreamingAPI):
             tlog(
                 f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
             )
-            if config.debug_enabled:
+            if cls.get_instance().config.debug_enabled:
                 traceback.print_exc()
 
     @classmethod
-    async def quotes_handler(cls, msg):
+    async def _quotes_handler(cls, msg):
         """Discard a quote message.
 
         Parameters
@@ -1282,39 +1323,39 @@ class AlpacaStream(StreamingAPI):
                     self._add_subscription(
                         crypto,
                         crypto.subscribe_bars,
-                        AlpacaStream.crypto_bar_handler,
+                        AlpacaStream._crypto_bar_handler,
                         crypto_pairs,
                     )
                     self._add_subscription(
                         stock,
                         stock.subscribe_bars,
-                        AlpacaStream.bar_handler,
+                        AlpacaStream._bar_handler,
                         equity_symbols,
                     )
                 elif event == WSEventType.TRADE:
                     self._add_subscription(
                         crypto,
                         crypto.subscribe_trades,
-                        AlpacaStream.crypto_trades_handler,
+                        AlpacaStream._crypto_trades_handler,
                         crypto_pairs,
                     )
                     self._add_subscription(
                         stock,
                         stock.subscribe_trades,
-                        AlpacaStream.trades_handler,
+                        AlpacaStream._trades_handler,
                         equity_symbols,
                     )
                 elif event == WSEventType.QUOTE:
                     self._add_subscription(
                         crypto,
                         crypto.subscribe_quotes,
-                        AlpacaStream.quotes_handler,
+                        AlpacaStream._quotes_handler,
                         crypto_pairs,
                     )
                     self._add_subscription(
                         stock,
                         stock.subscribe_quotes,
-                        AlpacaStream.quotes_handler,
+                        AlpacaStream._quotes_handler,
                         equity_symbols,
                     )
 

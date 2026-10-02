@@ -38,8 +38,9 @@ from typing import Dict, List
 
 from liualgotrader.common import config
 from liualgotrader.common.tlog import tlog, tlog_exception
-from liualgotrader.common.types import QueueMapper, WSEventType
+from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.data.data_factory import streaming_factory
+from liualgotrader.data.streaming_base import StreamingAPI
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import create_db_connection
@@ -77,7 +78,7 @@ def get_new_symbols_and_queues(
         if symbol not in symbols:
             new_symbols.append(symbol)
             symbol_strategy[symbol] = symbol_details["target_strategy_name"]
-            streaming_factory().get_instance().queues[symbol] = queues[
+            StreamingAPI.get_instance().queues[symbol] = queues[
                 random.SystemRandom().randint(0, num_consumer_processes - 1)
             ]
 
@@ -92,7 +93,7 @@ async def subscribe_new_symbols(new_symbols: List[str]):
     new_symbols: List[str]
         The symbols to subscribe to.
     """
-    await streaming_factory().get_instance().subscribe(
+    await StreamingAPI.get_instance().subscribe(
         new_symbols,
         [
             WSEventType.SEC_AGG,
@@ -191,7 +192,7 @@ async def scanner_input(
     tlog("scanner_input() task completed")
 
 
-async def trade_run(qm: QueueMapper) -> None:
+async def trade_run(qm: SymbolQueueMap) -> None:
     """Run the configured trader.
 
     Parameters
@@ -285,7 +286,7 @@ async def tradeplan_scanner(
 
 async def run(
     queues: List[Queue],
-    qm: QueueMapper,
+    qm: SymbolQueueMap,
 ) -> None:
     """Start the market data stream and subscribe to the tracked symbols.
 
@@ -300,7 +301,7 @@ async def run(
     """
     global queue_id_hash
 
-    ps = streaming_factory()(qm)
+    ps = streaming_factory(qm)
     await ps.run()
     for symbol in symbols:
         symbol = symbol.lower()
@@ -335,7 +336,7 @@ async def producer_async_main(
         The number of consumer queues in use.
     """
     await create_db_connection(str(config.dsn))
-    qm = QueueMapper(queue_list=queues)
+    qm = SymbolQueueMap(queue_list=queues)
     await run(queues=queues, qm=qm)
 
     # TODO: Support multiple brokers

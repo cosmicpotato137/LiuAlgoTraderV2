@@ -3,12 +3,13 @@ from multiprocessing import Queue
 
 import pytest
 
-from liualgotrader.common.types import QueueMapper
+from liualgotrader.common import config
+from liualgotrader.common.types import SymbolQueueMap
 from liualgotrader.data.polygon import PolygonStream
 from liualgotrader.data.streaming_base import WSEventType
 from liualgotrader.trading.alpaca import AlpacaTrader
 
-queues: QueueMapper
+queues: SymbolQueueMap
 polygon_stream: PolygonStream
 
 
@@ -17,8 +18,8 @@ def event_loop():
     global polygon_stream
     global queues
     loop = asyncio.new_event_loop()
-    queues = QueueMapper()
-    polygon_stream = PolygonStream(queues)
+    queues = SymbolQueueMap()
+    polygon_stream = PolygonStream(queues, config.polygon)
     yield loop
     loop.close()
 

@@ -8,7 +8,7 @@ StreamingAPI
 
 from typing import List
 
-from liualgotrader.common.types import QueueMapper, WSEventType
+from liualgotrader.common.types import SymbolQueueMap, WSEventType
 
 
 class StreamingAPI:
@@ -39,7 +39,7 @@ class StreamingAPI:
 
     __instance: object = None
 
-    def __init__(self, queues: QueueMapper):
+    def __init__(self, queues: SymbolQueueMap):
         """Initialize the provider and register it as the shared instance.
 
         Parameters

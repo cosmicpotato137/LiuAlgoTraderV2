@@ -91,7 +91,7 @@ from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.fincalcs.data_conditions import QUOTE_SKIP_CONDITIONS
 from liualgotrader.strategies.base import Strategy, StrategyType
-from liualgotrader.trading.base import Trader
+from liualgotrader.trading.base import TraderAPI
 from liualgotrader.trading.trader_factory import (get_trader_by_name,
                                                   trader_factory)
 
@@ -115,7 +115,7 @@ async def end_time(reason: str):
         await s.algo_run.update_end_time(end_reason=reason)
 
 
-def get_position(trader: Trader, symbol: str) -> float:
+def get_position(trader: TraderAPI, symbol: str) -> float:
     """Return the position quantity that trader reports for symbol.
 
     Parameters
@@ -138,7 +138,7 @@ def get_position(trader: Trader, symbol: str) -> float:
 async def execute_run_all_results(
     strategy: Strategy,
     run_all_results: Dict[str, Dict],
-    trader: Trader,
+    trader: TraderAPI,
     data_loader: DataLoader,
 ):
     """Execute the per-symbol actions returned by the run_all of a strategy.
@@ -181,7 +181,7 @@ async def execute_run_all_results(
 
 async def do_strategy_all(
     data_loader: DataLoader,
-    trader: Trader,
+    trader: TraderAPI,
     strategy: Strategy,
     symbols: List[str],
     carrier=None,
@@ -233,7 +233,7 @@ async def do_strategy_all(
         raise
 
 
-async def cancel_lingering_orders(trader: Trader):
+async def cancel_lingering_orders(trader: TraderAPI):
     """Reconcile or cancel stale open orders once a minute until cancelled.
 
     Act only while the market is open.
@@ -266,7 +266,7 @@ async def cancel_lingering_orders(trader: Trader):
             )
 
 
-async def periodic_runner(data_loader: DataLoader, trader: Trader) -> None:
+async def periodic_runner(data_loader: DataLoader, trader: TraderAPI) -> None:
     """Run the all-symbol strategies every five minutes until cancelled.
 
     Run each strategy whose should_run_all returns True on the symbols it last
@@ -800,7 +800,7 @@ async def order_inflight(
     symbol: str,
     existing_order: Order,
     now: pd.Timestamp,
-    trader: Trader,
+    trader: TraderAPI,
 ) -> None:
     """Reconcile or cancel an open order that has been pending too long.
 
@@ -882,7 +882,7 @@ async def order_inflight(
 
 
 async def submit_order(
-    trader: Trader, symbol: str, what: Dict, external_account_id: str = None
+    trader: TraderAPI, symbol: str, what: Dict, external_account_id: str = None
 ) -> Order:
     """Submit a day order for symbol as described by what.
 
@@ -950,7 +950,7 @@ async def update_trading_data(
 
 async def execute_strategy_result(
     strategy: Strategy,
-    trader: Trader,
+    trader: TraderAPI,
     data_loader: DataLoader,
     symbol: str,
     what: Dict,
@@ -1011,7 +1011,7 @@ async def do_strategy(
     shortable: bool,
     position: float,
     data_loader: DataLoader,
-    trader: Trader,
+    trader: TraderAPI,
     minute_history: df,
     now: pd.Timestamp,
     portfolio_value: Optional[float],
@@ -1086,7 +1086,7 @@ async def _filter_strategies(symbol: str) -> List:
 
 
 async def do_strategies(
-    trader: Trader,
+    trader: TraderAPI,
     data_loader: DataLoader,
     symbol: str,
     position: float,
@@ -1145,7 +1145,7 @@ async def do_strategies(
 
 
 async def handle_aggregate(
-    trader: Trader,
+    trader: TraderAPI,
     data_loader: DataLoader,
     symbol: str,
     ts: pd.Timestamp,
@@ -1198,7 +1198,7 @@ async def handle_aggregate(
 
 
 async def handle_data_queue_msg(
-    data: Dict, trader: Trader, data_loader: DataLoader, carrier=None
+    data: Dict, trader: TraderAPI, data_loader: DataLoader, carrier=None
 ) -> bool:
     """Handle a market data message from the data queue.
 
@@ -1259,7 +1259,7 @@ async def handle_data_queue_msg(
 
 
 async def queue_consumer(
-    batch_id: str, queue: Queue, data_loader: DataLoader, trader: Trader
+    batch_id: str, queue: Queue, data_loader: DataLoader, trader: TraderAPI
 ) -> None:
     """Consume and dispatch messages from the data queue until cancelled.
 
@@ -1329,7 +1329,7 @@ async def queue_consumer(
 
 async def create_strategies_from_file(
     batch_id: str,
-    trader: Trader,
+    trader: TraderAPI,
     data_loader: DataLoader,
     strategies_conf: Dict,
 ) -> List[Strategy]:
@@ -1407,7 +1407,7 @@ async def load_symbol_position(portfolio_id: str) -> Dict[str, float]:
 
 async def create_strategies_from_db(
     batch_id: str,
-    trader: Trader,
+    trader: TraderAPI,
     data_loader: DataLoader,
 ) -> List[Strategy]:
     """Create the strategies defined by the active trade plan entries.

@@ -4,13 +4,14 @@ from datetime import date
 import pandas as pd
 import pytest
 
+from liualgotrader.common import config
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.alpaca import AlpacaData
 
 
 @pytest.mark.devtest
 def test_alpaca_aapl_data_day() -> bool:
-    alpaca = AlpacaData()
+    alpaca = AlpacaData(config.alpaca)
     print(
         alpaca.get_symbol_data(
             "AAPL",
@@ -24,7 +25,7 @@ def test_alpaca_aapl_data_day() -> bool:
 
 @pytest.mark.devtest
 def test_alpaca_aapl_data_min() -> bool:
-    alpaca = AlpacaData()
+    alpaca = AlpacaData(config.alpaca)
     print(
         alpaca.get_symbol_data(
             "AAPL",
@@ -37,7 +38,7 @@ def test_alpaca_aapl_data_min() -> bool:
 
 @pytest.mark.devtest
 def test_alpaca_get_symbols() -> bool:
-    alpaca = AlpacaData()
+    alpaca = AlpacaData(config.alpaca)
 
     t0 = time.time()
     symbols = alpaca.get_symbols()
@@ -50,7 +51,7 @@ def test_alpaca_get_symbols() -> bool:
 
 @pytest.mark.asyncio
 async def test_alpaca_get_market_snapshot() -> bool:
-    alpaca = AlpacaData()
+    alpaca = AlpacaData(config.alpaca)
 
     t0 = time.time()
     market_snapshots = await alpaca.get_market_snapshot()
@@ -63,7 +64,7 @@ async def test_alpaca_get_market_snapshot() -> bool:
 
 @pytest.mark.devtest
 def test_alpaca_multi_symbols_min() -> bool:
-    alpaca = AlpacaData()
+    alpaca = AlpacaData(config.alpaca)
     print(
         alpaca.get_symbols_data(
             ["AAPL", "IBM"],
@@ -76,7 +77,7 @@ def test_alpaca_multi_symbols_min() -> bool:
 
 @pytest.mark.devtest
 def test_alpaca_multi_symbols_day() -> bool:
-    alpaca = AlpacaData()
+    alpaca = AlpacaData(config.alpaca)
     print(
         alpaca.get_symbols_data(
             ["AAPL", "IBM"],
@@ -91,7 +92,7 @@ def test_alpaca_multi_symbols_day() -> bool:
 @pytest.mark.devtest
 def test_alpaca_multi_symbols_min_negative() -> bool:
     try:
-        AlpacaData().get_symbols_data(
+        AlpacaData(config.alpaca).get_symbols_data(
             "AAPL",  # type:ignore
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),

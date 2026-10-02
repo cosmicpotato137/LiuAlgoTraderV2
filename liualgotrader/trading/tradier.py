@@ -19,25 +19,26 @@ import pytz
 import requests
 import websocket
 
-from liualgotrader.common import config
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
 from liualgotrader.common.tlog import tlog
-from liualgotrader.common.types import Order, QueueMapper, ThreadFlags, Trade
-from liualgotrader.trading.base import Trader
+from liualgotrader.common.types import Order, SymbolQueueMap, ThreadFlags, Trade
+from liualgotrader.data.tradier import TradierConfig
+from liualgotrader.trading.base import TraderAPI
 
 NY = "America/New_York"
 nytz = pytz.timezone(NY)
 
 
-class TradierTrader(Trader):
+class TradierTrader(TraderAPI):
     """Trader implementation for the Tradier brokerage.
 
-    The Tradier access token and account number come from the configuration.
     Orders are whole-share equity day orders, no symbol is fractionable, and
     only orders submitted through this class produce trade updates.
 
     Attributes
     ----------
+    config: TradierConfig
+        The connection settings, including the account number.
     running_task: Optional[Thread]
         The account event listener thread, or None.
     ws: Optional[websocket]
@@ -92,16 +93,19 @@ class TradierTrader(Trader):
     order_symbol: Dict[int, str] = {}
     order_side: Dict[int, Order.FillSide] = {}
 
-    def __init__(self, qm: QueueMapper = None):
+    def __init__(self, config: TradierConfig, qm: SymbolQueueMap = None):
         """Initialize the trader with no listener running.
 
         Register the trader as the current Trader instance.
 
         Parameters
         ----------
+        config: TradierConfig
+            The connection settings.
         qm: QueueMapper, default None
             The queue mapper that receives trade updates.
         """
+        self.config = config
         self.running_task: Optional[Thread] = None
         self.ws: Optional[websocket] = None
         self.ws_session_id: Optional[str] = None
@@ -131,7 +135,7 @@ class TradierTrader(Trader):
             url,
             params=params,
             headers={
-                "Authorization": f"Bearer {config.tradier_access_token}",
+                "Authorization": f"Bearer {self.config.access_token}",
                 "Accept": "application/json",
             },
         )
@@ -168,7 +172,7 @@ class TradierTrader(Trader):
             url,
             params=params,
             headers={
-                "Authorization": f"Bearer {config.tradier_access_token}",
+                "Authorization": f"Bearer {self.config.access_token}",
                 "Accept": "application/json",
             },
         )
@@ -205,7 +209,7 @@ class TradierTrader(Trader):
             url,
             params=params,
             headers={
-                "Authorization": f"Bearer {config.tradier_access_token}",
+                "Authorization": f"Bearer {self.config.access_token}",
                 "Accept": "application/json",
             },
         )
@@ -271,7 +275,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if the request fails.
         """
-        url = f"{config.tradier_base_url}markets/clock"
+        url = f"{self.config.base_url}markets/clock"
         response = self._get(
             url,
         )
@@ -321,7 +325,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if a request fails.
         """
-        url = f"{config.tradier_base_url}markets/calendar"
+        url = f"{self.config.base_url}markets/calendar"
         d = start_date
         df = pd.DataFrame()
 
@@ -374,7 +378,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if the request fails.
         """
-        url = f"{config.tradier_base_url}accounts/{config.tradier_account_number}/positions"
+        url = f"{self.config.base_url}accounts/{self.config.account_number}/positions"
         response = self._get(
             url,
         )
@@ -445,7 +449,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if the request fails.
         """
-        url = f"{config.tradier_base_url}accounts/{config.tradier_account_number}/orders/{order_id}"
+        url = f"{self.config.base_url}accounts/{self.config.account_number}/orders/{order_id}"
         response = self._get(
             url,
         )
@@ -475,7 +479,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if the request fails.
         """
-        url = f"{config.tradier_base_url}markets/calendar"
+        url = f"{self.config.base_url}markets/calendar"
         response = self._get(
             url,
         )
@@ -504,7 +508,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if the request fails.
         """
-        url = f"{config.tradier_base_url}markets/calendar"
+        url = f"{self.config.base_url}markets/calendar"
         response = self._get(
             url,
         )
@@ -535,7 +539,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if the request fails.
         """
-        url = f"{config.tradier_base_url}markets/etb"
+        url = f"{self.config.base_url}markets/etb"
         response = self._get(
             url,
         )
@@ -576,7 +580,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if the request fails.
         """
-        url = f"{config.tradier_base_url}accounts/{config.tradier_account_number}/orders/{order.order_id}"
+        url = f"{self.config.base_url}accounts/{self.config.account_number}/orders/{order.order_id}"
 
         response = self._delete(
             url,
@@ -683,7 +687,7 @@ class TradierTrader(Trader):
         ------
         Raise ValueError if the request fails or Tradier reports errors.
         """
-        url = f"{config.tradier_base_url}accounts/{config.tradier_account_number}/orders"
+        url = f"{self.config.base_url}accounts/{self.config.account_number}/orders"
 
         params: Dict = {
             "class": "equity",
@@ -749,7 +753,7 @@ class TradierTrader(Trader):
         if not self.running_task:
             tlog("starting Tradier Account listener")
 
-            url = f"{config.tradier_base_url}accounts/events/session"
+            url = f"{self.config.base_url}accounts/events/session"
 
             response = self._post(
                 url,

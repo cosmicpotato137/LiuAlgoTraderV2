@@ -7,7 +7,6 @@ AlpacaTrader
 """
 
 import asyncio
-import os
 import queue
 import time
 import traceback
@@ -32,10 +31,10 @@ from alpaca.trading.stream import TradingStream
 from pytz import timezone
 from requests.auth import HTTPBasicAuth
 
-from liualgotrader.common import config
 from liualgotrader.common.tlog import tlog
-from liualgotrader.common.types import Order, QueueMapper, Trade
-from liualgotrader.trading.base import Trader
+from liualgotrader.common.types import Order, SymbolQueueMap, Trade
+from liualgotrader.data.alpaca import AlpacaConfig
+from liualgotrader.trading.base import TraderAPI
 
 nyc = timezone("America/New_York")
 
@@ -81,18 +80,6 @@ def _status_to_event(status: Union[Enum, str, None]) -> Order.EventType:
     )
 
 
-def _trading_base_url() -> str:
-    """Return the configured Alpaca trading API base URL.
-
-    Returns
-    -------
-    Return the URL without a trailing slash or API version, or the live
-    trading URL if APCA_API_BASE_URL is not set.
-    """
-    base_url = config.alpaca_base_url or BaseURL.TRADING_LIVE.value
-    return base_url.rstrip("/").removesuffix("/v2")
-
-
 def _is_paper(base_url: str) -> bool:
     """Return True if base_url is an Alpaca paper trading URL.
 
@@ -104,18 +91,7 @@ def _is_paper(base_url: str) -> bool:
     return "paper" in base_url
 
 
-def _create_rest_client() -> TradingClient:
-    """Return a trading client for the configured account and base URL."""
-    base_url = _trading_base_url()
-    return TradingClient(
-        api_key=config.alpaca_api_key,
-        secret_key=config.alpaca_api_secret,
-        paper=_is_paper(base_url),
-        url_override=base_url,
-    )
-
-
-class AlpacaTrader(Trader):
+class AlpacaTrader(TraderAPI):
     """Trader implementation for the Alpaca brokerage.
 
     This class implements Trader for the account of the configured Alpaca API
@@ -124,16 +100,12 @@ class AlpacaTrader(Trader):
 
     Attributes
     ----------
+    config: AlpacaConfig
+        The connection settings.
     market_open: Optional[datetime]
         Today's session opening time, or None.
     market_close: Optional[datetime]
         Today's session closing time, or None.
-    alpaca_brokage_api_baseurl
-        The Alpaca Broker API base URL, or None.
-    alpaca_brokage_api_key
-        The Alpaca Broker API key, or None.
-    alpaca_brokage_api_secret
-        The Alpaca Broker API secret, or None.
     alpaca_rest_client: TradingClient
         The trading client for the configured account.
     alpaca_ws_client: Optional[TradingStream]
@@ -183,18 +155,16 @@ class AlpacaTrader(Trader):
         Forward a trade update to every consumer queue.
     """
 
-    def __init__(self, qm: QueueMapper = None):
+    def __init__(self, config: AlpacaConfig, qm: SymbolQueueMap = None):
         """Initialize the Alpaca clients and record today's session times.
 
-        Read the Broker API settings from the ALPACA_BROKER_API_BASEURL,
-        ALPACA_BROKER_API_KEY and ALPACA_BROKER_API_SECRET environment
-        variables. The clients use the APCA_API_BASE_URL endpoint, or live
-        trading if it is not set. Set market_open and market_close to None if
-        the market does not trade today. Make the new trader the shared
-        instance.
+        Set market_open and market_close to None if the market does not trade
+        today. Make the new trader the shared instance.
 
         Parameters
         ----------
+        config: AlpacaConfig
+            The connection settings.
         qm: QueueMapper, default None
             The queue mapper that receives trade updates, or None for no stream
             client.
@@ -204,23 +174,17 @@ class AlpacaTrader(Trader):
         Raise ValueError if the Alpaca API key or secret is not configured,
         and alpaca.common.exceptions.APIError if the calendar request fails.
         """
+        self.config = config
         self.market_open: Optional[datetime]
         self.market_close: Optional[datetime]
-        self.alpaca_brokage_api_baseurl = os.getenv(
-            "ALPACA_BROKER_API_BASEURL", None
-        )
-        self.alpaca_brokage_api_key = os.getenv("ALPACA_BROKER_API_KEY", None)
-        self.alpaca_brokage_api_secret = os.getenv(
-            "ALPACA_BROKER_API_SECRET", None
-        )
 
-        self.alpaca_rest_client: TradingClient = _create_rest_client()
+        self.alpaca_rest_client: TradingClient = self._create_rest_client()
         self.alpaca_ws_client: Optional[TradingStream] = None
         if qm:
-            base_url = _trading_base_url()
+            base_url = self._trading_base_url()
             self.alpaca_ws_client = TradingStream(
-                api_key=config.alpaca_api_key,
-                secret_key=config.alpaca_api_secret,
+                api_key=config.api_key,
+                secret_key=config.api_secret,
                 paper=_is_paper(base_url),
                 url_override=f"{base_url.replace('http', 'ws', 1)}/stream",
             )
@@ -254,6 +218,27 @@ class AlpacaTrader(Trader):
         else:
             self.market_open = self.market_close = None
         super().__init__(qm)
+
+    def _trading_base_url(self) -> str:
+        """Return the configured trading API base URL.
+
+        Returns
+        -------
+        Return the URL without a trailing slash or API version, or the live
+        trading URL if config.base_url is not set.
+        """
+        base_url = self.config.base_url or BaseURL.TRADING_LIVE.value
+        return base_url.rstrip("/").removesuffix("/v2")
+
+    def _create_rest_client(self) -> TradingClient:
+        """Return a trading client for the configured account and base URL."""
+        base_url = self._trading_base_url()
+        return TradingClient(
+            api_key=self.config.api_key,
+            secret_key=self.config.api_secret,
+            paper=_is_paper(base_url),
+            url_override=base_url,
+        )
 
     async def _is_personal_order_completed(
         self, order_id: str
@@ -322,7 +307,7 @@ class AlpacaTrader(Trader):
         Raise AssertionError if the Broker API base URL is not configured or
         the request fails.
         """
-        if not self.alpaca_brokage_api_baseurl:
+        if not self.config.broker_api_base_url:
             raise AssertionError(
                 "order_on_behalf can't be called, if brokerage configs incomplete"
             )
@@ -331,7 +316,7 @@ class AlpacaTrader(Trader):
             f"/v1/trading/accounts/{external_order_id}/orders/{order_id}"
         )
         tlog(f"_is_brokerage_account_order_completed:{endpoint}")
-        url: str = self.alpaca_brokage_api_baseurl + endpoint
+        url: str = self.config.broker_api_base_url + endpoint
 
         response = await self._get_request(url)
         tlog(f"_is_brokerage_account_order_completed: response: {response}")
@@ -555,7 +540,7 @@ class AlpacaTrader(Trader):
         The new client uses the same base URL and keys as the original one.
         The stream client is unchanged.
         """
-        self.alpaca_rest_client = _create_rest_client()
+        self.alpaca_rest_client = self._create_rest_client()
 
     async def run(self) -> asyncio.Task:
         """Start the Alpaca trade-update listener unless it is running.
@@ -668,13 +653,13 @@ class AlpacaTrader(Trader):
         ------
         Raise AssertionError if the Broker API base URL is not configured.
         """
-        if not self.alpaca_brokage_api_baseurl:
+        if not self.config.broker_api_base_url:
             raise AssertionError(
                 "_cancel_brokerage_order can't be called, if brokerage configs incomplete"
             )
 
         endpoint: str = f"/v1/trading/accounts/{account_id}/orders/{order_id}"
-        url: str = self.alpaca_brokage_api_baseurl + endpoint
+        url: str = self.config.broker_api_base_url + endpoint
 
         response_code = await self._delete_request(url)
         tlog(
@@ -826,7 +811,7 @@ class AlpacaTrader(Trader):
             url=url,
             json=payload,
             auth=HTTPBasicAuth(
-                self.alpaca_brokage_api_key, self.alpaca_brokage_api_secret
+                self.config.broker_api_key, self.config.broker_api_secret
             ),
         )
 
@@ -875,7 +860,7 @@ class AlpacaTrader(Trader):
         response = requests.get(
             url=url,
             auth=HTTPBasicAuth(
-                self.alpaca_brokage_api_key, self.alpaca_brokage_api_secret
+                self.config.broker_api_key, self.config.broker_api_secret
             ),
         )
 
@@ -921,7 +906,7 @@ class AlpacaTrader(Trader):
         response = requests.delete(
             url=url,
             auth=HTTPBasicAuth(
-                self.alpaca_brokage_api_key, self.alpaca_brokage_api_secret
+                self.config.broker_api_key, self.config.broker_api_secret
             ),
         )
         # TODO: create a decorator the the re-try / push-backs from server instead of copying.
@@ -1007,13 +992,13 @@ class AlpacaTrader(Trader):
         Raise AssertionError if the Broker API base URL is not configured or
         the request fails.
         """
-        if not self.alpaca_brokage_api_baseurl:
+        if not self.config.broker_api_base_url:
             raise AssertionError(
                 "order_on_behalf can't be called, if brokerage configs incomplete"
             )
 
         endpoint: str = f"/v1/trading/accounts/{on_behalf_of}/orders"
-        url: str = self.alpaca_brokage_api_baseurl + endpoint
+        url: str = self.config.broker_api_base_url + endpoint
 
         payload = {
             "symbol": symbol.upper(),
@@ -1229,5 +1214,5 @@ class AlpacaTrader(Trader):
         #        q.put(data.__dict__["_raw"], timeout=1)
         except Exception as e:
             tlog(f"[EXCEPTION] process_message(): exception {e}")
-            if config.debug_enabled:
+            if cls.get_instance().config.debug_enabled:
                 traceback.print_exc()
