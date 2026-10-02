@@ -1,7 +1,7 @@
 import pytest
 
-from liualgotrader.common.database import create_db_connection
-from liualgotrader.models.accounts import Accounts
+from liualgotrader.db.models.accounts import Account
+from liualgotrader.db.session import create_db_connection
 
 
 @pytest.fixture(autouse=True)
@@ -11,7 +11,7 @@ async def db_connection():
 
 @pytest.mark.asyncio
 async def test_create() -> bool:
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=1000.0,
         allow_negative=True,
         credit_line=2000.0,
@@ -25,7 +25,7 @@ async def test_create() -> bool:
 @pytest.mark.devtest
 async def test_negative_create() -> bool:
     try:
-        await Accounts.create(
+        await Account.create(
             balance=1000.0,
             allow_negative=True,
         )
@@ -39,13 +39,13 @@ async def test_negative_create() -> bool:
 @pytest.mark.devtest
 async def test_balance() -> bool:
     balance = 1234.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance,
         allow_negative=True,
         credit_line=2000.0,
     )
     print(f"new account_id:{account_id}")
-    if balance != await Accounts.get_balance(account_id):
+    if balance != await Account.get_balance(account_id):
         raise AssertionError("get_balance() did not return the expect value")
     print(f"balance {balance}")
     return True
@@ -55,14 +55,14 @@ async def test_balance() -> bool:
 @pytest.mark.devtest
 async def test_add_transaction() -> bool:
     balance = 1234.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance,
         allow_negative=True,
         credit_line=2000.0,
     )
     amount = 1000.0
-    await Accounts.add_transaction(account_id, amount)
-    if balance + amount != await Accounts.get_balance(account_id):
+    await Account.add_transaction(account_id, amount)
+    if balance + amount != await Account.get_balance(account_id):
         raise AssertionError(
             "test_add_transaction(): get_balance() did not return the expect value"
         )
@@ -74,15 +74,15 @@ async def test_add_transaction() -> bool:
 @pytest.mark.devtest
 async def test_add_transaction2() -> bool:
     balance = 1234.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance,
         allow_negative=True,
         credit_line=2000.0,
     )
     amount = 1000.0
-    await Accounts.add_transaction(account_id, amount)
-    await Accounts.add_transaction(account_id, -amount)
-    if balance != await Accounts.get_balance(account_id):
+    await Account.add_transaction(account_id, amount)
+    await Account.add_transaction(account_id, -amount)
+    if balance != await Account.get_balance(account_id):
         raise AssertionError(
             "test_add_transaction(): get_balance() did not return the expect value"
         )
@@ -94,14 +94,14 @@ async def test_add_transaction2() -> bool:
 @pytest.mark.devtest
 async def test_add_transaction3() -> bool:
     balance = 1234.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance,
         allow_negative=False,
     )
     amount = 1000.0
-    await Accounts.add_transaction(account_id, amount)
-    await Accounts.add_transaction(account_id, -amount)
-    if balance != await Accounts.get_balance(account_id):
+    await Account.add_transaction(account_id, amount)
+    await Account.add_transaction(account_id, -amount)
+    if balance != await Account.get_balance(account_id):
         raise AssertionError(
             "test_add_transaction3(): get_balance() did not return the expect value"
         )
@@ -113,12 +113,12 @@ async def test_add_transaction3() -> bool:
 @pytest.mark.devtest
 async def test_add_transaction5() -> bool:
     balance = 100.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance, allow_negative=True, credit_line=5000.0
     )
     amount = 1000.0
-    await Accounts.add_transaction(account_id, -amount)
-    if balance - amount != await Accounts.get_balance(account_id):
+    await Account.add_transaction(account_id, -amount)
+    if balance - amount != await Account.get_balance(account_id):
         raise AssertionError(
             "test_add_transaction5(): get_balance() did not return the expect value"
         )
@@ -131,19 +131,19 @@ async def test_add_transaction5() -> bool:
 async def test_clear_balance() -> bool:
     print("test_clear_balance")
     balance = 1234.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance,
         allow_negative=True,
         credit_line=2000.0,
     )
     print(f"new account_id:{account_id}")
-    if balance != await Accounts.get_balance(account_id):
+    if balance != await Account.get_balance(account_id):
         raise AssertionError("get_balance() did not return the expect value")
 
     print(f"balance {balance}")
 
-    await Accounts.clear_balance(account_id, 0)
-    if await Accounts.get_balance(account_id) != 0.0:
+    await Account.clear_balance(account_id, 0)
+    if await Account.get_balance(account_id) != 0.0:
         raise AssertionError("clear balance failed")
 
     return True
@@ -154,18 +154,18 @@ async def test_clear_balance() -> bool:
 async def test_clear_transactions() -> bool:
     print("test_clear_transactions")
     balance = 100.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance, allow_negative=True, credit_line=5000.0
     )
     amount = 1000.0
-    await Accounts.add_transaction(account_id, -amount)
-    if balance - amount != await Accounts.get_balance(account_id):
+    await Account.add_transaction(account_id, -amount)
+    if balance - amount != await Account.get_balance(account_id):
         raise AssertionError(
             "test_clear_transactions(): get_balance() did not return the expect value"
         )
 
-    await Accounts.clear_account_transactions(account_id)
-    _df = await Accounts.get_transactions(account_id)
+    await Account.clear_account_transactions(account_id)
+    _df = await Account.get_transactions(account_id)
     if not _df.empty:
         raise AssertionError(
             "test_clear_transactions(): failed to clear account_transactions"
@@ -180,11 +180,11 @@ async def test_check_if_enough_balance_positive_1() -> bool:
     print("test_check_if_enough_balance_positive_1")
 
     balance = 1000.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance, allow_negative=False, credit_line=0.0
     )
 
-    if await Accounts.check_if_enough_balance_to_withdraw(account_id, 500.0):
+    if await Account.check_if_enough_balance_to_withdraw(account_id, 500.0):
         return True
     else:
         raise AssertionError(
@@ -198,11 +198,11 @@ async def test_check_if_enough_balance_positive_2() -> bool:
     print("test_check_if_enough_balance_positive_2")
 
     balance = 1000.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance, allow_negative=True, credit_line=500.0
     )
 
-    if not await Accounts.check_if_enough_balance_to_withdraw(
+    if not await Account.check_if_enough_balance_to_withdraw(
         account_id, 2000.0
     ):
         return True
@@ -218,12 +218,12 @@ async def test_check_if_enough_balance_positive_3() -> bool:
     print("test_check_if_enough_balance_positive_3")
 
     balance = 1000.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance, allow_negative=True, credit_line=500.0
     )
-    await Accounts.add_transaction(account_id, -1100)
+    await Account.add_transaction(account_id, -1100)
 
-    if await Accounts.check_if_enough_balance_to_withdraw(account_id, 200.0):
+    if await Account.check_if_enough_balance_to_withdraw(account_id, 200.0):
         return True
     else:
         raise AssertionError(
@@ -237,12 +237,12 @@ async def test_check_if_enough_balance_positive_4() -> bool:
     print("test_check_if_enough_balance_positive_4")
 
     balance = 1000.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance, allow_negative=True, credit_line=500.0
     )
-    await Accounts.add_transaction(account_id, -1100)
+    await Account.add_transaction(account_id, -1100)
 
-    if not await Accounts.check_if_enough_balance_to_withdraw(
+    if not await Account.check_if_enough_balance_to_withdraw(
         account_id, 600.0
     ):
         return True
@@ -258,11 +258,11 @@ async def test_check_if_enough_balance_negative_1() -> bool:
     print("test_check_if_enough_balance_negative_1")
 
     balance = 1000.0
-    account_id = await Accounts.create(
+    account_id = await Account.create(
         balance=balance, allow_negative=True, credit_line=500.0
     )
     try:
-        not await Accounts.check_if_enough_balance_to_withdraw(
+        not await Account.check_if_enough_balance_to_withdraw(
             account_id, -600.0
         )
     except AssertionError:

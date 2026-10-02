@@ -11,10 +11,10 @@ from pandas import DataFrame, Timestamp
 
 from liualgotrader.analytics.analysis import load_trades_by_batch_id
 from liualgotrader.common import config
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.decorators import timeit
 from liualgotrader.common.tlog import tlog
-from liualgotrader.models.gain_loss import GainLoss, TradeAnalysis
+from liualgotrader.db.models.gain_loss import GainLoss, TradeAnalysis
+from liualgotrader.db.session import create_db_connection
 
 
 @timeit
@@ -93,13 +93,17 @@ async def trades(batch_id: str) -> None:
                                 "org_price": float(row.price * row.qty),
                                 "start_time": Timestamp(row.client_time),
                                 "qty": float(row.qty),
-                                "r_units": float(row.price - row.stop_price)
-                                if row.stop_price is not None
-                                else 0,
+                                "r_units": (
+                                    float(row.price - row.stop_price)
+                                    if row.stop_price is not None
+                                    else 0
+                                ),
                                 "initial_price": float(row.price),
-                                "stop_price": float(row.stop_price)
-                                if row.stop_price is not None
-                                else None,
+                                "stop_price": (
+                                    float(row.stop_price)
+                                    if row.stop_price is not None
+                                    else None
+                                ),
                                 "status": "open",
                                 "sold_price": None,
                             }

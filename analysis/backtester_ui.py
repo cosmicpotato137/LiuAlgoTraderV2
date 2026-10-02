@@ -2,7 +2,6 @@ import asyncio
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-import json
 import traceback
 
 import matplotlib.pyplot as plt
@@ -16,10 +15,11 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_batch_list, load_trades,
                                               load_trades_by_batch_id)
-from liualgotrader.common import config, database
+from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
+from liualgotrader.db.session import create_db_connection
 
-loop.run_until_complete(database.create_db_connection())
+loop.run_until_complete(create_db_connection())
 st.title("LiuAlgoTrading Framework")
 st.markdown("## **Visual Analysis tools**")
 
@@ -155,7 +155,7 @@ if app == "analyzer":
                 times.append(pd.to_datetime(row["client_time"]))
                 prices.append(row["price"])
                 qtys.append(row["qty"])
-                indicator = json.loads(row.indicators)
+                indicator = row.indicators
                 indicators.append(indicator)
                 target_price.append(row["target_price"])
                 stop_price.append(row["stop_price"])

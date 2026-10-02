@@ -83,14 +83,13 @@ from pytz import timezone
 from liualgotrader.analytics.analysis import load_trades_by_portfolio
 from liualgotrader.common import config, market_data, trading_data
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.tlog import tlog, tlog_exception
 from liualgotrader.common.types import Order, Trade
+from liualgotrader.db.models.new_trades import NewTrade
+from liualgotrader.db.models.portfolio import Portfolio
+from liualgotrader.db.models.tradeplan import TradePlan
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.fincalcs.data_conditions import QUOTE_SKIP_CONDITIONS
-from liualgotrader.models.new_trades import NewTrade
-from liualgotrader.models.portfolio import Portfolio
-from liualgotrader.models.tradeplan import TradePlan
-from liualgotrader.models.trending_tickers import TrendingTickers
 from liualgotrader.strategies.base import Strategy, StrategyType
 from liualgotrader.trading.base import Trader
 from liualgotrader.trading.trader_factory import (get_trader_by_name,
@@ -113,9 +112,7 @@ async def end_time(reason: str):
     """
     for s in trading_data.strategies:
         tlog(f"updating end time for strategy {s.name}")
-        await s.algo_run.update_end_time(
-            pool=config.db_conn_pool, end_reason=reason
-        )
+        await s.algo_run.update_end_time(end_reason=reason)
 
 
 def get_position(trader: Trader, symbol: str) -> float:
@@ -211,9 +208,11 @@ async def do_strategy_all(
     try:
         now = datetime.now(nyc)
         symbols_position = {
-            symbol.lower(): trading_data.positions[symbol]
-            if symbol in trading_data.positions
-            else get_position(trader, symbol)
+            symbol.lower(): (
+                trading_data.positions[symbol]
+                if symbol in trading_data.positions
+                else get_position(trader, symbol)
+            )
             for symbol in symbols
         }
         do = await strategy.run_all(
@@ -381,7 +380,9 @@ async def save(
     """
     symbol = symbol.lower()
     db_trade = NewTrade(
-        algo_run_id=trading_data.open_order_strategy[symbol].algo_run.run_id,
+        algo_run_id=trading_data.open_order_strategy[
+            symbol
+        ].algo_run.algo_run_id,
         symbol=symbol,
         qty=new_qty,
         operation=last_op,
@@ -390,14 +391,17 @@ async def save(
     )
 
     await db_trade.save(
-        config.db_conn_pool,
         now,
-        trading_data.stop_prices[symbol]
-        if symbol in trading_data.stop_prices
-        else 0.0,
-        trading_data.target_prices[symbol]
-        if symbol in trading_data.target_prices
-        else 0.0,
+        (
+            trading_data.stop_prices[symbol]
+            if symbol in trading_data.stop_prices
+            else 0.0
+        ),
+        (
+            trading_data.target_prices[symbol]
+            if symbol in trading_data.target_prices
+            else 0.0
+        ),
         trade_fee,
     )
 
@@ -683,16 +687,20 @@ async def handle_quote(data: Dict) -> bool:
     bid_delta_volume = (
         0
         if not prev_bid or data["bidprice"] < prev_bid[0]
-        else 100 * data["bidsize"]
-        if data["bidprice"] > prev_bid[0]
-        else 100 * (data["bidsize"] - prev_bid[1])
+        else (
+            100 * data["bidsize"]
+            if data["bidprice"] > prev_bid[0]
+            else 100 * (data["bidsize"] - prev_bid[1])
+        )
     )
     ask_delta_volume = (
         0
         if not prev_ask or data["askprice"] > prev_ask[0]
-        else 100 * data["asksize"]
-        if data["askprice"] < prev_ask[0]
-        else 100 * (data["asksize"] - prev_ask[1])
+        else (
+            100 * data["asksize"]
+            if data["askprice"] < prev_ask[0]
+            else 100 * (data["asksize"] - prev_ask[1])
+        )
     )
     voi_stack = trading_data.voi.get(symbol, None)
     if not voi_stack:
@@ -766,9 +774,11 @@ async def aggregate_bar_data(
             data["close"],
             current["volume"] + data["volume"],
             data["vwap"] or current["vwap"],
-            current["average"]
-            if math.isnan(data["average"])
-            else data["average"],
+            (
+                current["average"]
+                if math.isnan(data["average"])
+                else data["average"]
+            ),
             int(data["count"] + current["count"]),
         ]
 

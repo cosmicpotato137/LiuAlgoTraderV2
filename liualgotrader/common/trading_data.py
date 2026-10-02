@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from liualgotrader.common.types import Order
-from liualgotrader.models.ticker_snapshot import TickerSnapshot
+from liualgotrader.db.models.ticker_snapshot import TickerSnapshot
 from liualgotrader.strategies.base import Strategy
 
 strategies: List[Strategy] = []

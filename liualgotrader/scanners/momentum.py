@@ -12,6 +12,7 @@ from typing import Callable, List, Optional, Tuple
 
 import requests
 from pytz import timezone
+from sqlalchemy import select
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
@@ -19,7 +20,9 @@ from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import DataConnectorType
 from liualgotrader.data.alpaca import AlpacaData
 from liualgotrader.data.polygon import PolygonData
-from liualgotrader.models.ticker_data import StockOhlc
+from liualgotrader.db.models.ticker_data import StockOhlc
+from liualgotrader.db.models.trending_tickers import TrendingTicker
+from liualgotrader.db.session import session_scope
 from liualgotrader.trading.base import Trader
 
 from .base import Scanner
@@ -226,8 +229,6 @@ class Momentum(Scanner):
         back_time: datetime
             The moment to load symbols for; midnight selects a whole day.
         """
-        pool = config.db_conn_pool
-
         daily_scale = back_time.hour == 0
         start = (
             back_time
@@ -239,25 +240,19 @@ class Momentum(Scanner):
             if daily_scale
             else back_time + timedelta(minutes=1)
         )
-        async with pool.acquire() as con:
-            rows = await con.fetch(
-                """
-                    SELECT
-                        symbol
-                    FROM 
-                        trending_tickers
-                    WHERE
-                        scanner_name = $1 
-                        AND create_tstamp >= $2
-                        AND create_tstamp <= $3
-                """,
-                self.name,
-                start,
-                end,
+        async with session_scope() as session:
+            symbols = list(
+                await session.scalars(
+                    select(TrendingTicker.symbol).where(
+                        TrendingTicker.scanner_name == self.name,
+                        TrendingTicker.create_tstamp >= start,
+                        TrendingTicker.create_tstamp <= end,
+                    )
+                )
             )
 
-            print("load from db", start, end, len(rows))
-            return [row[0] for row in rows] if len(rows) > 0 else []
+        print("load from db", start, end, len(symbols))
+        return symbols
 
     def momentum_filter(self, snapshot) -> bool:
         """Return whether a market snapshot entry meets the momentum criteria.

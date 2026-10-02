@@ -5,8 +5,8 @@ from datetime import date, timedelta
 import pytest
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.types import DataConnectorType, Order, TimeScale
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.trading.tradier import TradierTrader
 
 tradier_trader: TradierTrader

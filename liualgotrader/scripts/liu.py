@@ -37,9 +37,9 @@ import requests
 
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import get_event_loop
-from liualgotrader.common.database import create_db_connection
-from liualgotrader.models.accounts import Accounts
-from liualgotrader.models.portfolio import Portfolio
+from liualgotrader.db.models.accounts import Account
+from liualgotrader.db.models.portfolio import Portfolio
+from liualgotrader.db.session import create_db_connection
 
 
 def show_version():
@@ -434,7 +434,7 @@ def create_account(amount: float, credit: float):
     loop = get_event_loop()
     loop.run_until_complete(create_db_connection())
     account_id = loop.run_until_complete(
-        Accounts.create(amount, allow_negative=credit > 0, credit_line=credit)
+        Account.create(amount, allow_negative=credit > 0, credit_line=credit)
     )
     print(f"Account ID {account_id} created")
 

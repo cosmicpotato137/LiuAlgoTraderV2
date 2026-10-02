@@ -1,5 +1,4 @@
 import asyncio
-import json
 from datetime import date, datetime, timedelta
 from typing import Dict
 
@@ -12,8 +11,8 @@ import streamlit as st
 
 from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_runs, load_trades)
-from liualgotrader.common import database
 from liualgotrader.data.polygon import PolygonData
+from liualgotrader.db.session import create_db_connection
 
 st.title("Day-trade Session Analysis")
 st.markdown(
@@ -27,7 +26,7 @@ loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 nest_asyncio.apply()
 
-loop.run_until_complete(database.create_db_connection())
+loop.run_until_complete(create_db_connection())
 
 with st.spinner(f"loading {day_to_analyze} data.."):
     # Create DB connection & load data
@@ -97,7 +96,7 @@ try:
                 batch_id,
                 how_was_my_batch,
                 start_time,
-                algo_runs[algo_runs.batch_id == batch_id].algo_env.tolist()[0],
+                algo_runs[algo_runs.batch_id == batch_id].env.tolist()[0],
             )
         )
 except ValueError as e:
@@ -205,7 +204,7 @@ if st.sidebar.checkbox("Show details"):
             )
             prices.append(row["price"])
             qtys.append(row["qty"])
-            indicator = json.loads(row.indicators)
+            indicator = row.indicators
             indicators.append(indicator)
             target_price.append(row["target_price"])
             stop_price.append(row["stop_price"])

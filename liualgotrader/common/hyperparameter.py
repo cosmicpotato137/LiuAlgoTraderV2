@@ -13,8 +13,8 @@ import uuid
 from typing import List
 
 from liualgotrader.common.concurrency import get_event_loop
-from liualgotrader.common.database import create_db_connection
-from liualgotrader.models.portfolio import Portfolio
+from liualgotrader.db.models.portfolio import Portfolio
+from liualgotrader.db.session import create_db_connection
 
 
 class Parameter:

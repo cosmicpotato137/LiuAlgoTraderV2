@@ -21,7 +21,7 @@ from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.hyperparameter import Hyperparameters
 from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import AssetType, TimeScale
-from liualgotrader.models.optimizer import OptimizerRun
+from liualgotrader.db.models.optimizer import OptimizerRun
 
 
 async def save_optimizer_session(

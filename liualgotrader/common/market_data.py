@@ -33,12 +33,14 @@ import pandas_market_calendars
 import pytz
 import requests
 from pandas import DataFrame as df
+from sqlalchemy import select
 
-from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.data_loader import m_and_a_data  # type: ignore
 from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import TimeScale
+from liualgotrader.db.models.ticker_data import TickerData
+from liualgotrader.db.session import session_scope
 from liualgotrader.fincalcs.vwap import add_daily_vwap
 
 volume_today: Dict[str, int] = {}
@@ -76,121 +78,80 @@ def get_symbol_data(
     return data_loader[symbol][start_date:end_date]  # type: ignore
 
 
+async def _select_ticker_column(statement) -> List[str]:
+    async with session_scope() as session:
+        values = await session.scalars(statement)
+        return [value for value in values if value]
+
+
 async def get_sector_tickers(sector: str) -> List[str]:
     """Return the symbols that belong to the given market sector.
 
-    Omit empty symbols. The shared database connection pool must exist.
+    Omit empty symbols.
 
     Parameters
     ----------
     sector: str
         The sector name.
     """
-    async with config.db_conn_pool.acquire() as conn:
-        async with conn.transaction():
-            records = await conn.fetch(
-                """
-                    SELECT symbol
-                    FROM ticker_data
-                    WHERE sector = $1
-                """,
-                sector,
-            )
-
-            return [record[0] for record in records if record[0]]
+    return await _select_ticker_column(
+        select(TickerData.symbol).where(TickerData.sector == sector)
+    )
 
 
 async def get_sectors_tickers(sectors: List[str]) -> List[str]:
     """Return the symbols that belong to any of the given market sectors.
 
-    Omit empty symbols. The shared database connection pool must exist.
+    Omit empty symbols.
 
     Parameters
     ----------
     sectors: List[str]
         The sector names.
     """
-    async with config.db_conn_pool.acquire() as conn:
-        async with conn.transaction():
-            q = f"""
-                    SELECT symbol
-                    FROM ticker_data
-                    WHERE sector in ({str(sectors)[1:-1]})
-                """
-
-            records = await conn.fetch(q)
-
-    return [record[0] for record in records if record[0]]
+    return await _select_ticker_column(
+        select(TickerData.symbol).where(TickerData.sector.in_(sectors))
+    )
 
 
 async def get_industry_tickers(industry: str) -> List[str]:
     """Return the symbols that belong to the given industry.
 
-    Omit empty symbols. The shared database connection pool must exist.
+    Omit empty symbols.
 
     Parameters
     ----------
     industry: str
         The industry name.
     """
-    async with config.db_conn_pool.acquire() as conn:
-        records = await conn.fetch(
-            """
-                SELECT symbol
-                FROM ticker_data
-                WHERE industry = $1
-            """,
-            industry,
-        )
-
-    return [record[0] for record in records if record[0]]
+    return await _select_ticker_column(
+        select(TickerData.symbol).where(TickerData.industry == industry)
+    )
 
 
 async def get_industries_tickers(industries: List[str]) -> List[str]:
     """Return the symbols that belong to any of the given industries.
 
-    Omit empty symbols. The shared database connection pool must exist.
+    Omit empty symbols.
 
     Parameters
     ----------
     industries: List[str]
         The industry names.
     """
-    async with config.db_conn_pool.acquire() as conn:
-        q = f"""
-                SELECT symbol
-                FROM ticker_data
-                WHERE industry in ({str(industries)[1:-1]})
-            """
-
-        records = await conn.fetch(q)
-
-    return [record[0] for record in records if record[0]]
+    return await _select_ticker_column(
+        select(TickerData.symbol).where(TickerData.industry.in_(industries))
+    )
 
 
 async def get_market_sectors() -> List[str]:
     """Return the distinct, non-empty sector names from the ticker table."""
-    async with config.db_conn_pool.acquire() as conn:
-        records = await conn.fetch(
-            """
-                SELECT DISTINCT sector
-                FROM ticker_data
-            """
-        )
-        return [record[0] for record in records if record[0]]
+    return await _select_ticker_column(select(TickerData.sector).distinct())
 
 
 async def get_market_industries() -> List[str]:
     """Return the distinct, non-empty industry names from the ticker table."""
-    async with config.db_conn_pool.acquire() as conn:
-        records = await conn.fetch(
-            """
-                SELECT DISTINCT industry
-                FROM ticker_data
-            """
-        )
-
-        return [record[0] for record in records if record[0]]
+    return await _select_ticker_column(select(TickerData.industry).distinct())
 
 
 async def sp500_historical_constituents(date: str):

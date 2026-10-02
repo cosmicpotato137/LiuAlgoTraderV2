@@ -2,8 +2,8 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.types import DataConnectorType
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.momentum import Momentum
 from liualgotrader.trading.trader_factory import trader_factory
 

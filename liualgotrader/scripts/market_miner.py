@@ -25,8 +25,8 @@ import toml
 
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import get_event_loop
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.tlog import tlog
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.miners.base import Miner
 
 # rom liualgotrader.miners.stock_cluster import StockCluster

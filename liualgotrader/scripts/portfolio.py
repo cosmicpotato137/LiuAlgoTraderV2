@@ -31,9 +31,9 @@ from tabulate import tabulate
 
 from liualgotrader.analytics import analysis
 from liualgotrader.common.concurrency import get_event_loop
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.types import AssetType
-from liualgotrader.models.portfolio import Portfolio
+from liualgotrader.db.models.portfolio import Portfolio
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.reprocess.portfolio import account_transactions
 
 
@@ -173,11 +173,11 @@ def list():
             "portfolio_id",
             "tstamp",
             "last_transaction",
-            "size",
-            "assets",
+            "portfolio_size",
+            "asset_type",
             "parameters",
         ]
-    ]
+    ].assign(asset_type=lambda df: df.asset_type.map(lambda t: t.name))
 
     print(
         tabulate(

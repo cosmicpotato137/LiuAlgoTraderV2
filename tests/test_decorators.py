@@ -3,8 +3,8 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.decorators import timeit
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.trading.trader_factory import trader_factory
 
 
