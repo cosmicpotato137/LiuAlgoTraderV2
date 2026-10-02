@@ -45,10 +45,10 @@ from pytz import timezone
 from liualgotrader.common import config, trading_data
 from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.tlog import tlog, tlog_exception
 from liualgotrader.common.types import AssetType, TimeScale
-from liualgotrader.models.new_trades import NewTrade
+from liualgotrader.db.models.new_trades import NewTrade
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner  # type: ignore
 from liualgotrader.scanners_runner import create_momentum_scanner
 from liualgotrader.strategies.base import Strategy
@@ -327,7 +327,7 @@ async def do_strategy_result(
     trading_data.last_used_strategy[symbol] = strategy
 
     db_trade = NewTrade(
-        algo_run_id=strategy.algo_run.run_id,
+        algo_run_id=strategy.algo_run.algo_run_id,
         symbol=symbol,
         qty=qty,
         operation=what["side"],
@@ -336,14 +336,17 @@ async def do_strategy_result(
     )
 
     await db_trade.save(
-        config.db_conn_pool,
         str(now),
-        trading_data.stop_prices[symbol]
-        if symbol in trading_data.stop_prices
-        else 0.0,
-        trading_data.target_prices[symbol]
-        if symbol in trading_data.target_prices
-        else 0.0,
+        (
+            trading_data.stop_prices[symbol]
+            if symbol in trading_data.stop_prices
+            else 0.0
+        ),
+        (
+            trading_data.target_prices[symbol]
+            if symbol in trading_data.target_prices
+            else 0.0
+        ),
         fee,
     )
 

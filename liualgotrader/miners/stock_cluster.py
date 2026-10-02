@@ -20,8 +20,8 @@ from urllib3.exceptions import HTTPError
 from liualgotrader.common import config
 from liualgotrader.common.decorators import timeit
 from liualgotrader.common.tlog import tlog
+from liualgotrader.db.models.ticker_data import TickerData
 from liualgotrader.miners.base import Miner
-from liualgotrader.models.ticker_data import TickerData
 
 
 class StockCluster(Miner):
@@ -65,7 +65,9 @@ class StockCluster(Miner):
         Raise ValueError unless new_num_workers is between 1 and 100.
         """
         if new_num_workers <= 0 or new_num_workers > 100:
-            raise ValueError("number of workers must be positive and less than 100")
+            raise ValueError(
+                "number of workers must be positive and less than 100"
+            )
 
     @timeit
     async def run(self) -> bool:
@@ -158,8 +160,10 @@ class StockCluster(Miner):
             exchange=ticker_info["exchange"],
         )
 
-        if await ticker_data.save(config.db_conn_pool) is False:
-            tlog(f"going to wait 30 seconds and retry saving {ticker_info['name']}")
+        if await ticker_data.save() is False:
+            tlog(
+                f"going to wait 30 seconds and retry saving {ticker_info['name']}"
+            )
             await asyncio.sleep(30)
             return await self._update_ticker_details(ticker_info)
 

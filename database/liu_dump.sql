@@ -57,15 +57,15 @@ SET default_table_access_method = heap;
 
 CREATE TABLE public.algo_run (
     algo_run_id integer NOT NULL,
-    algo_name text NOT NULL,
-    algo_env text NOT NULL,
+    strategy_name text NOT NULL,
+    env text NOT NULL,
     build_number text NOT NULL,
     parameters jsonb,
     start_time timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     end_time timestamp without time zone,
     end_reason text,
     batch_id text DEFAULT ''::text NOT NULL,
-    ref_algo_run integer
+    ref_algo_run_id integer
 );
 
 
@@ -151,7 +151,7 @@ ALTER SEQUENCE public.new_trades_trade_id_seq OWNED BY public.new_trades.trade_i
 --
 
 CREATE TABLE public.stock_ohlc (
-    symbol_id integer NOT NULL,
+    stock_ohlc_id integer NOT NULL,
     symbol text NOT NULL,
     symbol_date date NOT NULL,
     open double precision NOT NULL,
@@ -169,10 +169,10 @@ ALTER TABLE public.stock_ohlc OWNER TO liu;
 
 --
 -- TOC entry 210 (class 1259 OID 16489)
--- Name: stock_ohlc_symbol_id_seq; Type: SEQUENCE; Schema: public; Owner: liu
+-- Name: stock_ohlc_stock_ohlc_id_seq; Type: SEQUENCE; Schema: public; Owner: liu
 --
 
-CREATE SEQUENCE public.stock_ohlc_symbol_id_seq
+CREATE SEQUENCE public.stock_ohlc_stock_ohlc_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -181,15 +181,15 @@ CREATE SEQUENCE public.stock_ohlc_symbol_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.stock_ohlc_symbol_id_seq OWNER TO liu;
+ALTER TABLE public.stock_ohlc_stock_ohlc_id_seq OWNER TO liu;
 
 --
 -- TOC entry 3038 (class 0 OID 0)
 -- Dependencies: 210
--- Name: stock_ohlc_symbol_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: liu
+-- Name: stock_ohlc_stock_ohlc_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: liu
 --
 
-ALTER SEQUENCE public.stock_ohlc_symbol_id_seq OWNED BY public.stock_ohlc.symbol_id;
+ALTER SEQUENCE public.stock_ohlc_stock_ohlc_id_seq OWNED BY public.stock_ohlc.stock_ohlc_id;
 
 
 --
@@ -213,56 +213,6 @@ CREATE TABLE public.ticker_data (
 
 
 ALTER TABLE public.ticker_data OWNER TO liu;
-
---
--- TOC entry 204 (class 1259 OID 16413)
--- Name: trades; Type: TABLE; Schema: public; Owner: liu
---
-
-CREATE TABLE public.trades (
-    trade_id integer NOT NULL,
-    algo_run_id integer,
-    is_win boolean,
-    symbol text NOT NULL,
-    qty integer NOT NULL,
-    buy_price numeric(8,2) NOT NULL,
-    buy_indicators jsonb NOT NULL,
-    buy_time timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    sell_price numeric(8,2),
-    sell_indicators jsonb,
-    sell_time timestamp without time zone,
-    client_sell_time text,
-    client_buy_time text,
-    CONSTRAINT trades_qty_check CHECK ((qty > 0))
-);
-
-
-ALTER TABLE public.trades OWNER TO liu;
-
---
--- TOC entry 203 (class 1259 OID 16411)
--- Name: trades_trade_id_seq; Type: SEQUENCE; Schema: public; Owner: liu
---
-
-CREATE SEQUENCE public.trades_trade_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.trades_trade_id_seq OWNER TO liu;
-
---
--- TOC entry 3039 (class 0 OID 0)
--- Dependencies: 203
--- Name: trades_trade_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: liu
---
-
-ALTER SEQUENCE public.trades_trade_id_seq OWNED BY public.trades.trade_id;
-
 
 --
 -- TOC entry 200 (class 1259 OID 16397)
@@ -337,18 +287,10 @@ ALTER TABLE ONLY public.new_trades ALTER COLUMN trade_id SET DEFAULT nextval('pu
 
 --
 -- TOC entry 2857 (class 2604 OID 16494)
--- Name: stock_ohlc symbol_id; Type: DEFAULT; Schema: public; Owner: liu
+-- Name: stock_ohlc stock_ohlc_id; Type: DEFAULT; Schema: public; Owner: liu
 --
 
-ALTER TABLE ONLY public.stock_ohlc ALTER COLUMN symbol_id SET DEFAULT nextval('public.stock_ohlc_symbol_id_seq'::regclass);
-
-
---
--- TOC entry 2848 (class 2604 OID 16416)
--- Name: trades trade_id; Type: DEFAULT; Schema: public; Owner: liu
---
-
-ALTER TABLE ONLY public.trades ALTER COLUMN trade_id SET DEFAULT nextval('public.trades_trade_id_seq'::regclass);
+ALTER TABLE ONLY public.stock_ohlc ALTER COLUMN stock_ohlc_id SET DEFAULT nextval('public.stock_ohlc_stock_ohlc_id_seq'::regclass);
 
 
 --
@@ -365,7 +307,7 @@ ALTER TABLE ONLY public.trending_tickers ALTER COLUMN trending_id SET DEFAULT ne
 -- Data for Name: algo_run; Type: TABLE DATA; Schema: public; Owner: liu
 --
 
-COPY public.algo_run (algo_run_id, algo_name, algo_env, build_number, parameters, start_time, end_time, end_reason, batch_id, ref_algo_run) FROM stdin;
+COPY public.algo_run (algo_run_id, strategy_name, env, build_number, parameters, start_time, end_time, end_reason, batch_id, ref_algo_run_id) FROM stdin;
 1	momentum_long	BACKTEST	v0.0.55-39-g38dbedc	{"DSN": "postgresql://liu:liu@localhost:5400/liu"}	2020-10-11 16:49:00.671719	\N	\N	dc476def-113d-49b7-a8c4-e9a25416371b	\N
 2	vwap_short	BACKTEST	v0.0.55-39-g38dbedc	{"DSN": "postgresql://liu:liu@localhost:5400/liu"}	2020-10-11 16:49:01.069344	\N	\N	dc476def-113d-49b7-a8c4-e9a25416371b	\N
 3	momentum_long	BACKTEST	v0.0.55-40-g40f81dd	{"DSN": "postgresql://liu:liu@localhost:5400/liu"}	2020-10-11 17:15:04.221782	\N	\N	964e2134-47c3-4fe3-9f58-6e8fdeec094f	\N
@@ -603,7 +545,7 @@ COPY public.new_trades (trade_id, algo_run_id, symbol, operation, qty, price, in
 -- Data for Name: stock_ohlc; Type: TABLE DATA; Schema: public; Owner: liu
 --
 
-COPY public.stock_ohlc (symbol_id, symbol, symbol_date, open, high, low, close, volume, indicators, modify_tstamp, create_tstamp) FROM stdin;
+COPY public.stock_ohlc (stock_ohlc_id, symbol, symbol_date, open, high, low, close, volume, indicators, modify_tstamp, create_tstamp) FROM stdin;
 24345	ACM	2020-09-28	40	41.17	39.925	40.91	1448366	{}	\N	2020-10-12 14:08:42.325464
 24346	ACM	2020-09-29	40.87	41.645	40.87	41.37	2545727	{}	\N	2020-10-12 14:08:42.387809
 24347	ACM	2020-09-30	41.54	42.67	41.4201	41.84	3608563	{}	\N	2020-10-12 14:08:42.396355
@@ -74799,16 +74741,6 @@ YNDX	Yandex N.V.	Yandex NV is an internet company. It offers access to its searc
 
 
 --
--- TOC entry 3023 (class 0 OID 16413)
--- Dependencies: 204
--- Data for Name: trades; Type: TABLE DATA; Schema: public; Owner: liu
---
-
-COPY public.trades (trade_id, algo_run_id, is_win, symbol, qty, buy_price, buy_indicators, buy_time, sell_price, sell_indicators, sell_time, client_sell_time, client_buy_time) FROM stdin;
-\.
-
-
---
 -- TOC entry 3028 (class 0 OID 16477)
 -- Dependencies: 209
 -- Data for Name: trending_tickers; Type: TABLE DATA; Schema: public; Owner: liu
@@ -74839,19 +74771,10 @@ SELECT pg_catalog.setval('public.new_trades_trade_id_seq', 206, true);
 --
 -- TOC entry 3043 (class 0 OID 0)
 -- Dependencies: 210
--- Name: stock_ohlc_symbol_id_seq; Type: SEQUENCE SET; Schema: public; Owner: liu
+-- Name: stock_ohlc_stock_ohlc_id_seq; Type: SEQUENCE SET; Schema: public; Owner: liu
 --
 
-SELECT pg_catalog.setval('public.stock_ohlc_symbol_id_seq', 91015, true);
-
-
---
--- TOC entry 3044 (class 0 OID 0)
--- Dependencies: 203
--- Name: trades_trade_id_seq; Type: SEQUENCE SET; Schema: public; Owner: liu
---
-
-SELECT pg_catalog.setval('public.trades_trade_id_seq', 1, false);
+SELECT pg_catalog.setval('public.stock_ohlc_stock_ohlc_id_seq', 91015, true);
 
 
 --
@@ -74896,7 +74819,7 @@ ALTER TABLE ONLY public.new_trades
 --
 
 ALTER TABLE ONLY public.stock_ohlc
-    ADD CONSTRAINT stock_ohlc_pkey PRIMARY KEY (symbol_id);
+    ADD CONSTRAINT stock_ohlc_pkey PRIMARY KEY (stock_ohlc_id);
 
 
 --
@@ -74915,15 +74838,6 @@ ALTER TABLE ONLY public.stock_ohlc
 
 ALTER TABLE ONLY public.ticker_data
     ADD CONSTRAINT ticker_data_pkey PRIMARY KEY (symbol);
-
-
---
--- TOC entry 2865 (class 2606 OID 16423)
--- Name: trades trades_pkey; Type: CONSTRAINT; Schema: public; Owner: liu
---
-
-ALTER TABLE ONLY public.trades
-    ADD CONSTRAINT trades_pkey PRIMARY KEY (trade_id);
 
 
 --
@@ -75008,30 +74922,6 @@ CREATE INDEX ticker_data_tags_idx ON public.ticker_data USING btree (tags);
 
 
 --
--- TOC entry 2862 (class 1259 OID 16430)
--- Name: trades_algo_run_id_idx; Type: INDEX; Schema: public; Owner: liu
---
-
-CREATE INDEX trades_algo_run_id_idx ON public.trades USING btree (algo_run_id);
-
-
---
--- TOC entry 2863 (class 1259 OID 16431)
--- Name: trades_is_win_idx; Type: INDEX; Schema: public; Owner: liu
---
-
-CREATE INDEX trades_is_win_idx ON public.trades USING btree (is_win);
-
-
---
--- TOC entry 2866 (class 1259 OID 16429)
--- Name: trades_symbol_idx; Type: INDEX; Schema: public; Owner: liu
---
-
-CREATE INDEX trades_symbol_idx ON public.trades USING btree (symbol);
-
-
---
 -- TOC entry 2877 (class 1259 OID 16487)
 -- Name: trending_tickers_batch_id_idx; Type: INDEX; Schema: public; Owner: liu
 --
@@ -75041,11 +74931,11 @@ CREATE INDEX trending_tickers_batch_id_idx ON public.trending_tickers USING btre
 
 --
 -- TOC entry 2886 (class 2606 OID 16470)
--- Name: algo_run algo_run_ref_algo_run_fkey; Type: FK CONSTRAINT; Schema: public; Owner: liu
+-- Name: algo_run algo_run_ref_algo_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: liu
 --
 
 ALTER TABLE ONLY public.algo_run
-    ADD CONSTRAINT algo_run_ref_algo_run_fkey FOREIGN KEY (ref_algo_run) REFERENCES public.algo_run(algo_run_id);
+    ADD CONSTRAINT algo_run_ref_algo_run_id_fkey FOREIGN KEY (ref_algo_run_id) REFERENCES public.algo_run(algo_run_id);
 
 
 --
@@ -75055,15 +74945,6 @@ ALTER TABLE ONLY public.algo_run
 
 ALTER TABLE ONLY public.new_trades
     ADD CONSTRAINT new_trades_algo_run_id_fkey FOREIGN KEY (algo_run_id) REFERENCES public.algo_run(algo_run_id);
-
-
---
--- TOC entry 2887 (class 2606 OID 16424)
--- Name: trades trades_algo_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: liu
---
-
-ALTER TABLE ONLY public.trades
-    ADD CONSTRAINT trades_algo_run_id_fkey FOREIGN KEY (algo_run_id) REFERENCES public.algo_run(algo_run_id);
 
 
 -- Completed on 2020-10-12 20:01:21 UTC

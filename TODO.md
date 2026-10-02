@@ -2,6 +2,7 @@
 
 - [x] Add docstrings
 - [x] Update python and package versions
+- [x] Get readthedocs working
 - [ ] Restructure classes to follow the pattern: Filters, Indicators, Signals, Rules. These classes are composed as part of a Strategy
 - [ ] Update the docker compose: create a docker folder to hold configs for local development
 - [ ] Abstract out the broker and data apis and create a wrapper for alpaca
@@ -21,5 +22,4 @@
 - reprocess/portfolio.py is missing an await and calls a Portfolio.load_details method that doesn't exist.
 - SQL is built with f-strings from arguments in a few places, which is an injection risk.
 - Retries on 429 and 502 responses have no limit.
-
-If you'd like, I can commit the docstrings on a branch, collect the full list of reported issues, or start fixing the confirmed ones.
+- Runs recorded as env "unknown": Strategy.create in strategies/base.py and Trader.create_session in trading/base.py call AlgoRun.save() without env, so every run is saved with env "unknown" and filters on env (analytics/analysis.py load_trades_for_period and calc_revenue) miss new runs. Passing config.env would fix it.

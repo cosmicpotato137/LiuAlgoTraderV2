@@ -182,9 +182,12 @@ files for a future developer.
     |   |    ├── candle_patterns.py
     |   |    ├── support_resistance.py
     |   |    └── vwap.py
-    │   ├── models
-    |   |    ├── algo_run.py
-    |   |    └── ...
+    │   ├── db
+    |   |    ├── session.py
+    |   |    └── models
+    |   |        ├── base.py
+    |   |        ├── algo_run.py
+    |   |        └── ...
     │   ├── miners
     |   |    ├── base.py
     |   |    ├── stock_cluster.py
@@ -223,9 +226,15 @@ Those are helper functions for strategy developers:
 - `support_resistance.py` - implements basic algorithms for calculations of horizontal support and resistance lines.
 - `vwap.py` - accurate calculation of 5-min VWAP, helpful for VWAP based strategies.
 
-models
-******
+db
+**
 Data abstraction layer implementing the persistence and loading of the data model.
+Each model in `db/models` is a SQLAlchemy ORM class that maps one table of
+`database/schema.sql` and carries the queries for that table; `db/models/base.py`
+holds their declarative base. `db/session.py` holds the database sessions; call
+`create_db_connection()` from `liualgotrader.db.session` to connect to a DSN other
+than the configured one. Existing databases are upgraded with the scripts in
+`database/migrations`.
 
 Data Model
 ----------

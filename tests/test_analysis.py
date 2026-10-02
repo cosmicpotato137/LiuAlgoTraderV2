@@ -5,7 +5,7 @@ os.environ["DATA_CONNECTOR"] = "alpaca"
 import pytest
 
 from liualgotrader.analytics import analysis
-from liualgotrader.common.database import create_db_connection
+from liualgotrader.db.session import create_db_connection
 
 
 @pytest.fixture(autouse=True)

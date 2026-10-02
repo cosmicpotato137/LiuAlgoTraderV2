@@ -5,8 +5,8 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.types import AssetType, TimeScale
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.enhanced_backtest import backtest_time_range
 from liualgotrader.scanners.base import Scanner
 from liualgotrader.strategies.base import Strategy

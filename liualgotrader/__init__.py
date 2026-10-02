@@ -19,12 +19,12 @@ common
     Configuration, data access, shared types and utilities.
 data
     Market data providers and streaming interfaces.
+db
+    Database access through the SQLAlchemy ORM.
 fincalcs
     Financial calculations for use by strategies.
 miners
     Data miners that run outside trading hours.
-models
-    Database models for runs, trades, portfolios and accounts.
 reprocess
     Recalculation of stored portfolio data.
 scanners

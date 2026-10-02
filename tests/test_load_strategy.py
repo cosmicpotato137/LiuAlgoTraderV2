@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from liualgotrader.common.database import create_db_connection
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.strategies.base import Strategy
 
 

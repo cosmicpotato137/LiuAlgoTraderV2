@@ -1,7 +1,7 @@
 import pytest
 
-from liualgotrader.common.data_loader import DataLoader  # type:ignore
-from liualgotrader.common.database import create_db_connection
+from liualgotrader.common.data_loader import DataLoader  # type: ignore
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner
 
 

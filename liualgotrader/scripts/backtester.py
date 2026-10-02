@@ -34,14 +34,13 @@ from requests.exceptions import HTTPError
 
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import config, market_data, trading_data
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.decorators import timeit
 from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import AssetType, TimeScale
+from liualgotrader.db.models.algo_run import AlgoRun
+from liualgotrader.db.models.new_trades import NewTrade
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.fincalcs.vwap import add_daily_vwap
-from liualgotrader.models.algo_run import AlgoRun
-from liualgotrader.models.new_trades import NewTrade
-from liualgotrader.models.trending_tickers import TrendingTickers
 from liualgotrader.scanners.base import Scanner
 from liualgotrader.scanners.momentum import Momentum
 from liualgotrader.strategies.base import Strategy, StrategyType

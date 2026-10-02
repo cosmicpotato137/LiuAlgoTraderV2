@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from liualgotrader.common.database import create_db_connection
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.trading.trader_factory import trader_factory
 
 

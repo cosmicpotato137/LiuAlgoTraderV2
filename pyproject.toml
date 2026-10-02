@@ -40,6 +40,7 @@ dependencies = [
   "pytz>=2026.4",
   "python-dateutil>=2.9.0.post0",
   "websocket-client>=1.9.2",
+  "sqlalchemy[asyncio]>=2.1.1",
 ]
 description = "a Pythonic all-batteries-included framework for effective algorithmic trading. The framework is intended to simplify development, testing, deployment and evaluating algo trading strategies."
 license = {text = "MIT"}

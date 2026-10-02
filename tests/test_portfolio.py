@@ -3,9 +3,9 @@ import uuid
 import pandas as pd
 import pytest
 
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.types import AssetType
-from liualgotrader.models.portfolio import Portfolio
+from liualgotrader.db.models.portfolio import Portfolio
+from liualgotrader.db.session import create_db_connection
 
 
 @pytest.fixture(autouse=True)

@@ -3,7 +3,7 @@
 Most settings are module-level variables, many read from environment
 variables at import time, such as the data connector, broker, API
 credentials, database DSN and performance parameters. Shared run-time
-values, such as the database connection pool and batch ID, are set later.
+values, such as the batch ID, are set later.
 
 Classes
 -------
@@ -14,8 +14,6 @@ polygon
 import os
 from dataclasses import dataclass
 from typing import List, Optional
-
-from asyncpg.pool import Pool
 
 from liualgotrader.common.types import BrokerType, DataConnectorType
 
@@ -50,7 +48,6 @@ total_tickers = 000
 #
 build_label: str = "xoxo"
 filename: str
-db_conn_pool: Pool
 batch_id: str
 
 #

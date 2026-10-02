@@ -1,6 +1,6 @@
 import pytest
 
-from liualgotrader.common.database import create_db_connection
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.trading.alpaca import AlpacaTrader
 
 alpaca_trader: AlpacaTrader

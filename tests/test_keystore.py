@@ -2,8 +2,8 @@ import uuid
 
 import pytest
 
-from liualgotrader.common.database import create_db_connection
-from liualgotrader.models.keystore import KeyStore
+from liualgotrader.db.models.keystore import KeyStore
+from liualgotrader.db.session import create_db_connection
 
 strategy_name: str = str(uuid.uuid4())
 context: str = str(uuid.uuid4())

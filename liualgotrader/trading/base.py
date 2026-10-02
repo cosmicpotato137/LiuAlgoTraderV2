@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 from liualgotrader.common.types import Order, QueueMapper
-from liualgotrader.models.algo_run import AlgoRun
+from liualgotrader.db.models.algo_run import AlgoRun
 
 
 class Trader:
@@ -94,20 +94,20 @@ class Trader:
         """Return the name of the concrete trader class."""
         return type(self).__name__
 
-    async def create_session(self, algo_name: str) -> AlgoRun:
-        """Create a new algorithm run and save it to the database.
+    async def create_session(self, strategy_name: str) -> AlgoRun:
+        """Create a new strategy run and save it to the database.
 
         Parameters
         ----------
-        algo_name: str
-            The name of the algorithm being run.
+        strategy_name: str
+            The name of the strategy being run.
 
         Returns
         -------
         Return the saved AlgoRun, which has a new random batch identifier.
         """
         new_batch_id = str(uuid.uuid4())
-        algo_run = AlgoRun(algo_name, new_batch_id)
+        algo_run = AlgoRun(strategy_name=strategy_name, batch_id=new_batch_id)
         await algo_run.save()
         return algo_run
 

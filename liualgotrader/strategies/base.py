@@ -16,12 +16,11 @@ from typing import Dict, List, Optional, Tuple
 
 from pandas import DataFrame as df
 
-from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.tlog import tlog
-from liualgotrader.models.accounts import Accounts
-from liualgotrader.models.algo_run import AlgoRun
-from liualgotrader.models.keystore import KeyStore
+from liualgotrader.db.models.accounts import Account
+from liualgotrader.db.models.algo_run import AlgoRun
+from liualgotrader.db.models.keystore import KeyStore
 from liualgotrader.trading.base import Trader
 
 
@@ -160,7 +159,7 @@ class Strategy(object):
         """
         if not self.account_id:
             raise AssertionError("account_id not set")
-        cash = await Accounts.get_balance(self.account_id)
+        cash = await Account.get_balance(self.account_id)
         price *= 1.0 + trade_fee_percentage
         return cash / price if self.support_fractional else cash // price
 
@@ -175,9 +174,7 @@ class Strategy(object):
         Return False to keep the framework from executing the strategy, for
         example to run a single copy across several processes.
         """
-        await self.algo_run.save(
-            pool=config.db_conn_pool, ref_algo_run_id=self.ref_run_id
-        )
+        await self.algo_run.save(ref_algo_run_id=self.ref_run_id)
         return True
 
     async def should_run_all(self):

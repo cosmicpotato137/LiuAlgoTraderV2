@@ -37,12 +37,12 @@ from queue import Empty
 from typing import Dict, List
 
 from liualgotrader.common import config
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.tlog import tlog, tlog_exception
 from liualgotrader.common.types import QueueMapper, WSEventType
 from liualgotrader.data.data_factory import streaming_factory
-from liualgotrader.models.tradeplan import TradePlan
-from liualgotrader.models.trending_tickers import TrendingTickers
+from liualgotrader.db.models.tradeplan import TradePlan
+from liualgotrader.db.models.trending_tickers import TrendingTicker
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.trading.trader_factory import trader_factory
 
 last_msg_tstamp: datetime = datetime.now()
@@ -135,8 +135,7 @@ async def scanners_iteration(
         )
     ):
         await subscribe_new_symbols(new_symbols)
-        trending_db = TrendingTickers(config.batch_id)
-        await trending_db.save(new_symbols)
+        await TrendingTicker.save_symbols(config.batch_id, new_symbols)
         symbols += new_symbols
         tlog(
             f"added {len(new_symbols)}:{new_symbols[:20]}..{new_symbols[-20:]} TOTAL: {len(symbols)}"

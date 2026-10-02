@@ -4,7 +4,6 @@ from datetime import date, datetime
 import pytest
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.database import create_db_connection
 from liualgotrader.common.market_data import (get_industries_tickers,
                                               get_market_industries,
                                               get_market_sectors,
@@ -13,6 +12,7 @@ from liualgotrader.common.market_data import (get_industries_tickers,
                                               get_trading_holidays,
                                               sp500_historical_constituents)
 from liualgotrader.common.types import TimeScale
+from liualgotrader.db.session import create_db_connection
 from liualgotrader.trading.alpaca import AlpacaTrader
 
 

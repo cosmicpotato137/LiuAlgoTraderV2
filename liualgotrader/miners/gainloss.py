@@ -13,8 +13,8 @@ from typing import Dict
 
 from liualgotrader.analytics import consolidate
 from liualgotrader.common.tlog import tlog
+from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.miners.base import Miner
-from liualgotrader.models.algo_run import AlgoRun
 
 
 class Gainloss(Miner):

@@ -54,19 +54,30 @@ from typing import Dict, Tuple
 
 import pandas as pd
 from pytz import timezone
+from sqlalchemy import Select, select
 from tqdm import tqdm
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.database import fetch_as_dataframe
 from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import AssetType
-from liualgotrader.models.accounts import Accounts
-from liualgotrader.models.optimizer import OptimizerRun
-from liualgotrader.models.portfolio import Portfolio
+from liualgotrader.db.models.accounts import Account
+from liualgotrader.db.models.algo_run import AlgoRun
+from liualgotrader.db.models.new_trades import NewTrade
+from liualgotrader.db.models.optimizer import OptimizerRun
+from liualgotrader.db.models.portfolio import Portfolio, PortfolioBatchId
+from liualgotrader.db.session import fetch_as_dataframe
 from liualgotrader.trading.trader_factory import trader_factory
 
 est = timezone("America/New_York")
+
+
+def _trades_with_runs(*columns) -> Select:
+    return select(*columns).join_from(
+        NewTrade,
+        AlgoRun,
+        NewTrade.algo_run_id == AlgoRun.algo_run_id,
+    )
 
 
 async def load_trades_for_period(
@@ -86,21 +97,25 @@ async def load_trades_for_period(
     Returns
     -------
     Return a DataFrame with the client time, symbol, operation, quantity, price
-    and algorithm name of each trade, ordered by symbol and time.
+    and strategy name of each trade, ordered by symbol and time.
     """
-    query = f"""
-    SELECT client_time, symbol, operation, qty, price, algo_name
-    FROM 
-        new_trades as t, algo_run as a
-    WHERE 
-        t.algo_run_id = a.algo_run_id AND 
-        t.tstamp >= '{from_date}' AND 
-        t.tstamp < '{to_date}' AND
-        t.expire_tstamp is null AND
-        a.algo_env = '{env}'
-    ORDER BY symbol, tstamp
-    """
-    return await fetch_as_dataframe(query)
+    return await fetch_as_dataframe(
+        _trades_with_runs(
+            NewTrade.client_time,
+            NewTrade.symbol,
+            NewTrade.operation,
+            NewTrade.qty,
+            NewTrade.price,
+            AlgoRun.strategy_name,
+        )
+        .where(
+            NewTrade.tstamp >= from_date,
+            NewTrade.tstamp < to_date,
+            NewTrade.expire_tstamp.is_(None),
+            AlgoRun.env == env,
+        )
+        .order_by(NewTrade.symbol, NewTrade.tstamp)
+    )
 
 
 async def portfolio_return(
@@ -140,7 +155,7 @@ async def portfolio_return(
             table[d]["revenue"] = 0.0
             invested_table[d]["invested"] = 0.0
 
-        strat = row["algo_name"]
+        strat = row["strategy_name"]
         if strat not in table[d]:
             table[d][strat] = 0.0
             invested_table[d][strat] = 0.0
@@ -186,10 +201,19 @@ async def load_trades(day: date, end_date: date = None) -> pd.DataFrame:
     Returns
     -------
     Return a DataFrame of every trade column plus the batch identifier and
-    algorithm name, ordered by symbol and time.
+    strategy name, ordered by symbol and time.
     """
-    query = f"""\x1f    SELECT t.*, a.batch_id, a.algo_name\x1f    FROM \x1f    new_trades as t, algo_run as a\x1f    WHERE \x1f        t.algo_run_id = a.algo_run_id AND \x1f        t.tstamp >= '{day}' AND \x1f        t.tstamp < '{end_date or day + timedelta(days=1)}' AND\x1f        t.expire_tstamp is null \x1f    ORDER BY symbol, tstamp\x1f    """
-    return await fetch_as_dataframe(query)
+    return await fetch_as_dataframe(
+        _trades_with_runs(
+            NewTrade.__table__, AlgoRun.batch_id, AlgoRun.strategy_name
+        )
+        .where(
+            NewTrade.tstamp >= day,
+            NewTrade.tstamp < (end_date or day + timedelta(days=1)),
+            NewTrade.expire_tstamp.is_(None),
+        )
+        .order_by(NewTrade.symbol, NewTrade.tstamp)
+    )
 
 
 async def load_trades_by_batch_id(batch_id: str) -> pd.DataFrame:
@@ -205,22 +229,23 @@ async def load_trades_by_batch_id(batch_id: str) -> pd.DataFrame:
     Returns
     -------
     Return a DataFrame of every trade column plus the batch identifier, start
-    time and algorithm name, ordered by symbol and time, with client_time
+    time and strategy name, ordered by symbol and time, with client_time
     converted to datetime.
     """
-    query = f"""
-        SELECT 
-            t.*, a.batch_id, a.start_time, a.algo_name
-        FROM 
-            new_trades as t, algo_run as a
-        WHERE 
-            t.algo_run_id = a.algo_run_id AND 
-            a.batch_id = '{batch_id}' AND
-            t.expire_tstamp is null AND 
-            price != 0.0 
-        ORDER BY symbol, tstamp
-    """
-    df: pd.DataFrame = await fetch_as_dataframe(query)
+    df: pd.DataFrame = await fetch_as_dataframe(
+        _trades_with_runs(
+            NewTrade.__table__,
+            AlgoRun.batch_id,
+            AlgoRun.start_time,
+            AlgoRun.strategy_name,
+        )
+        .where(
+            AlgoRun.batch_id == batch_id,
+            NewTrade.expire_tstamp.is_(None),
+            NewTrade.price != 0.0,
+        )
+        .order_by(NewTrade.symbol, NewTrade.tstamp)
+    )
     try:
         if not df.empty:
             df["client_time"] = pd.to_datetime(df["client_time"])
@@ -247,21 +272,26 @@ async def load_trades_by_portfolio(portfolio_id: str) -> pd.DataFrame:
     Return a DataFrame with run details, ordered by symbol and time, with
     client_time converted to datetime.
     """
-    query = f"""
-        SELECT 
-            distinct t.trade_id, t.algo_run_id, symbol, operation, qty, price, indicators, client_time, tstamp, stop_price, target_price, trade_fee, expire_tstamp, a.batch_id, a.start_time, a.algo_name
-        FROM 
-            new_trades as t, algo_run as a, portfolio_batch_ids as p
-        WHERE 
-            t.algo_run_id = a.algo_run_id AND 
-            a.batch_id = p.batch_id AND
-            p.portfolio_id = '{portfolio_id}' AND
-            price != 0.0 AND 
-            target_price is not null AND
-            t.expire_tstamp is null 
-        ORDER BY symbol, tstamp
-    """
-    df: pd.DataFrame = await fetch_as_dataframe(query)
+    df: pd.DataFrame = await fetch_as_dataframe(
+        _trades_with_runs(
+            NewTrade.__table__,
+            AlgoRun.batch_id,
+            AlgoRun.start_time,
+            AlgoRun.strategy_name,
+        )
+        .join(
+            PortfolioBatchId,
+            AlgoRun.batch_id == PortfolioBatchId.batch_id,
+        )
+        .where(
+            PortfolioBatchId.portfolio_id == portfolio_id,
+            NewTrade.price != 0.0,
+            NewTrade.target_price.is_not(None),
+            NewTrade.expire_tstamp.is_(None),
+        )
+        .distinct()
+        .order_by(NewTrade.symbol, NewTrade.tstamp)
+    )
     try:
         if not df.empty:
             df["client_time"] = pd.to_datetime(df["client_time"])
@@ -286,9 +316,14 @@ async def load_runs(day: date, end_date: date = None) -> pd.DataFrame:
     -------
     Return a DataFrame indexed by algo_run_id and ordered by start time.
     """
-    query = f"""\x1f     SELECT * \x1f     FROM \x1f     algo_run as t\x1f     WHERE \x1f         start_time >= '{day}' AND \x1f         start_time < '{end_date or day + timedelta(days=1)}'\x1f     ORDER BY start_time\x1f     """
-
-    df = await fetch_as_dataframe(query)
+    df = await fetch_as_dataframe(
+        select(AlgoRun.__table__)
+        .where(
+            AlgoRun.start_time >= day,
+            AlgoRun.start_time < (end_date or day + timedelta(days=1)),
+        )
+        .order_by(AlgoRun.start_time)
+    )
     df.set_index("algo_run_id", inplace=True)
     return df
 
@@ -307,17 +342,15 @@ async def load_batch_list(day: date, env: str) -> pd.DataFrame:
     -------
     Return a DataFrame of each distinct batch identifier and its start time.
     """
-    query = f"""
-        SELECT DISTINCT a.batch_id, a.start_time
-        FROM 
-        new_trades as t, algo_run as a
-        WHERE 
-            t.algo_run_id = a.algo_run_id AND 
-            t.tstamp >= '{day}' AND 
-            t.tstamp < '{day + timedelta(days=1)}'AND
-            t.expire_tstamp is null 
-        """
-    return await fetch_as_dataframe(query)
+    return await fetch_as_dataframe(
+        _trades_with_runs(AlgoRun.batch_id, AlgoRun.start_time)
+        .where(
+            NewTrade.tstamp >= day,
+            NewTrade.tstamp < day + timedelta(days=1),
+            NewTrade.expire_tstamp.is_(None),
+        )
+        .distinct()
+    )
 
 
 async def load_traded_symbols(batch_id: str) -> pd.DataFrame:
@@ -334,16 +367,11 @@ async def load_traded_symbols(batch_id: str) -> pd.DataFrame:
     -------
     Return a DataFrame with a single symbol column.
     """
-    query = f"""
-        SELECT 
-            DISTINCT t.symbol
-        FROM 
-            new_trades as t, algo_run as a
-        WHERE 
-            t.algo_run_id = a.algo_run_id AND 
-            a.batch_id = '{batch_id}'
-    """
-    return await fetch_as_dataframe(query)
+    return await fetch_as_dataframe(
+        _trades_with_runs(NewTrade.symbol)
+        .where(AlgoRun.batch_id == batch_id)
+        .distinct()
+    )
 
 
 def calc_batch_revenue(
@@ -388,13 +416,11 @@ def calc_revenue(symbol: str, trades: pd.DataFrame, env) -> float:
     symbol: str
         The symbol to total.
     trades: pd.DataFrame
-        The trades DataFrame, including an algo_env column.
+        The trades DataFrame, including an env column.
     env
         The environment to restrict to.
     """
-    symbol_df = trades[
-        (trades["symbol"] == symbol) & (trades["algo_env"] == env)
-    ]
+    symbol_df = trades[(trades["symbol"] == symbol) & (trades["env"] == env)]
     rc = sum(
         (
             row["price"]
@@ -708,7 +734,7 @@ async def get_cash(account_id: int, initial_cash: float) -> pd.DataFrame:
     Return a DataFrame indexed by date with amount and cash columns, holding
     one row per date that has transactions.
     """
-    df = await Accounts.get_transactions(account_id)
+    df = await Account.get_transactions(account_id)
     df = df.groupby(df.index.date).sum()
     df.iloc[0, df.columns.get_loc("amount")] += initial_cash
     r = pd.date_range(start=df.index.min(), end=df.index.max(), name="date")
@@ -863,4 +889,4 @@ async def get_portfolio_cash(portfolio_id: str) -> pd.DataFrame:
         The portfolio identifier.
     """
     portfolio = await Portfolio.load_by_portfolio_id(portfolio_id)
-    return (await Accounts.get_transactions(portfolio.account_id)).round(2)
+    return (await Account.get_transactions(portfolio.account_id)).round(2)
