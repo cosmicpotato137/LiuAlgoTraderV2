@@ -10,11 +10,11 @@ import os
 from typing import List, Optional
 
 from liualgotrader.common.types import BrokerType, DataConnectorType
-from liualgotrader.data.alpaca import AlpacaConfig
-from liualgotrader.data.finnhub import FinnhubConfig
-from liualgotrader.data.gemini import GeminiConfig
-from liualgotrader.data.polygon import PolygonConfig
-from liualgotrader.data.tradier import TradierConfig
+from liualgotrader.vendors.alpaca.config import AlpacaConfig
+from liualgotrader.vendors.finnhub.config import FinnhubConfig
+from liualgotrader.vendors.gemini.config import GeminiConfig
+from liualgotrader.vendors.polygon.config import PolygonConfig
+from liualgotrader.vendors.tradier.config import TradierConfig
 
 tradeplan_folder: str = (
     os.getenv("TRADEPLAN_DIR", ".")

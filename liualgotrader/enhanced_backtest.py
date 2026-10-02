@@ -46,14 +46,14 @@ from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.tlog import tlog, tlog_exception
 from liualgotrader.common.types import AssetType, TimeScale
-from liualgotrader.data.alpaca import AlpacaData
 from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner  # type: ignore
 from liualgotrader.scanners_runner import create_momentum_scanner
 from liualgotrader.strategies.base import Strategy
-from liualgotrader.trading.base import TraderAPI
-from liualgotrader.trading.trader_factory import trader_factory
+from liualgotrader.trade.base import TraderAPI
+from liualgotrader.trade.factory import trader_factory
+from liualgotrader.vendors.alpaca.data import AlpacaData
 
 run_scanners: Dict[Scanner, datetime] = {}
 symbol_data: Dict[str, pd.DataFrame] = {}

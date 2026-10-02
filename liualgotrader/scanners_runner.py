@@ -33,8 +33,8 @@ from liualgotrader.common.types import DataConnectorType
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner
 from liualgotrader.scanners.momentum import Momentum
-from liualgotrader.trading.base import TraderAPI
-from liualgotrader.trading.trader_factory import trader_factory
+from liualgotrader.trade.base import TraderAPI
+from liualgotrader.trade.factory import trader_factory
 
 nyc = timezone("America/New_York")
 

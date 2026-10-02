@@ -8,7 +8,7 @@ from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, Order, TimeScale
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.trading.tradier import TradierTrader
+from liualgotrader.vendors.tradier.trader import TradierTrader
 
 tradier_trader: TradierTrader
 

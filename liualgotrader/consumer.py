@@ -91,9 +91,9 @@ from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.fincalcs.data_conditions import QUOTE_SKIP_CONDITIONS
 from liualgotrader.strategies.base import Strategy, StrategyType
-from liualgotrader.trading.base import TraderAPI
-from liualgotrader.trading.trader_factory import (get_trader_by_name,
-                                                  trader_factory)
+from liualgotrader.trade.base import TraderAPI
+from liualgotrader.trade.factory import (get_trader_by_name,
+                                                trader_factory)
 
 shortable: Dict = {}
 symbol_data_error: Dict = {}

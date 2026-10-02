@@ -39,8 +39,8 @@ from pytz import timezone
 from liualgotrader.common import config
 from liualgotrader.common.tlog import tlog, tlog_exception
 from liualgotrader.common.types import DataConnectorType, TimeScale
-from liualgotrader.data.data_base import DataAPI
-from liualgotrader.data.data_factory import data_loader_factory
+from liualgotrader.data.base import DataAPI
+from liualgotrader.data.factory import data_loader_factory
 
 nyc = timezone("America/New_York")
 

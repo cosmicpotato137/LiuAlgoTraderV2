@@ -7,7 +7,7 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
-from liualgotrader.data.gemini import GeminiStream
+from liualgotrader.vendors.gemini.streaming import GeminiStream
 
 gemini_stream: GeminiStream
 queues: SymbolQueueMap

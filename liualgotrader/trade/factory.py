@@ -12,10 +12,10 @@ from typing import Dict
 
 from liualgotrader.common import config
 from liualgotrader.common.types import BrokerType
-from liualgotrader.trading.alpaca import AlpacaTrader
-from liualgotrader.trading.base import TraderAPI
-from liualgotrader.trading.gemini import GeminiTrader
-from liualgotrader.trading.tradier import TradierTrader
+from liualgotrader.trade.base import TraderAPI
+from liualgotrader.vendors.alpaca.trader import AlpacaTrader
+from liualgotrader.vendors.gemini.trader import GeminiTrader
+from liualgotrader.vendors.tradier.trader import TradierTrader
 
 traders: Dict[str, TraderAPI] = {}
 

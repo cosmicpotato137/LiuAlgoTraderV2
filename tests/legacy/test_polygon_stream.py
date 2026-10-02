@@ -5,9 +5,9 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.types import SymbolQueueMap
-from liualgotrader.data.polygon import PolygonStream
-from liualgotrader.data.streaming_base import WSEventType
-from liualgotrader.trading.alpaca import AlpacaTrader
+from liualgotrader.stream.base import WSEventType
+from liualgotrader.vendors.alpaca.trader import AlpacaTrader
+from liualgotrader.vendors.polygon.streaming import PolygonStream
 
 queues: SymbolQueueMap
 polygon_stream: PolygonStream

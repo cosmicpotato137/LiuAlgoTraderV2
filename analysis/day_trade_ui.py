@@ -12,8 +12,8 @@ import streamlit as st
 from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_runs, load_trades)
 from liualgotrader.common import config
-from liualgotrader.data.polygon import PolygonData
 from liualgotrader.db.session import create_db_connection
+from liualgotrader.vendors.polygon.data import PolygonData
 
 st.title("Day-trade Session Analysis")
 st.markdown(

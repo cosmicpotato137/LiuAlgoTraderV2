@@ -18,12 +18,12 @@ from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import DataConnectorType
-from liualgotrader.data.alpaca import AlpacaData
-from liualgotrader.data.polygon import PolygonData
 from liualgotrader.db.models.ticker_data import StockOhlc
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import session_scope
-from liualgotrader.trading.base import TraderAPI
+from liualgotrader.trade.base import TraderAPI
+from liualgotrader.vendors.alpaca.data import AlpacaData
+from liualgotrader.vendors.polygon.data import PolygonData
 
 from .base import Scanner
 

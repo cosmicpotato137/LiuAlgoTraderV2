@@ -2,8 +2,6 @@
 
 Classes
 -------
-FinnhubConfig
-    Connection settings for the Finnhub API.
 FinnhubData
     Historical market data provider for the Finnhub API.
 
@@ -14,7 +12,6 @@ check_auth
 """
 
 import io
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -24,8 +21,9 @@ import requests
 from finnhub import Client
 
 from liualgotrader.common.types import TimeScale
-from liualgotrader.data import static
-from liualgotrader.data.data_base import DataAPI
+from liualgotrader.data.base import DataAPI
+from liualgotrader.vendors.finnhub import static
+from liualgotrader.vendors.finnhub.config import FinnhubConfig
 
 NY = "America/New_York"
 nytz = pytz.timezone(NY)
@@ -58,25 +56,6 @@ def check_auth(f):
         return f(*args)
 
     return wrapper
-
-
-@dataclass
-class FinnhubConfig:
-    """Connection settings for the Finnhub API.
-
-    Attributes
-    ----------
-    api_key: Optional[str]
-        The API key.
-    base_url: Optional[str]
-        The API base URL.
-    websocket_limit: int
-        The maximum number of symbols to stream.
-    """
-
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    websocket_limit: int = 50
 
 
 class FinnhubData(DataAPI):

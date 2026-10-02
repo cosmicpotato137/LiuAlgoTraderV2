@@ -8,7 +8,7 @@ from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.consumer import create_strategies_from_db
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.trading.trader_factory import trader_factory
+from liualgotrader.trade.factory import trader_factory
 
 
 @pytest.fixture(autouse=True)

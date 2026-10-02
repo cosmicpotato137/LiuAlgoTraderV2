@@ -4,7 +4,7 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.types import TimeScale
-from liualgotrader.data.tradier import TradierData
+from liualgotrader.vendors.tradier.data import TradierData
 
 
 @pytest.mark.devtest

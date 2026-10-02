@@ -1,24 +1,16 @@
-"""Alpaca market data and streaming providers.
+"""Alpaca market data provider.
 
 Classes
 -------
-AlpacaConfig
-    Connection settings for the Alpaca APIs.
 AlpacaData
     Market data provider for the Alpaca REST and crypto APIs.
-AlpacaStream
-    Streaming provider for the Alpaca WebSocket API.
 """
 
 import asyncio
 import concurrent.futures
-import queue
 import time
-import traceback
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from random import randint
-from typing import Callable, Dict, List, Optional, Tuple, Union, cast
+from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -26,13 +18,11 @@ import pandas_market_calendars
 import pytz
 from alpaca.common.enums import BaseURL
 from alpaca.common.exceptions import APIError
-from alpaca.data.enums import Adjustment, DataFeed
+from alpaca.data.enums import Adjustment
 from alpaca.data.historical import (
     CryptoHistoricalDataClient,
     StockHistoricalDataClient,
 )
-from alpaca.data.live import CryptoDataStream, StockDataStream
-from alpaca.data.live.websocket import DataStream
 from alpaca.data.models import BarSet
 from alpaca.data.requests import (
     CryptoBarsRequest,
@@ -46,11 +36,10 @@ from alpaca.trading.models import Asset, Calendar
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 from dateutil.parser import parse as date_parser
 
-from liualgotrader.common.list_utils import chunks
-from liualgotrader.common.tlog import tlog, tlog_exception
-from liualgotrader.common.types import SymbolQueueMap, TimeScale, WSEventType
-from liualgotrader.data.data_base import DataAPI
-from liualgotrader.data.streaming_base import StreamingAPI
+from liualgotrader.common.tlog import tlog
+from liualgotrader.common.types import TimeScale
+from liualgotrader.data.base import DataAPI
+from liualgotrader.vendors.alpaca.config import AlpacaConfig
 
 NY = "America/New_York"
 nytz = pytz.timezone(NY)
@@ -74,7 +63,6 @@ _SNAPSHOT_FIELDS = {
     "daily_bar": "dailyBar",
     "prev_daily_bar": "prevDailyBar",
 }
-_STREAM_FEEDS = (DataFeed.IEX, DataFeed.SIP)
 
 
 def _is_crypto_symbol(symbol: str) -> bool:
@@ -101,17 +89,6 @@ def _crypto_pair(symbol: str) -> str:
     if "/" not in symbol:
         symbol = f"{symbol[:3]}/{symbol[3:]}"
     return symbol.upper()
-
-
-def _whole(value: float) -> Union[int, float]:
-    """Return a number as an int if it has no fractional part.
-
-    Parameters
-    ----------
-    value: float
-        The number to convert.
-    """
-    return int(value) if float(value).is_integer() else value
 
 
 def _integral(values: pd.Series) -> pd.Series:
@@ -183,49 +160,6 @@ def _to_framework_bars(bars: pd.DataFrame) -> pd.DataFrame:
             "vwap",
         ]
     ]
-
-
-@dataclass
-class AlpacaConfig:
-    """Connection settings for the Alpaca APIs.
-
-    Attributes
-    ----------
-    api_key: str
-        The API key ID.
-    api_secret: str
-        The API secret key.
-    base_url: Optional[str]
-        The trading API base URL, or None for the live trading URL.
-    crypto_base_url: str
-        The crypto market data API base URL.
-    data_feed: str
-        The name of the equity data feed to stream.
-    stream_url: Optional[str]
-        The streaming API URL.
-    broker_api_base_url: Optional[str]
-        The Broker API base URL, for orders of external accounts.
-    broker_api_key: Optional[str]
-        The Broker API key.
-    broker_api_secret: Optional[str]
-        The Broker API secret.
-    debug_enabled: bool
-        Whether to print the traceback of errors in event handlers.
-    detailed_dl_debug_enabled: bool
-        Whether to log each historical data request.
-    """
-
-    api_key: str = ""
-    api_secret: str = ""
-    base_url: Optional[str] = None
-    crypto_base_url: str = "https://data.alpaca.markets/v1beta2/crypto"
-    data_feed: str = "sip"
-    stream_url: Optional[str] = None
-    broker_api_base_url: Optional[str] = None
-    broker_api_key: Optional[str] = None
-    broker_api_secret: Optional[str] = None
-    debug_enabled: bool = False
-    detailed_dl_debug_enabled: bool = False
 
 
 class AlpacaData(DataAPI):
@@ -895,490 +829,3 @@ class AlpacaData(DataAPI):
                 )
 
         return _to_framework_bars(data)
-
-
-class AlpacaStream(StreamingAPI):
-    """Streaming provider for the Alpaca WebSocket API.
-
-    Supports US equities and the Bitcoin and Ethereum US dollar pairs.
-
-    Attributes
-    ----------
-    config: AlpacaConfig
-        The connection settings.
-    stock_ws_client: StockDataStream
-        The Alpaca WebSocket client for equities.
-    crypto_ws_client: CryptoDataStream
-        The Alpaca WebSocket client for crypto pairs.
-    crypto_symbols: Dict[str, str]
-        The subscribed crypto symbols, keyed by Alpaca crypto pair.
-    task: Optional[asyncio.Task]
-        The background streaming task, or None before run.
-
-    Methods
-    -------
-    run
-        Start the WebSocket clients in the background.
-    subscribe
-        Subscribe to event types for the given symbols.
-    close
-        Stop the WebSocket clients.
-    """
-
-    def __init__(self, queues: SymbolQueueMap, config: AlpacaConfig):
-        """Initialize the WebSocket clients and register the shared instance.
-
-        Parameters
-        ----------
-        queues: QueueMapper
-            The mapper from each symbol to its event queue.
-        config: AlpacaConfig
-            The connection settings.
-
-        Raises
-        ------
-        Raise ValueError if config.data_feed is not an Alpaca data feed, and
-        AssertionError if a client cannot be created.
-        """
-        self.config = config
-        feed = DataFeed(config.data_feed.lower())
-        self.stock_ws_client = StockDataStream(
-            api_key=config.api_key,
-            secret_key=config.api_secret,
-            feed=feed if feed in _STREAM_FEEDS else DataFeed.SIP,
-            # the client only accepts the IEX and SIP feeds by name
-            url_override=(
-                None
-                if feed in _STREAM_FEEDS
-                else f"{BaseURL.MARKET_DATA_STREAM.value}/v2/{feed.value}"
-            ),
-        )
-        self.crypto_ws_client = CryptoDataStream(
-            api_key=config.api_key,
-            secret_key=config.api_secret,
-        )
-
-        if not (self.stock_ws_client and self.crypto_ws_client):
-            raise AssertionError(
-                "Failed to authenticate Alpaca web_socket client"
-            )
-
-        self.crypto_symbols: Dict[str, str] = {}
-        self.task: Optional[asyncio.Task] = None
-        self._client_tasks: Dict[DataStream, asyncio.Task] = {}
-        self._stop_event = asyncio.Event()
-        super().__init__(queues)
-
-    async def run(self):
-        """Start streaming in the background, if not yet running.
-
-        Each WebSocket client connects once it has a subscription.
-
-        Raises
-        ------
-        Raise AssertionError if no queues are set.
-        """
-        if not self.task:
-            if self.queues:
-                self.task = asyncio.create_task(self._run_clients())
-            else:
-                raise AssertionError(
-                    "can't call `AlpacaStream.run()` without queues"
-                )
-
-    async def _run_clients(self) -> None:
-        """Run the subscribed WebSocket clients until close is called."""
-        for client in (self.stock_ws_client, self.crypto_ws_client):
-            if any(client._handlers.values()):
-                self._start_client(client)
-
-        await self._stop_event.wait()
-        await asyncio.gather(*self._client_tasks.values())
-
-    def _start_client(self, client: DataStream) -> None:
-        """Run a WebSocket client in the background.
-
-        Do nothing before run or if the client was already started.
-
-        Parameters
-        ----------
-        client: DataStream
-            The client to run.
-        """
-        # client.run() calls asyncio.run(), which cannot run inside this
-        # event loop. Start a client only once it has a subscription, since
-        # until then it busy-waits for one.
-        if self.task and client not in self._client_tasks:
-            self._client_tasks[client] = asyncio.create_task(
-                client._run_forever()
-            )
-
-    @staticmethod
-    def _add_subscription(
-        client: DataStream,
-        subscribe: Callable[..., None],
-        handler: Callable,
-        symbols: List[str],
-    ) -> None:
-        """Register a handler for symbols on a WebSocket client.
-
-        Do not send the subscription; see _send_subscriptions.
-
-        Parameters
-        ----------
-        client: DataStream
-            The client to register with.
-        subscribe: Callable[..., None]
-            The client's subscription method for the event type.
-        handler: Callable
-            The coroutine function to handle the events.
-        symbols: List[str]
-            The symbols to subscribe to, in the client's format.
-        """
-        if not symbols:
-            return
-
-        # a running client would otherwise block the event loop until its
-        # own coroutine, on this loop, sends the subscription
-        running = client._running
-        client._running = False
-        try:
-            subscribe(handler, *symbols)
-        finally:
-            client._running = running
-
-    async def _send_subscriptions(self, client: DataStream) -> None:
-        """Send the subscriptions of a connected client, or start it.
-
-        A client that is not yet connected sends its subscriptions once it
-        connects.
-
-        Parameters
-        ----------
-        client: DataStream
-            The client whose subscriptions changed.
-        """
-        if not client._running:
-            self._start_client(client)
-            return
-
-        try:
-            await client._send_subscribe_msg()
-        except Exception as e:
-            # the client subscribes again when it reconnects
-            tlog(f"[EXCEPTION] subscribe(): {type(e).__name__} {e}")
-
-    @classmethod
-    async def _bar_handler(cls, msg):
-        """Convert an equity bar into an "AM" event and enqueue it.
-
-        In the event, average holds the volume-weighted price and vwap is NaN.
-        Propagate an exception if the queue is full; log and suppress any other
-        error.
-
-        Parameters
-        ----------
-        msg
-            The Alpaca bar.
-        """
-        try:
-            event = {
-                "symbol": msg.symbol,
-                "open": msg.open,
-                "close": msg.close,
-                "high": msg.high,
-                "low": msg.low,
-                "timestamp": pd.to_datetime(
-                    msg.timestamp, utc=True
-                ).astimezone(nytz),
-                "volume": _whole(msg.volume),
-                "count": int(msg.trade_count),
-                "vwap": np.nan,
-                "average": msg.vwap,
-                "totalvolume": None,
-                "EV": "AM",
-            }
-            cls.get_instance().queues[msg.symbol].put(event, timeout=1)
-        except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {msg.symbol} "
-                f"is FULL:{f}"
-            )
-            raise
-        except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
-            )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
-
-    @classmethod
-    async def _crypto_bar_handler(cls, msg):
-        """Convert a crypto bar into an "AM" event and enqueue it.
-
-        Name the pair as it was subscribed. Otherwise behave like
-        _bar_handler.
-
-        Parameters
-        ----------
-        msg
-            The Alpaca crypto bar.
-        """
-        try:
-            symbol = cls.get_instance().crypto_symbols.get(
-                msg.symbol, msg.symbol
-            )
-            event = {
-                "symbol": symbol,
-                "open": msg.open,
-                "close": msg.close,
-                "high": msg.high,
-                "low": msg.low,
-                "timestamp": pd.to_datetime(
-                    msg.timestamp, utc=True
-                ).astimezone(nytz),
-                "volume": msg.volume,
-                "count": int(msg.trade_count),
-                "vwap": np.nan,
-                "average": msg.vwap,
-                "totalvolume": None,
-                "EV": "AM",
-            }
-            cls.get_instance().queues[symbol].put(event, timeout=1)
-        except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {msg.symbol} "
-                f"is FULL:{f}"
-            )
-            raise
-        except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
-            )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
-
-    @classmethod
-    async def _trades_handler(cls, msg):
-        """Convert an equity trade into a "T" event and enqueue it.
-
-        Occasionally log a warning for trades more than ten seconds old.
-        Propagate an exception if the queue is full; log and suppress any other
-        error.
-
-        Parameters
-        ----------
-        msg
-            The Alpaca trade.
-        """
-        try:
-            ts = pd.Timestamp(msg.timestamp).tz_convert(NY)
-            if (time_diff := (datetime.now(tz=nytz) - ts)) > timedelta(
-                seconds=10
-            ) and randint(  # nosec
-                1, 100
-            ) == 1:  # nosec
-                tlog(
-                    f"Received trade for {msg.symbol} too out of sync w {time_diff}"
-                )
-
-            event = {
-                "symbol": msg.symbol,
-                "price": msg.price,
-                "open": msg.price,
-                "close": msg.price,
-                "high": msg.price,
-                "low": msg.price,
-                "timestamp": ts,
-                "volume": _whole(msg.size),
-                "exchange": msg.exchange,
-                "conditions": msg.conditions
-                if hasattr(msg, "conditions")
-                else None,
-                "tape": msg.tape if hasattr(msg, "tape") else None,
-                "average": np.nan,
-                "count": 1,
-                "vwap": np.nan,
-                "EV": "T",
-            }
-
-            cls.get_instance().queues[msg.symbol].put(event, block=False)
-
-        except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {msg.symbol} "
-                f"is FULL:{f}"
-            )
-            raise
-        except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
-            )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
-
-    @classmethod
-    async def _crypto_trades_handler(cls, msg):
-        """Convert a crypto trade into a "T" event and enqueue it.
-
-        Name the pair as it was subscribed. Otherwise behave like
-        _trades_handler.
-
-        Parameters
-        ----------
-        msg
-            The Alpaca crypto trade.
-        """
-        try:
-            symbol = cls.get_instance().crypto_symbols.get(
-                msg.symbol, msg.symbol
-            )
-            ts = pd.Timestamp(msg.timestamp).tz_convert(NY)
-            if (time_diff := (datetime.now(tz=nytz) - ts)) > timedelta(
-                seconds=10
-            ) and randint(  # nosec
-                1, 100
-            ) == 1:  # nosec
-                tlog(
-                    f"Received trade for {symbol} too out of sync "
-                    f"w {time_diff}"
-                )
-
-            event = {
-                "symbol": symbol,
-                "price": msg.price,
-                "open": msg.price,
-                "close": msg.price,
-                "high": msg.price,
-                "low": msg.price,
-                "timestamp": ts,
-                "volume": msg.size,
-                "exchange": msg.exchange,
-                "conditions": msg.conditions
-                if hasattr(msg, "conditions")
-                else None,
-                "tape": msg.tape if hasattr(msg, "tape") else None,
-                "average": np.nan,
-                "count": 1,
-                "vwap": np.nan,
-                "EV": "T",
-            }
-
-            cls.get_instance().queues[symbol].put(event, block=False)
-
-        except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {msg.symbol} "
-                f"is FULL:{f}"
-            )
-            raise
-        except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
-            )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
-
-    @classmethod
-    async def _quotes_handler(cls, msg):
-        """Discard a quote message.
-
-        Parameters
-        ----------
-        msg
-            The Alpaca quote.
-        """
-        pass
-
-    async def subscribe(
-        self, symbols: List[str], events: List[WSEventType]
-    ) -> bool:
-        """Subscribe to event types for the given symbols.
-
-        Parameters
-        ----------
-        symbols: List[str]
-            The equity symbols and crypto pairs to subscribe to.
-        events: List[WSEventType]
-            The event types to receive; types other than minute bars, trades
-            and quotes are ignored.
-
-        Returns
-        -------
-        Return True.
-        """
-        tlog(f"Starting subscription for {len(symbols)} symbols")
-        upper_symbols = [symbol.upper() for symbol in symbols]
-        stock, crypto = self.stock_ws_client, self.crypto_ws_client
-        for syms in chunks(upper_symbols, 1000):
-            tlog(f"\tsubscribe {len(syms)}/{len(upper_symbols)}")
-
-            crypto_symbols = list(filter(_is_crypto_symbol, syms))
-            equity_symbols = [x for x in syms if x not in crypto_symbols]
-            crypto_pairs = [_crypto_pair(x) for x in crypto_symbols]
-            self.crypto_symbols.update(zip(crypto_pairs, crypto_symbols))
-
-            for event in events:
-                if event == WSEventType.MIN_AGG:
-                    self._add_subscription(
-                        crypto,
-                        crypto.subscribe_bars,
-                        AlpacaStream._crypto_bar_handler,
-                        crypto_pairs,
-                    )
-                    self._add_subscription(
-                        stock,
-                        stock.subscribe_bars,
-                        AlpacaStream._bar_handler,
-                        equity_symbols,
-                    )
-                elif event == WSEventType.TRADE:
-                    self._add_subscription(
-                        crypto,
-                        crypto.subscribe_trades,
-                        AlpacaStream._crypto_trades_handler,
-                        crypto_pairs,
-                    )
-                    self._add_subscription(
-                        stock,
-                        stock.subscribe_trades,
-                        AlpacaStream._trades_handler,
-                        equity_symbols,
-                    )
-                elif event == WSEventType.QUOTE:
-                    self._add_subscription(
-                        crypto,
-                        crypto.subscribe_quotes,
-                        AlpacaStream._quotes_handler,
-                        crypto_pairs,
-                    )
-                    self._add_subscription(
-                        stock,
-                        stock.subscribe_quotes,
-                        AlpacaStream._quotes_handler,
-                        equity_symbols,
-                    )
-
-            if crypto_pairs:
-                await self._send_subscriptions(crypto)
-            if equity_symbols:
-                await self._send_subscriptions(stock)
-
-            await asyncio.sleep(1)
-
-        tlog(f"Completed subscription for {len(symbols)} symbols")
-        return True
-
-    async def close(self) -> None:
-        """Stop the WebSocket clients and wait for streaming to end."""
-        tlog("Closing AlpacaStream")
-
-        if self.task:
-            for client in self._client_tasks:
-                await client.stop_ws()
-            self._stop_event.set()
-
-            while not self.task.done():
-                await asyncio.sleep(1.0)
-
-            tlog("Task Done. Closed AlpacaStream")

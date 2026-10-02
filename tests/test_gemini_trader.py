@@ -4,7 +4,7 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.trading.gemini import GeminiTrader
+from liualgotrader.vendors.gemini.trader import GeminiTrader
 
 gemini_trader: GeminiTrader
 

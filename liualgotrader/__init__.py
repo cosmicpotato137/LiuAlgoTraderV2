@@ -18,7 +18,7 @@ analytics
 common
     Configuration, data access, shared types and utilities.
 data
-    Market data providers and streaming interfaces.
+    Historical market data interface.
 db
     Database access through the SQLAlchemy ORM.
 fincalcs
@@ -33,6 +33,10 @@ scripts
     Command-line entry points of the framework.
 strategies
     The base class for trading strategies.
-trading
-    Broker integrations for order execution.
+stream
+    Real-time market data streaming interface.
+trade
+    Broker interface for order execution.
+vendors
+    Vendor implementations of the trader, data and streaming interfaces.
 """

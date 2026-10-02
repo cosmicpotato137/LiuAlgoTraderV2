@@ -1,8 +1,8 @@
 import pytest
 
 from liualgotrader.common import config
-from liualgotrader.data.alpaca import AlpacaData
 from liualgotrader.db.session import create_db_connection
+from liualgotrader.vendors.alpaca.data import AlpacaData
 
 
 def test_get_trading_day():

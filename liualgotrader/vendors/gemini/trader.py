@@ -25,8 +25,8 @@ from pytz import timezone
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
 from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import Order, SymbolQueueMap, ThreadFlags, Trade
-from liualgotrader.data.gemini import GeminiConfig
-from liualgotrader.trading.base import TraderAPI
+from liualgotrader.trade.base import TraderAPI
+from liualgotrader.vendors.gemini.config import GeminiConfig
 
 utctz = timezone("UTC")
 

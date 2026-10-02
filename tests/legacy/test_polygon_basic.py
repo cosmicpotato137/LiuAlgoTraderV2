@@ -6,7 +6,7 @@ import pytest
 from liualgotrader.common import config
 from liualgotrader.common.types import (SymbolQueueMap, TimeScale, WSConnectState,
                                         WSEventType)
-from liualgotrader.data.polygon import PolygonData
+from liualgotrader.vendors.polygon.data import PolygonData
 
 
 @pytest.mark.devtest

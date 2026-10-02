@@ -21,7 +21,7 @@ from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.keystore import KeyStore
-from liualgotrader.trading.base import TraderAPI
+from liualgotrader.trade.base import TraderAPI
 
 
 class StrategyType(Enum):

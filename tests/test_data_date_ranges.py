@@ -6,7 +6,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from liualgotrader.common.types import DataConnectorType, TimeScale
-from liualgotrader.data.data_factory import data_loader_factory
+from liualgotrader.data.factory import data_loader_factory
 
 
 def test_alpaca_num_trading_day():

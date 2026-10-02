@@ -5,7 +5,7 @@ import pytest
 
 from liualgotrader.common.decorators import timeit
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.trading.trader_factory import trader_factory
+from liualgotrader.trade.factory import trader_factory
 
 
 @pytest.fixture(autouse=True)

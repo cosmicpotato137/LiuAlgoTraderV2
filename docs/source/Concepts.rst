@@ -167,14 +167,25 @@ files for a future developer.
     |   |   ├── data_loader.py
     |   |   └── trading_data.py
     |   ├── data
-    |   |   ├── data_base.py   
-    |   |   ├── streaming_base.py     
-    |   |   ├── data_factory.py      
-    |   |   ├── polygon.py      
-    |   |   └── alpaca.py      
-    |   ├── trading  
-    |   |   ├── base.py      
-    |   |   └── alpaca.py       
+    |   |   ├── data_base.py
+    |   |   └── data_factory.py
+    |   ├── streaming
+    |   |   ├── streaming_base.py
+    |   |   └── streaming_factory.py
+    |   ├── trade
+    |   |   ├── base.py
+    |   |   └── trader_factory.py
+    |   ├── vendors
+    |   |   ├── alpaca
+    |   |   |   ├── config.py
+    |   |   |   ├── data.py
+    |   |   |   ├── streaming.py
+    |   |   |   └── trader.py
+    |   |   ├── polygon
+    |   |   |   ├── config.py
+    |   |   |   ├── data.py
+    |   |   |   └── streaming.py
+    |   |   └── ...
     │   ├─── analytics
     |   |    ├── analysis.py
     |   |    └── consolidate.py

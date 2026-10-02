@@ -6,7 +6,7 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.types import TimeScale
-from liualgotrader.data.alpaca import AlpacaData
+from liualgotrader.vendors.alpaca.data import AlpacaData
 
 
 @pytest.mark.devtest

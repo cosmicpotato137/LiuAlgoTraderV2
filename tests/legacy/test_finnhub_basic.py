@@ -6,7 +6,7 @@ import pytest
 from liualgotrader.common import config
 from liualgotrader.common.types import (SymbolQueueMap, TimeScale, WSConnectState,
                                         WSEventType)
-from liualgotrader.data.finnhub import FinnhubData
+from liualgotrader.vendors.finnhub.data import FinnhubData
 
 
 @pytest.mark.devtest

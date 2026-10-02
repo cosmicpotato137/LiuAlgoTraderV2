@@ -14,7 +14,7 @@ from liualgotrader.common.market_data import (get_industries_tickers,
                                               sp500_historical_constituents)
 from liualgotrader.common.types import TimeScale
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.trading.alpaca import AlpacaTrader
+from liualgotrader.vendors.alpaca.trader import AlpacaTrader
 
 
 @pytest.fixture(autouse=True)
