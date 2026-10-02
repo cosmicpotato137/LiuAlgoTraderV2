@@ -2,6 +2,8 @@
 
 Classes
 -------
+FinnhubConfig
+    Connection settings for the Finnhub API.
 FinnhubData
     Historical market data provider for the Finnhub API.
 
@@ -12,6 +14,7 @@ check_auth
 """
 
 import io
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -20,7 +23,6 @@ import pytz
 import requests
 from finnhub import Client
 
-from liualgotrader.common import config
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data import static
 from liualgotrader.data.data_base import DataAPI
@@ -58,6 +60,25 @@ def check_auth(f):
     return wrapper
 
 
+@dataclass
+class FinnhubConfig:
+    """Connection settings for the Finnhub API.
+
+    Attributes
+    ----------
+    api_key: Optional[str]
+        The API key.
+    base_url: Optional[str]
+        The API base URL.
+    websocket_limit: int
+        The maximum number of symbols to stream.
+    """
+
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    websocket_limit: int = 50
+
+
 class FinnhubData(DataAPI):
     """Historical market data provider for the Finnhub API.
 
@@ -65,6 +86,8 @@ class FinnhubData(DataAPI):
 
     Attributes
     ----------
+    config: FinnhubConfig
+        The connection settings.
     finnhub_rest_client
         The Finnhub REST client.
     stock_exchanges: pd.DataFrame
@@ -94,14 +117,20 @@ class FinnhubData(DataAPI):
         Raise NotImplementedError.
     """
 
-    def __init__(self):
+    def __init__(self, config: FinnhubConfig):
         """Initialize the Finnhub client and download the stock exchange list.
+
+        Parameters
+        ----------
+        config: FinnhubConfig
+            The connection settings.
 
         Raises
         ------
         Raise AssertionError if the client cannot be created.
         """
-        self.finnhub_rest_client = Client(api_key=config.finnhub_api_key)
+        self.config = config
+        self.finnhub_rest_client = Client(api_key=config.api_key)
         if not self.finnhub_rest_client:
             raise AssertionError("Failed to authenticate Finnhub  client")
 

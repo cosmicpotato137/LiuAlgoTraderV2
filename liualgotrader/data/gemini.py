@@ -2,6 +2,8 @@
 
 Classes
 -------
+GeminiConfig
+    Connection settings for the Gemini API.
 GeminiData
     Market data provider for the Gemini cryptocurrency exchange.
 GeminiStream
@@ -19,11 +21,11 @@ import concurrent.futures
 import hashlib
 import hmac
 import json
-import os
 import queue
 import ssl
 import time
 import traceback
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from threading import Thread
 from typing import Dict, List, Optional
@@ -34,10 +36,9 @@ import pytz
 import requests
 import websocket
 
-from liualgotrader.common import config
 from liualgotrader.common.list_utils import chunks
 from liualgotrader.common.tlog import tlog
-from liualgotrader.common.types import (QueueMapper, TimeScale, Trade,
+from liualgotrader.common.types import (SymbolQueueMap, TimeScale, Trade,
                                         WSEventType)
 from liualgotrader.data.data_base import DataAPI
 from liualgotrader.data.streaming_base import StreamingAPI
@@ -66,6 +67,37 @@ def requests_get(url):
     return r
 
 
+@dataclass
+class GeminiConfig:
+    """Connection settings for the Gemini API.
+
+    Attributes
+    ----------
+    api_key: Optional[str]
+        The API key.
+    api_secret: Optional[str]
+        The API secret.
+    base_url: str
+        The REST API base URL.
+    base_websocket: str
+        The websocket API base URL.
+    trading_base_url: str
+        The REST API base URL for trading.
+    trading_base_websocket: str
+        The websocket API base URL for trading.
+    debug_enabled: bool
+        Whether to print the traceback of errors in stream handlers.
+    """
+
+    api_key: Optional[str] = None
+    api_secret: Optional[str] = None
+    base_url: str = "https://api.gemini.com"
+    base_websocket: str = "wss://api.gemini.com"
+    trading_base_url: str = "https://api.sandbox.gemini.com"
+    trading_base_websocket: str = "wss://api.sandbox.gemini.com"
+    debug_enabled: bool = False
+
+
 class GeminiData(DataAPI):
     """DataAPI implementation for the Gemini cryptocurrency exchange.
 
@@ -75,6 +107,8 @@ class GeminiData(DataAPI):
 
     Attributes
     ----------
+    config: GeminiConfig
+        The connection settings.
     running_task: Optional[Thread]
         Reserved for a background thread; always None.
     ws
@@ -86,8 +120,6 @@ class GeminiData(DataAPI):
         Return the symbols that Gemini supports.
     get_market_snapshot
         Raise NotImplementedError.
-    aget_symbol_data
-        Asynchronously return historical bars for a symbol.
     get_symbols_data
         Raise NotImplementedError.
     trading_days_slice
@@ -106,15 +138,18 @@ class GeminiData(DataAPI):
         Raise NotImplementedError.
     """
 
-    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
-    gemini_api_secret: Optional[str] = os.getenv("GEMINI_API_SECRET")
-    base_url = "https://api.gemini.com"
-    base_websocket = "wss://api.gemini.com"
     datapoints_per_request = 500
     max_trades_per_minute = 10
 
-    def __init__(self):
-        """Initialize the data provider."""
+    def __init__(self, config: GeminiConfig):
+        """Initialize the data provider.
+
+        Parameters
+        ----------
+        config: GeminiConfig
+            The connection settings.
+        """
+        self.config = config
         self.running_task: Optional[Thread] = None
         self.ws = None
 
@@ -126,7 +161,7 @@ class GeminiData(DataAPI):
         Raise AssertionError if the request returns an HTTP error status.
         """
         endpoint = "/v1/symbols"
-        url = self.base_url + endpoint
+        url = self.config.base_url + endpoint
         response = requests.get(url)
         if response.status_code == 200:
             return response.json()
@@ -224,7 +259,7 @@ class GeminiData(DataAPI):
 
         return _newdf
 
-    async def aget_symbol_data(
+    async def _aget_symbol_data(
         self,
         symbol: str,
         start: date,
@@ -266,7 +301,7 @@ class GeminiData(DataAPI):
                 loop.run_in_executor(
                     executor,
                     requests_get,
-                    f"{self.base_url}{endpoint}?timestamp={int(current_timestamp.timestamp())}&limit_trades=500",
+                    f"{self.config.base_url}{endpoint}?timestamp={int(current_timestamp.timestamp())}&limit_trades=500",
                 )
                 for current_timestamp in ranges[:-1]
             ]
@@ -386,10 +421,10 @@ class GeminiData(DataAPI):
 
         Returns
         -------
-        Return the same DataFrame as aget_symbol_data.
+        Return the same DataFrame as _aget_symbol_data.
         """
         symbol = symbol.lower()
-        return asyncio.run(self.aget_symbol_data(symbol, start, end, scale))
+        return asyncio.run(self._aget_symbol_data(symbol, start, end, scale))
 
     def num_trading_minutes(self, symbol: str, start: date, end: date) -> int:
         """Raise NotImplementedError, as counting minutes is unsupported.
@@ -427,12 +462,12 @@ class GeminiData(DataAPI):
 class GeminiStream(StreamingAPI):
     """StreamingAPI implementation for Gemini trades.
 
-    Only btcusd trades are streamed, whatever the subscriptions. The connection
-    authenticates with the GEMINI_API_KEY and GEMINI_API_SECRET environment
-    variables.
+    Only btcusd trades are streamed, whatever the subscriptions.
 
     Attributes
     ----------
+    config: GeminiConfig
+        The connection settings.
     running_task: Optional[Thread]
         The websocket thread, or None.
     ws
@@ -444,31 +479,21 @@ class GeminiStream(StreamingAPI):
         Start the websocket on a background thread.
     close
         Stop the websocket thread.
-    on_message
-        Dispatch the trades in a websocket message.
-    on_error
-        Log a websocket error.
-    on_close
-        Log the websocket close status.
-    trades_handler
-        Put a normalized trade event on the btcusd queue.
     subscribe
         Return True without subscribing.
     """
 
-    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
-    gemini_api_secret: Optional[str] = os.getenv("GEMINI_API_SECRET")
-    base_url = "https://api.gemini.com"
-    base_websocket = "wss://api.gemini.com"
-
-    def __init__(self, queues: QueueMapper):
+    def __init__(self, queues: SymbolQueueMap, config: GeminiConfig):
         """Initialize the stream and register it as the shared instance.
 
         Parameters
         ----------
         queues: QueueMapper
             The mapping from each symbol to the queue for its events.
+        config: GeminiConfig
+            The connection settings.
         """
+        self.config = config
         self.running_task: Optional[Thread] = None
         self.ws = None
         super().__init__(queues)
@@ -485,7 +510,7 @@ class GeminiStream(StreamingAPI):
         ------
         Raise AssertionError if the API key or secret is not set.
         """
-        if not self.gemini_api_secret or not self.gemini_api_key:
+        if not self.config.api_secret or not self.config.api_key:
             raise AssertionError(
                 "both env variables GEMINI_API_KEY and GEMINI_API_SECRET must be set up"
             )
@@ -495,11 +520,11 @@ class GeminiStream(StreamingAPI):
         encoded_payload = json.dumps(payload).encode()
         b64 = base64.b64encode(encoded_payload)
         signature = hmac.new(
-            self.gemini_api_secret.encode(), b64, hashlib.sha384
+            self.config.api_secret.encode(), b64, hashlib.sha384
         ).hexdigest()
 
         return {
-            "X-GEMINI-APIKEY": self.gemini_api_key,
+            "X-GEMINI-APIKEY": self.config.api_key,
             "X-GEMINI-PAYLOAD": b64.decode(),
             "X-GEMINI-SIGNATURE": signature,
         }
@@ -522,10 +547,10 @@ class GeminiStream(StreamingAPI):
             payload = {"request": endpoint}
             headers = self._generate_ws_headers(payload)
             self.ws = websocket.WebSocketApp(
-                f"{self.base_websocket}{endpoint}?trades=true&heartbeat=true",
-                on_message=self.on_message,
-                on_error=self.on_error,
-                on_close=self.on_close,
+                f"{self.config.base_websocket}{endpoint}?trades=true&heartbeat=true",
+                on_message=self._on_message,
+                on_error=self._on_error,
+                on_close=self._on_close,
                 header=headers,
             )
             self.running_task = Thread(
@@ -547,8 +572,8 @@ class GeminiStream(StreamingAPI):
             self.running_task = None
 
     @classmethod
-    def on_message(cls, ws, msgs):
-        """Pass each trade event in a websocket message to trades_handler.
+    def _on_message(cls, ws, msgs):
+        """Pass each trade event in a websocket message to _trades_handler.
 
         Ignore messages that are not updates.
 
@@ -566,7 +591,7 @@ class GeminiStream(StreamingAPI):
 
         for event in msg["events"]:
             if event["type"] == "trade":
-                cls.trades_handler(
+                cls._trades_handler(
                     pd.Timestamp(
                         datetime.fromtimestamp(msg["timestamp"]).astimezone(
                             utctz
@@ -576,7 +601,7 @@ class GeminiStream(StreamingAPI):
                 )
 
     @classmethod
-    def on_error(cls, ws, error):
+    def _on_error(cls, ws, error):
         """Log an error reported by the websocket.
 
         Parameters
@@ -589,7 +614,7 @@ class GeminiStream(StreamingAPI):
         tlog(f"[ERROR] GeminiStream {error}")
 
     @classmethod
-    def on_close(cls, ws, close_status_code, close_msg):
+    def _on_close(cls, ws, close_status_code, close_msg):
         """Log the status code and message sent when the websocket closes.
 
         Parameters
@@ -606,7 +631,7 @@ class GeminiStream(StreamingAPI):
         )
 
     @classmethod
-    def trades_handler(cls, timestamp: datetime, event: Dict):
+    def _trades_handler(cls, timestamp: datetime, event: Dict):
         """Put a Gemini trade on the btcusd queue as a normalized trade event.
 
         Log trades received more than two seconds late.
@@ -661,7 +686,7 @@ class GeminiStream(StreamingAPI):
             tlog(
                 f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
             )
-            if config.debug_enabled:
+            if cls.get_instance().config.debug_enabled:
                 traceback.print_exc()
 
     async def subscribe(

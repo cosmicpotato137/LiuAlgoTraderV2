@@ -5,11 +5,12 @@ from threading import Thread
 
 import pytest
 
-from liualgotrader.common.types import QueueMapper, WSEventType
+from liualgotrader.common import config
+from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.data.gemini import GeminiStream
 
 gemini_stream: GeminiStream
-queues: QueueMapper
+queues: SymbolQueueMap
 stop: bool = False
 
 
@@ -17,8 +18,8 @@ stop: bool = False
 async def stream_setup():
     global gemini_stream
     global queues
-    queues = QueueMapper()
-    gemini_stream = GeminiStream(queues)
+    queues = SymbolQueueMap()
+    gemini_stream = GeminiStream(queues, config.gemini)
 
 
 def listener(q: Queue):

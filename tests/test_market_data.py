@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 import pytest
 
+from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.market_data import (get_industries_tickers,
                                               get_market_industries,
@@ -83,7 +84,7 @@ async def test_get_trading_holidays():
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_get_trading_day():
-    alpaca = AlpacaTrader()
+    alpaca = AlpacaTrader(config.alpaca)
     today = date.today()
 
     d1 = await get_trading_day(now=today, offset=1)

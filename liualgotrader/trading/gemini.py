@@ -10,7 +10,6 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import queue
 import ssl
 import time
@@ -23,25 +22,27 @@ import requests
 import websocket
 from pytz import timezone
 
-from liualgotrader.common import config
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
 from liualgotrader.common.tlog import tlog
-from liualgotrader.common.types import Order, QueueMapper, ThreadFlags, Trade
-from liualgotrader.trading.base import Trader
+from liualgotrader.common.types import Order, SymbolQueueMap, ThreadFlags, Trade
+from liualgotrader.data.gemini import GeminiConfig
+from liualgotrader.trading.base import TraderAPI
 
 utctz = timezone("UTC")
 
 
-class GeminiTrader(Trader):
+class GeminiTrader(TraderAPI):
     """Trader implementation for the Gemini cryptocurrency exchange.
 
     The market is treated as open all day, every day; all symbols are
-    fractionable, none is shortable, and market orders are rejected. The
-    credentials come from the GEMINI_API_KEY and GEMINI_API_SECRET environment
-    variables, and all requests go to the Gemini sandbox.
+    fractionable, none is shortable, and market orders are rejected. Requests
+    go to the trading URLs of the config, which are the Gemini sandbox by
+    default.
 
     Attributes
     ----------
+    config: GeminiConfig
+        The connection settings.
     running_task: Optional[Thread]
         The order event listener thread, or None.
     hb_task: Optional[Thread]
@@ -52,6 +53,8 @@ class GeminiTrader(Trader):
         The order event WebSocket application, or None.
     flags: Optional[ThreadFlags]
         The flags that keep the heartbeat thread running, or None.
+    last_nonce: Optional[int]
+        The nonce of the latest signed REST request, or None.
 
     Methods
     -------
@@ -100,31 +103,28 @@ class GeminiTrader(Trader):
         Submit an exchange limit order (overrides Trader).
     """
 
-    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
-    gemini_api_secret: Optional[str] = os.getenv("GEMINI_API_SECRET")
-    base_url = "https://api.sandbox.gemini.com"
-    base_websocket = "wss://api.sandbox.gemini.com"
-    last_nonce = None
-
-    def __init__(self, qm: QueueMapper = None):
+    def __init__(self, config: GeminiConfig, qm: SymbolQueueMap = None):
         """Initialize the trader with no listener running.
 
         Register the trader as the current Trader instance.
 
         Parameters
         ----------
+        config: GeminiConfig
+            The connection settings.
         qm: QueueMapper, default None
             The queue mapper that receives trade updates.
         """
+        self.config = config
         self.running_task: Optional[Thread] = None
         self.hb_task: Optional[Thread] = None
         self.send_hb = True
         self.ws = None
         self.flags: Optional[ThreadFlags] = None
+        self.last_nonce: Optional[int] = None
         super().__init__(qm)
 
-    @classmethod
-    def _generate_request_headers(cls, payload: Dict) -> Dict:
+    def _generate_request_headers(self, payload: Dict) -> Dict:
         """Return signed headers for an authenticated REST request.
 
         Parameters
@@ -136,29 +136,29 @@ class GeminiTrader(Trader):
         ------
         Raise AssertionError if the API key or secret is not set.
         """
-        if not cls.gemini_api_secret or not cls.gemini_api_key:
+        if not self.config.api_secret or not self.config.api_key:
             raise AssertionError(
                 "both env variables GEMINI_API_KEY and GEMINI_API_SECRET must be set up"
             )
         t = datetime.now()
         payload_nonce = int(time.mktime(t.timetuple()) * 1000)
 
-        if cls.last_nonce and cls.last_nonce == payload_nonce:
+        if self.last_nonce and self.last_nonce == payload_nonce:
             payload_nonce += 1
 
-        cls.last_nonce = payload_nonce
+        self.last_nonce = payload_nonce
 
         payload["nonce"] = str(payload_nonce)
         encoded_payload = json.dumps(payload).encode()
         b64 = base64.b64encode(encoded_payload)
         signature = hmac.new(
-            cls.gemini_api_secret.encode(), b64, hashlib.sha384
+            self.config.api_secret.encode(), b64, hashlib.sha384
         ).hexdigest()
 
         return {
             "Content-Type": "text/plain",
             "Content-Length": "0",
-            "X-GEMINI-APIKEY": cls.gemini_api_key,
+            "X-GEMINI-APIKEY": self.config.api_key,
             "X-GEMINI-PAYLOAD": b64,
             "X-GEMINI-SIGNATURE": signature,
             "Cache-Control": "no-cache",
@@ -176,7 +176,7 @@ class GeminiTrader(Trader):
         ------
         Raise AssertionError if the API key or secret is not set.
         """
-        if not self.gemini_api_secret or not self.gemini_api_key:
+        if not self.config.api_secret or not self.config.api_key:
             raise AssertionError(
                 "both env variables GEMINI_API_KEY and GEMINI_API_SECRET must be set up"
             )
@@ -186,11 +186,11 @@ class GeminiTrader(Trader):
         encoded_payload = json.dumps(payload).encode()
         b64 = base64.b64encode(encoded_payload)
         signature = hmac.new(
-            self.gemini_api_secret.encode(), b64, hashlib.sha384
+            self.config.api_secret.encode(), b64, hashlib.sha384
         ).hexdigest()
 
         return {
-            "X-GEMINI-APIKEY": self.gemini_api_key,
+            "X-GEMINI-APIKEY": self.config.api_key,
             "X-GEMINI-PAYLOAD": b64.decode(),
             "X-GEMINI-SIGNATURE": signature,
         }
@@ -411,7 +411,7 @@ class GeminiTrader(Trader):
         """
         symbol = symbol.lower()
         endpoint = "/v1/balances"
-        url = self.base_url + endpoint
+        url = self.config.trading_base_url + endpoint
 
         payload = {
             "request": endpoint,
@@ -450,7 +450,7 @@ class GeminiTrader(Trader):
         Raise AssertionError if Gemini reports an error.
         """
         endpoint = "/v1/order/status"
-        url = self.base_url + endpoint
+        url = self.config.trading_base_url + endpoint
 
         payload = {
             "request": endpoint,
@@ -485,8 +485,7 @@ class GeminiTrader(Trader):
         await self.close()
         await self.run()
 
-    @classmethod
-    def heartbeat(cls, flags: ThreadFlags):
+    def heartbeat(self, flags: ThreadFlags):
         """Send heartbeats to Gemini until flags.run is cleared.
 
         Block until stopped, so run it in a dedicated thread.
@@ -504,12 +503,12 @@ class GeminiTrader(Trader):
         while flags.run:
             tlog("GEMINI HEARTBEAT")
             endpoint = "/v1/heartbeat"
-            url = cls.base_url + endpoint
+            url = self.config.trading_base_url + endpoint
 
             payload = {
                 "request": endpoint,
             }
-            headers = cls._generate_request_headers(payload)
+            headers = self._generate_request_headers(payload)
             response = requests.post(url, data=None, headers=headers)
 
             if response.status_code != 200:
@@ -614,7 +613,7 @@ class GeminiTrader(Trader):
             payload = {"request": endpoint}
             headers = self._generate_ws_headers(payload)
             self.ws = websocket.WebSocketApp(
-                f"{self.base_websocket}{endpoint}?eventTypeFilter=cancel_rejected&eventTypeFilter=cancelled&eventTypeFilter=rejected&eventTypeFilter=fill&eventTypeFilter=closed&heartbeat=true",
+                f"{self.config.trading_base_websocket}{endpoint}?eventTypeFilter=cancel_rejected&eventTypeFilter=cancelled&eventTypeFilter=rejected&eventTypeFilter=fill&eventTypeFilter=closed&heartbeat=true",
                 on_message=self.on_message,
                 on_error=self.on_error,
                 on_close=self.on_close,
@@ -656,7 +655,7 @@ class GeminiTrader(Trader):
         Raise AssertionError if the request fails.
         """
         endpoint = "/v1/symbols"
-        url = self.base_url + endpoint
+        url = self.config.trading_base_url + endpoint
         response = requests.get(url)
         if response.status_code == 200:
             return response.json()
@@ -696,7 +695,7 @@ class GeminiTrader(Trader):
         Raise AssertionError if Gemini reports an error.
         """
         endpoint = "/v1/order/cancel"
-        url = self.base_url + endpoint
+        url = self.config.trading_base_url + endpoint
 
         payload = {"request": endpoint, "order_id": order.order_id}
         headers = self._generate_request_headers(payload)
@@ -787,7 +786,7 @@ class GeminiTrader(Trader):
             )
 
         endpoint = "/v1/order/new"
-        url = self.base_url + endpoint
+        url = self.config.trading_base_url + endpoint
         qty = round_asset(symbol, qty)
         payload = {
             "request": endpoint,

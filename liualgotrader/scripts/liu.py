@@ -248,7 +248,7 @@ def quickstart():
         return
 
     to_exit = False
-    if not config.alpaca_api_key or not config.alpaca_api_secret:
+    if not (os.getenv("APCA_API_KEY_ID") and os.getenv("APCA_API_SECRET_KEY")):
         print(
             "Liu Algo Trading Framework uses Alpaca for both LIVE and PAPER trading."
         )

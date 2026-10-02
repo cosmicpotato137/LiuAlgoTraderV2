@@ -2,11 +2,14 @@
 
 Classes
 -------
+TradierConfig
+    Connection settings for the Tradier API.
 TradierData
     Market data provider for the Tradier brokerage REST API.
 """
 
 import time as time_action
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Callable, Dict, List, Optional
 
@@ -15,7 +18,6 @@ import pandas_market_calendars
 import pytz
 import requests
 
-from liualgotrader.common import config
 from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.data_base import DataAPI
@@ -24,12 +26,38 @@ NY = "America/New_York"
 nytz = pytz.timezone(NY)
 
 
+@dataclass
+class TradierConfig:
+    """Connection settings for the Tradier API.
+
+    Attributes
+    ----------
+    base_url: str
+        The REST API base URL, ending with a slash.
+    websocket_base: str
+        The streaming API base URL, ending with a slash.
+    account_number: Optional[str]
+        The brokerage account number.
+    access_token: Optional[str]
+        The API access token.
+    """
+
+    base_url: str = "https://sandbox.tradier.com/v1/"
+    websocket_base: str = "wss://ws.tradier.com/v1/"
+    account_number: Optional[str] = None
+    access_token: Optional[str] = None
+
+
 class TradierData(DataAPI):
     """DataAPI implementation backed by the Tradier brokerage REST API.
 
-    Requests go to config.tradier_base_url and authenticate with
-    config.tradier_access_token. Snapshots, symbol listing and several
-    trading-calendar methods are not supported.
+    Snapshots, symbol listing and several trading-calendar methods are not
+    supported.
+
+    Attributes
+    ----------
+    config: TradierConfig
+        The connection settings.
 
     Methods
     -------
@@ -43,8 +71,6 @@ class TradierData(DataAPI):
         Return None.
     get_last_trading
         Return the most recent time the market was open.
-    get_trading_holidays
-        Return the NYSE holidays.
     get_trading_day
         Shift a time by NYSE business days.
     trading_days_slice
@@ -60,9 +86,15 @@ class TradierData(DataAPI):
     datapoints_per_request = 500
     max_trades_per_minute = 10
 
-    def __init__(self):
-        """Initialize the data provider."""
-        ...
+    def __init__(self, config: TradierConfig):
+        """Initialize the data provider.
+
+        Parameters
+        ----------
+        config: TradierConfig
+            The connection settings.
+        """
+        self.config = config
 
     def _get(self, url: str, params: Dict = None):
         """Return the response to an authenticated Tradier GET request.
@@ -83,7 +115,7 @@ class TradierData(DataAPI):
             url,
             params=params,
             headers={
-                "Authorization": f"Bearer {config.tradier_access_token}",
+                "Authorization": f"Bearer {self.config.access_token}",
                 "Accept": "application/json",
             },
         )
@@ -125,12 +157,12 @@ class TradierData(DataAPI):
         HTTP error status or malformed minute data.
         """
         if scale == TimeScale.day:
-            url = f"{config.tradier_base_url}markets/history"
+            url = f"{self.config.base_url}markets/history"
             interval = "daily"
             s = str(start)
             e = str(end)
         elif scale == TimeScale.minute:
-            url = f"{config.tradier_base_url}markets/timesales"
+            url = f"{self.config.base_url}markets/timesales"
             interval = "1min"
             s = datetime.combine(start, datetime.min.time()).strftime(
                 "%Y-%m-%d %H:%M"
@@ -245,7 +277,7 @@ class TradierData(DataAPI):
         -------
         Return 20:00 New York time on that day.
         """
-        url = f"{config.tradier_base_url}markets/calendar"
+        url = f"{self.config.base_url}markets/calendar"
         response = self._get(url, params={"month": month})
         data = response.json()
         return self._get_previous_last_trading(
@@ -305,7 +337,7 @@ class TradierData(DataAPI):
         ------
         Raise AssertionError if today is missing from the Tradier calendar.
         """
-        url = f"{config.tradier_base_url}markets/calendar"
+        url = f"{self.config.base_url}markets/calendar"
         response = self._get(
             url,
         )
@@ -325,7 +357,7 @@ class TradierData(DataAPI):
             f"Could not find {today} in current trading month"
         )
 
-    def get_trading_holidays(self) -> List[str]:
+    def _get_trading_holidays(self) -> List[str]:
         """Return the NYSE holidays from pandas_market_calendars."""
         nyse = pandas_market_calendars.get_calendar("NYSE")
         return nyse.holidays().holidays
@@ -345,7 +377,7 @@ class TradierData(DataAPI):
             The number of business days to add.
         """
         cbd_offset = pd.tseries.offsets.CustomBusinessDay(
-            n=offset, holidays=self.get_trading_holidays()
+            n=offset, holidays=self._get_trading_holidays()
         )
 
         return (

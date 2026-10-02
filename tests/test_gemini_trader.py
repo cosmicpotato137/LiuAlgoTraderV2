@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from liualgotrader.common import config
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.trading.gemini import GeminiTrader
 
@@ -12,7 +13,7 @@ gemini_trader: GeminiTrader
 async def db_connection():
     global gemini_trader
     await create_db_connection()
-    gemini_trader = GeminiTrader()
+    gemini_trader = GeminiTrader(config.gemini)
 
 
 @pytest.mark.asyncio
@@ -43,7 +44,10 @@ async def test_get_shortable_symbols():
 async def test_market_buy_order():
     print("test_market_buy_order")
     global gemini_trader
-    if gemini_trader.base_url != "https://api.sandbox.gemini.com":
+    if (
+        gemini_trader.config.trading_base_url
+        != "https://api.sandbox.gemini.com"
+    ):
         raise AssertionError("Can only run test in sandbox")
 
     try:
@@ -64,7 +68,10 @@ async def test_market_buy_order():
 async def test_limit_buy_order():
     print("test_limit_buy_order")
     global gemini_trader
-    if gemini_trader.base_url != "https://api.sandbox.gemini.com":
+    if (
+        gemini_trader.config.trading_base_url
+        != "https://api.sandbox.gemini.com"
+    ):
         raise AssertionError("Can only run test in sandbox")
 
     order = await gemini_trader.submit_order(
@@ -86,7 +93,10 @@ async def test_limit_buy_order():
 async def test_order_negative():
     print("test_order_negative")
     global gemini_trader
-    if gemini_trader.base_url != "https://api.sandbox.gemini.com":
+    if (
+        gemini_trader.config.trading_base_url
+        != "https://api.sandbox.gemini.com"
+    ):
         raise AssertionError("Can only run test in sandbox")
 
     try:
@@ -102,7 +112,10 @@ async def test_order_negative():
 async def test_order_completed():
     print("test_order_completed")
     global gemini_trader
-    if gemini_trader.base_url != "https://api.sandbox.gemini.com":
+    if (
+        gemini_trader.config.trading_base_url
+        != "https://api.sandbox.gemini.com"
+    ):
         raise AssertionError("Can only run test in sandbox")
 
     order = await gemini_trader.submit_order(
@@ -123,7 +136,10 @@ async def test_order_completed():
 async def test_buy_websocket1():
     print("test_order_completed")
     global gemini_trader
-    if gemini_trader.base_url != "https://api.sandbox.gemini.com":
+    if (
+        gemini_trader.config.trading_base_url
+        != "https://api.sandbox.gemini.com"
+    ):
         raise AssertionError("Can only run test in sandbox")
 
     task_id = await gemini_trader.run()
@@ -155,7 +171,10 @@ async def test_buy_websocket1():
 async def test_get_position():
     print("test_get_position")
     global gemini_trader
-    if gemini_trader.base_url != "https://api.sandbox.gemini.com":
+    if (
+        gemini_trader.config.trading_base_url
+        != "https://api.sandbox.gemini.com"
+    ):
         raise AssertionError("Can only run test in sandbox")
 
     await asyncio.sleep(1.0)

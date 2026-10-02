@@ -9,7 +9,7 @@ DataAPI
 import math
 from abc import ABCMeta, abstractmethod
 from datetime import date, datetime
-from typing import Awaitable, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 
@@ -20,13 +20,6 @@ class DataAPI(metaclass=ABCMeta):
     """Abstract base class for historical market data providers.
 
     Subclasses must implement every method except data_concurrency_ranges.
-
-    Attributes
-    ----------
-    ws_uri: str
-        The WebSocket URI.
-    ws_msgs_handler: Awaitable
-        The WebSocket message handler.
 
     Methods
     -------
@@ -53,19 +46,6 @@ class DataAPI(metaclass=ABCMeta):
     data_concurrency_ranges
         Split a date range for concurrent loading.
     """
-
-    def __init__(self, ws_uri: str, ws_messages_handler: Awaitable):
-        """Initialize the provider.
-
-        Parameters
-        ----------
-        ws_uri: str
-            The WebSocket URI.
-        ws_messages_handler: Awaitable
-            The WebSocket message handler.
-        """
-        self.ws_uri = ws_uri
-        self.ws_msgs_handler = ws_messages_handler
 
     @abstractmethod
     def get_symbol_data(

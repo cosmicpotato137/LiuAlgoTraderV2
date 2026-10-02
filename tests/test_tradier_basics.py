@@ -2,13 +2,14 @@ from datetime import date, timedelta
 
 import pytest
 
+from liualgotrader.common import config
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.tradier import TradierData
 
 
 @pytest.mark.devtest
 def test_tradier_aapl_data_day() -> bool:
-    tradier = TradierData()
+    tradier = TradierData(config.tradier)
     print(
         tradier.get_symbol_data(
             "AAPL",
@@ -22,7 +23,7 @@ def test_tradier_aapl_data_day() -> bool:
 
 @pytest.mark.devtest
 def test_tradier_aapl_data_min() -> bool:
-    tradier = TradierData()
+    tradier = TradierData(config.tradier)
     print(
         tradier.get_symbol_data(
             "AAPL",

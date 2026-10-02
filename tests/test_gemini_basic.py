@@ -9,7 +9,7 @@ from liualgotrader.data.gemini import GeminiData
 
 @pytest.mark.devtest
 def test_gemini_data_day() -> bool:
-    gemini = GeminiData()
+    gemini = GeminiData(config.gemini)
     from_date = datetime.now().date() - timedelta(days=25)
     to_date = from_date + timedelta(days=1)
     print(
@@ -25,7 +25,7 @@ def test_gemini_data_day() -> bool:
 
 @pytest.mark.devtest
 def test_gemini_data_min() -> bool:
-    gemini = GeminiData()
+    gemini = GeminiData(config.gemini)
     from_date = datetime.now().date() - timedelta(days=25)
     to_date = from_date + timedelta(days=1)
     print(

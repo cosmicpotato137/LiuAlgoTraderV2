@@ -2,6 +2,8 @@
 
 Classes
 -------
+PolygonConfig
+    Connection settings for the Polygon APIs.
 PolygonData
     Market data provider for the Polygon REST API.
 PolygonStream
@@ -12,6 +14,7 @@ import asyncio
 import json
 import queue
 import traceback
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Callable, Dict, List, Optional, Union
 
@@ -21,9 +24,8 @@ from polygon import RESTClient, WebSocketClient
 from polygon.exceptions import AuthError
 from polygon.websocket.models import Feed, Market
 
-from liualgotrader.common import config
 from liualgotrader.common.tlog import tlog
-from liualgotrader.common.types import QueueMapper, TimeScale, WSEventType
+from liualgotrader.common.types import SymbolQueueMap, TimeScale, WSEventType
 from liualgotrader.data.data_base import DataAPI
 from liualgotrader.data.streaming_base import StreamingAPI
 
@@ -39,15 +41,35 @@ _WS_CHANNELS: Dict[WSEventType, str] = {
 _CLOSE_TIMEOUT = 5.0
 
 
-class PolygonData(DataAPI):
-    """DataAPI implementation backed by the Polygon REST API.
-
-    Only US equities are covered, and requests authenticate with
-    config.polygon_api_key. Batch loads and trading-calendar methods are not
-    supported.
+@dataclass
+class PolygonConfig:
+    """Connection settings for the Polygon APIs.
 
     Attributes
     ----------
+    api_key: Optional[str]
+        The API key.
+    seconds_timeout: int
+        The request timeout, in seconds.
+    max_days_to_load: int
+        The maximum number of days of data to load.
+    """
+
+    api_key: Optional[str] = None
+    seconds_timeout: int = 60
+    max_days_to_load: int = 7
+
+
+class PolygonData(DataAPI):
+    """DataAPI implementation backed by the Polygon REST API.
+
+    Only US equities are covered. Batch loads and trading-calendar methods are
+    not supported.
+
+    Attributes
+    ----------
+    config: PolygonConfig
+        The connection settings.
     polygon_rest_client
         The authenticated Polygon REST client.
 
@@ -75,16 +97,22 @@ class PolygonData(DataAPI):
         Raise NotImplementedError.
     """
 
-    def __init__(self):
-        """Create the Polygon REST client from config.polygon_api_key.
+    def __init__(self, config: PolygonConfig):
+        """Create the Polygon REST client.
+
+        Parameters
+        ----------
+        config: PolygonConfig
+            The connection settings.
 
         Raises
         ------
         Raise AssertionError if the client cannot be created, such as when
-        config.polygon_api_key is not set.
+        config.api_key is not set.
         """
+        self.config = config
         try:
-            self.polygon_rest_client = RESTClient(config.polygon_api_key)
+            self.polygon_rest_client = RESTClient(config.api_key)
         except AuthError as e:
             raise AssertionError(
                 "Failed to authenticate Polygon restful client"
@@ -325,6 +353,8 @@ class PolygonStream(StreamingAPI):
 
     Attributes
     ----------
+    config: PolygonConfig
+        The connection settings.
     polygon_ws_client
         The Polygon websocket client.
     task: Optional[asyncio.Task]
@@ -340,32 +370,27 @@ class PolygonStream(StreamingAPI):
         Unsubscribe a symbol from every event type.
     close
         Close the websocket connection.
-    handle_event
-        Put a normalized event on its symbol's queue.
-    process_message
-        Handle the supported events in a message.
-    on_error
-        Log a websocket error.
-    on_close
-        Log the websocket close status.
     """
 
-    def __init__(self, queues: QueueMapper):
+    def __init__(self, queues: SymbolQueueMap, config: PolygonConfig):
         """Create the websocket client and register the shared instance.
 
         Parameters
         ----------
         queues: QueueMapper
             The mapping from each symbol to the queue for its events.
+        config: PolygonConfig
+            The connection settings.
 
         Raises
         ------
         Raise AssertionError if the client cannot be created, such as when
-        config.polygon_api_key is not set.
+        config.api_key is not set.
         """
+        self.config = config
         try:
             self.polygon_ws_client = WebSocketClient(
-                api_key=config.polygon_api_key,
+                api_key=config.api_key,
                 feed=Feed.RealTime,
                 market=Market.Stocks,
                 raw=True,
@@ -448,16 +473,16 @@ class PolygonStream(StreamingAPI):
     async def _stream(self) -> None:
         """Relay Polygon messages to the queues until the connection ends.
 
-        Report errors to on_error and the end of the connection to on_close
+        Report errors to _on_error and the end of the connection to _on_close
         instead of raising them.
         """
         try:
             await self.polygon_ws_client.connect(PolygonStream._on_message)
         except Exception as e:
-            PolygonStream.on_error(self.polygon_ws_client.websocket, e)
+            PolygonStream._on_error(self.polygon_ws_client.websocket, e)
         finally:
             ws = self.polygon_ws_client.websocket
-            PolygonStream.on_close(
+            PolygonStream._on_close(
                 ws,
                 getattr(ws, "close_code", None),
                 getattr(ws, "close_reason", None),
@@ -465,7 +490,7 @@ class PolygonStream(StreamingAPI):
 
     @classmethod
     async def _on_message(cls, message: Union[str, bytes]) -> None:
-        """Handle one message, reporting any error to on_error.
+        """Handle one message, reporting any error to _on_error.
 
         The message is handled in a worker thread, so a full queue does not
         block the event loop.
@@ -476,12 +501,12 @@ class PolygonStream(StreamingAPI):
             The JSON text of a list of events.
         """
         try:
-            await asyncio.to_thread(cls.process_message, message)
+            await asyncio.to_thread(cls._process_message, message)
         except Exception as e:
-            cls.on_error(None, e)
+            cls._on_error(None, e)
 
     @classmethod
-    def handle_event(cls, event: Dict):
+    def _handle_event(cls, event: Dict):
         """Put a Polygon event on the queue for its symbol.
 
         Print the event to standard output.
@@ -535,7 +560,7 @@ class PolygonStream(StreamingAPI):
             traceback.print_exc()
 
     @classmethod
-    def process_message(cls, message):
+    def _process_message(cls, message):
         """Handle each aggregate, trade and quote event in a message.
 
         Ignore events of other types.
@@ -548,10 +573,10 @@ class PolygonStream(StreamingAPI):
         payload = json.loads(message)
         for event in payload:
             if event["ev"] in ("A", "AM", "T", "Q"):
-                cls.handle_event(event)
+                cls._handle_event(event)
 
     @classmethod
-    def on_error(cls, ws, error):
+    def _on_error(cls, ws, error):
         """Log an error reported by the websocket client.
 
         Parameters
@@ -564,7 +589,7 @@ class PolygonStream(StreamingAPI):
         tlog(f"[ERROR] on_error(): {error}")
 
     @classmethod
-    def on_close(cls, ws, close_status_code, close_msg):
+    def _on_close(cls, ws, close_status_code, close_msg):
         """Log the status code and message sent when the connection closes.
 
         Parameters

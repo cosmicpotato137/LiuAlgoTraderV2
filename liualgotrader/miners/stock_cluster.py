@@ -20,6 +20,7 @@ from urllib3.exceptions import HTTPError
 from liualgotrader.common import config
 from liualgotrader.common.decorators import timeit
 from liualgotrader.common.tlog import tlog
+from liualgotrader.data.polygon import PolygonData
 from liualgotrader.db.models.ticker_data import TickerData
 from liualgotrader.miners.base import Miner
 
@@ -27,7 +28,7 @@ from liualgotrader.miners.base import Miner
 class StockCluster(Miner):
     """Miner that stores the details of active stocks listed by Polygon.
 
-    Requests authenticate with config.polygon_api_key.
+    Requests authenticate with the Polygon settings in config.
 
     Attributes
     ----------
@@ -106,13 +107,13 @@ class StockCluster(Miner):
 
         Raises
         ------
-        Raise polygon.exceptions.AuthError if config.polygon_api_key is not
-        set.
+        Raise AssertionError if the client cannot be created, such as when
+        the Polygon API key is not set.
         """
         # a client pools one connection per host, so each thread gets its own
         client = getattr(self._thread_data, "client", None)
         if client is None:
-            client = RESTClient(config.polygon_api_key)
+            client = PolygonData(config.polygon).polygon_rest_client
             self._thread_data.client = client
         return client
 

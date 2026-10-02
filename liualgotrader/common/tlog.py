@@ -8,22 +8,31 @@ tlog_exception
     Log the exception being handled, with its traceback.
 """
 
+import functools
 import os
 import sys
 import traceback
 from datetime import datetime
 
-try:
-    from liualgotrader.common.config import gcp_logger
 
-    if gcp_logger:
-        from google.cloud import logging
+@functools.cache
+def _gcp_logger():
+    """Return the Google Cloud logger, or None if gcp_logger is disabled.
 
-        logger = logging.Client().logger("trader")
-    else:
-        logger = None
-except Exception:
-    logger = None
+    Also return None if the logger cannot be created.
+    """
+    # config is imported on first use, since it imports the data providers,
+    # which import this module
+    try:
+        from liualgotrader.common.config import gcp_logger
+
+        if gcp_logger:
+            from google.cloud import logging
+
+            return logging.Client().logger("trader")
+    except Exception:
+        pass
+    return None
 
 
 def tlog(msg: str, origin: str = None) -> None:
@@ -45,7 +54,7 @@ def tlog(msg: str, origin: str = None) -> None:
     except Exception:
         calling_fn = ""
 
-    if logger:
+    if logger := _gcp_logger():
         try:
             logger.log_text(f"{calling_fn}[{os.getpid()}] {msg}")
         except Exception as e:

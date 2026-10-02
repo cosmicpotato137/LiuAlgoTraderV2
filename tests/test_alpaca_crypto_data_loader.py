@@ -15,12 +15,12 @@ nyc = timezone("America/New_York")
 
 @pytest.mark.devtest
 def test_crypto_get_symbol() -> bool:
-    alpaca_data = AlpacaData()
+    alpaca_data = AlpacaData(config.alpaca)
 
     start = date(2021, 5, 1)
     end = date(2021, 10, 1)
     _start, _end = alpaca_data._localize_start_end(start, end)
-    df = alpaca_data.crypto_get_symbol_data(
+    df = alpaca_data._crypto_get_symbol_data(
         symbol="BTCUSD", start=_start, end=_end, timeframe=TimeFrame.Day
     )
     print(df)
