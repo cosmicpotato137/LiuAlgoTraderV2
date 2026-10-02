@@ -20,9 +20,9 @@ from urllib3.exceptions import HTTPError
 from liualgotrader.common import config
 from liualgotrader.common.decorators import timeit
 from liualgotrader.common.tlog import tlog
-from liualgotrader.data.polygon import PolygonData
 from liualgotrader.db.models.ticker_data import TickerData
 from liualgotrader.miners.base import Miner
+from liualgotrader.vendors.polygon.data import PolygonData
 
 
 class StockCluster(Miner):

@@ -67,7 +67,7 @@ from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.models.optimizer import OptimizerRun
 from liualgotrader.db.models.portfolio import Portfolio, PortfolioBatchId
 from liualgotrader.db.session import fetch_as_dataframe
-from liualgotrader.trading.trader_factory import trader_factory
+from liualgotrader.trade.factory import trader_factory
 
 est = timezone("America/New_York")
 

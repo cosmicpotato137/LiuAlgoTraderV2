@@ -2,7 +2,7 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.trading.alpaca import AlpacaTrader
+from liualgotrader.vendors.alpaca.trader import AlpacaTrader
 
 alpaca_trader: AlpacaTrader
 

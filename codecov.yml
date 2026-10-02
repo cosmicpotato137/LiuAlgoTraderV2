@@ -15,7 +15,7 @@ parsers:
       macro: no
 ignore:
   - "tests/**/*"  # ignore folders and all its contents
-  - "liualgotrader/trading/base.py"
+  - "liualgotrader/trade/base.py"
 
 comment:
   layout: "reach,diff,flags,files,footer"

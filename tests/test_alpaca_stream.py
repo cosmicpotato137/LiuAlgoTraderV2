@@ -7,7 +7,7 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
-from liualgotrader.data.alpaca import AlpacaStream
+from liualgotrader.vendors.alpaca.streaming import AlpacaStream
 
 stop: bool = False
 

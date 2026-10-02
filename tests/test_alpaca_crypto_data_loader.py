@@ -8,7 +8,8 @@ from pytz import timezone
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, TimeScale
-from liualgotrader.data.alpaca import AlpacaData, AlpacaStream
+from liualgotrader.vendors.alpaca.data import AlpacaData
+from liualgotrader.vendors.alpaca.streaming import AlpacaStream
 
 nyc = timezone("America/New_York")
 

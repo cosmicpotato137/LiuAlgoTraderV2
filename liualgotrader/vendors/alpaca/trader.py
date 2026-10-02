@@ -33,8 +33,8 @@ from requests.auth import HTTPBasicAuth
 
 from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import Order, SymbolQueueMap, Trade
-from liualgotrader.data.alpaca import AlpacaConfig
-from liualgotrader.trading.base import TraderAPI
+from liualgotrader.trade.base import TraderAPI
+from liualgotrader.vendors.alpaca.config import AlpacaConfig
 
 nyc = timezone("America/New_York")
 

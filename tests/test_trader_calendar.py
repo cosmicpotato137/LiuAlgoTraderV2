@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.trading.trader_factory import trader_factory
+from liualgotrader.trade.factory import trader_factory
 
 
 @pytest.mark.devtest

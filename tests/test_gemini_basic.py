@@ -4,7 +4,7 @@ import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.types import TimeScale
-from liualgotrader.data.gemini import GeminiData
+from liualgotrader.vendors.gemini.data import GeminiData
 
 
 @pytest.mark.devtest

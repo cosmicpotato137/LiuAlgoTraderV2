@@ -5,7 +5,7 @@ from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.momentum import Momentum
-from liualgotrader.trading.trader_factory import trader_factory
+from liualgotrader.trade.factory import trader_factory
 
 
 @pytest.fixture(autouse=True)
