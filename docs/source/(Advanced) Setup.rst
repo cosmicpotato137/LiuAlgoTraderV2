@@ -74,18 +74,10 @@ variables. Any other DSN is a SQLAlchemy `database URL`_.
 Database Schema
 ***************
 
-LiuAlgoTrader creates the missing tables, with their indexes, the first time it
-uses a database, and leaves existing tables as they are. A PostgreSQL database
-and its user must already exist.
-
-**NOTE**:
-When updating a PostgreSQL database created by a predecessor version of `LiuAlgoTrader`,
-run the scripts in the `database/migrations` folder of the LiuAlgoTrader repository
-that are newer than that version, oldest first:
-
-.. code-block:: bash
-
-    psql "$DSN" -v ON_ERROR_STOP=1 -f database/migrations/<script>.sql
+LiuAlgoTrader creates and upgrades the database schema itself: the first time a
+process uses a database, it applies the migrations that the database is missing.
+That includes PostgreSQL databases created by the `schema.sql` script of earlier
+versions. A PostgreSQL database and its user must already exist.
 
 Data Providers
 --------------

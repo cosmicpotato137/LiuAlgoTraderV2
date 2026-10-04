@@ -12,7 +12,7 @@ show_version
 show_usage
     Print the version banner and the command-line usage of liu.
 setup_db
-    Create the database tables that are missing.
+    Create or upgrade the database schema.
 setup_samples
     Download the quickstart samples.
 quickstart
@@ -38,8 +38,8 @@ from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.log import configure_logging
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.portfolio import Portfolio
-from liualgotrader.db.session import (create_db_connection, create_schema,
-                                      database_url)
+from liualgotrader.db.session import (create_db_connection, database_url,
+                                      upgrade_schema)
 
 
 def show_version():
@@ -70,7 +70,7 @@ def _database_location() -> str:
 
 
 def setup_db() -> None:
-    """Create the database tables that are missing.
+    """Create or upgrade the database schema.
 
     Exit the process if the database cannot be reached.
     """
@@ -80,7 +80,7 @@ def setup_db() -> None:
     print("+---------------------+")
     print()
     try:
-        get_event_loop().run_until_complete(create_schema())
+        get_event_loop().run_until_complete(upgrade_schema())
     except Exception as e:
         print(f"Something went wrong:{e}")
         print(

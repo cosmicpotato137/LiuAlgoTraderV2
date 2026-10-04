@@ -84,6 +84,22 @@ To add or upgrade a dependency, run ``pdm add <package>`` or
 ``pdm update <package>``, and commit both ``pyproject.toml`` and ``pdm.lock``.
 Development tools belong in the ``dev`` group: ``pdm add -G dev <package>``.
 
+To change the database schema, edit the models in ``liualgotrader/db/models``,
+then generate a migration by comparing them with a database at the latest
+migration:
+
+.. code-block:: bash
+
+    export DSN=sqlite:////tmp/liu-dev.db
+    pdm run alembic upgrade head
+    pdm run alembic revision --autogenerate -m "describe the change"
+
+Review the new file in ``liualgotrader/db/migrations/versions``: autogenerate
+writes a renamed column as a dropped and an added column, and does not move
+data, so edit the migration for those. ``tests/test_migrations.py`` fails
+while the models and the migrations differ. LiuAlgoTrader applies new
+migrations to a database the next time it uses it.
+
 
 Contributors
 ------------
