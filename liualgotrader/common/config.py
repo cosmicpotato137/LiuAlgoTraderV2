@@ -4,9 +4,15 @@ Most settings are module-level variables, many read from environment
 variables at import time, such as the data connector, broker, database DSN
 and performance parameters. Shared run-time values, such as the batch ID, are
 set later.
+
+Functions
+---------
+installed_version
+    Return the version of the installed liualgotrader distribution.
 """
 
 import os
+from importlib.metadata import PackageNotFoundError, version
 from typing import List, Optional
 
 from liualgotrader.common.types import BrokerType, DataConnectorType
@@ -15,6 +21,21 @@ from liualgotrader.vendors.finnhub.config import FinnhubConfig
 from liualgotrader.vendors.gemini.config import GeminiConfig
 from liualgotrader.vendors.polygon.config import PolygonConfig
 from liualgotrader.vendors.tradier.config import TradierConfig
+
+
+def installed_version() -> str:
+    """Return the version of the installed liualgotrader distribution.
+
+    Returns
+    -------
+    Return the installed version, or an empty string if liualgotrader is not
+    installed.
+    """
+    try:
+        return version("liualgotrader")
+    except PackageNotFoundError:
+        return ""
+
 
 tradeplan_folder: str = (
     os.getenv("TRADEPLAN_DIR", ".")
@@ -44,7 +65,7 @@ total_tickers = 000
 #
 # Shared data
 #
-build_label: str = "xoxo"
+build_label: str = installed_version()
 filename: str
 batch_id: str
 

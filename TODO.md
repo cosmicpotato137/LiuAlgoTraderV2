@@ -1,13 +1,20 @@
 ## Structural changes
 
+- [ ] Restructure classes to follow the pattern: Filters, Indicators, Signals, Rules. These classes are composed as part of a Strategy
+- [ ] Update the docker compose: create a docker folder to hold configs for local development
+- [ ] Update database schema - not sure what's going on there
+- [ ] Is it a vulnerability to accept num_consumers blindly from config without checking the cpu capacity? (liualgotrader/scripts/trader.py)
 - [x] Add docstrings
 - [x] Update python and package versions
 - [x] Get readthedocs working
-- [ ] Restructure classes to follow the pattern: Filters, Indicators, Signals, Rules. These classes are composed as part of a Strategy
-- [ ] Update the docker compose: create a docker folder to hold configs for local development
-- [ ] Abstract out the broker and data apis and create a wrapper for alpaca
-- [ ] Use an ORM to manage database. Might need to make some updates to include the OHLC timescale?
-- [ ] Update database schema - not sure what's going on there
+- [x] Updated to better config handling
+- [x] Reformat to use vendor for api wrappers
+  - [x] Abstract out the broker and data apis and create a wrapper for alpaca - was already done
+- [x] Use an ORM to manage database. Might need to make some updates to include the OHLC timescale?
+
+## Future plans
+
+- [ ] Handling for multiple simultaneous brokers and accounts
 
 ## Possible bugs
 

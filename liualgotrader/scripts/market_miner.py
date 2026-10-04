@@ -20,7 +20,6 @@ import sys
 import traceback
 from typing import Dict, List, Optional
 
-import pygit2
 import toml
 
 from liualgotrader.common import config
@@ -95,17 +94,8 @@ def main_cli() -> None:
     Load the miner configuration from the current directory and run main. Exit
     if the configuration file is not found.
     """
-    try:
-        build_label = pygit2.Repository("../").describe(
-            describe_strategy=pygit2.GIT_DESCRIBE_TAGS
-        )
-    except pygit2.GitError:
-        import liualgotrader
-
-        build_label = liualgotrader.__version__ if hasattr(liualgotrader, "__version__") else ""  # type: ignore
-    config.build_label = build_label
     filename = os.path.basename(__file__)
-    motd(filename=filename, version=build_label)
+    motd(filename=filename, version=config.build_label)
 
     # load configuration
     tlog(
