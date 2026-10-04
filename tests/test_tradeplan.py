@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timedelta
 
@@ -9,6 +10,8 @@ from liualgotrader.consumer import create_strategies_from_db
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.trade.factory import trader_factory
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +26,7 @@ async def test_load_trade_plan_from_db():
     trade_plan = await TradePlan.load()
 
     for plan in trade_plan:
-        print(plan)
+        logger.info("%s", plan)
 
     return True
 
@@ -39,10 +42,10 @@ async def test_load_testplan_from_db():
             data_loader=DataLoader(),
         )
     except FileNotFoundError as e:
-        print(f"FileNotFoundError {e}")
+        logger.info("FileNotFoundError %s", e)
         return True
 
-    print(strategy_list)
+    logger.info("%s", strategy_list)
 
     return True
 
@@ -55,6 +58,6 @@ async def test_get_new_entries():
     )
 
     for plan in trade_plan:
-        print(plan)
+        logger.info("%s", plan)
 
     return True

@@ -1,9 +1,12 @@
+import logging
 import uuid
 
 import pytest
 
 from liualgotrader.db.models.keystore import KeyStore
 from liualgotrader.db.session import create_db_connection
+
+logger = logging.getLogger(__name__)
 
 strategy_name: str = str(uuid.uuid4())
 context: str = str(uuid.uuid4())
@@ -34,7 +37,7 @@ async def test_insert() -> bool:
     if data != "v1":
         raise AssertionError("failed to insert and load key")
 
-    print(f"test_insert: {strategy_name} k1={data}")
+    logger.info("test_insert: %s k1=%s", strategy_name, data)
     return True
 
 
@@ -52,6 +55,6 @@ async def test_update() -> bool:
     if data != "v22":
         raise AssertionError("failed to update and load key")
 
-    print(f"test_update: {strategy_name} k2={data}")
+    logger.info("test_update: %s k2=%s", strategy_name, data)
 
     return True

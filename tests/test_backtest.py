@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import date
 
@@ -11,6 +12,8 @@ from liualgotrader.enhanced_backtest import backtest_time_range
 from liualgotrader.scanners.base import Scanner
 from liualgotrader.strategies.base import Strategy
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.fixture(autouse=True)
 async def db_connection():
@@ -19,7 +22,7 @@ async def db_connection():
 
 @pytest.mark.asyncio
 async def test_backtest_day():
-    print("*** test_backtest_day ***")
+    logger.info("*** test_backtest_day ***")
     config.debug_enabled = False
     dl = DataLoader(scale=TimeScale.day)
 
@@ -34,7 +37,7 @@ async def test_backtest_day():
     if not c:
         raise AssertionError("Failed to instantiate scanner")
 
-    print(f"Loaded scanner {c.name}")
+    logger.info("Loaded scanner %s", c.name)
 
     s = await Strategy.get_strategy(
         batch_id=str(uuid.uuid4()),
@@ -48,7 +51,7 @@ async def test_backtest_day():
     if not s:
         raise AssertionError("Failed to instantiate strategy")
 
-    print(f"Loaded strategy {s.name}")
+    logger.info("Loaded strategy %s", s.name)
 
     await backtest_time_range(
         from_date=date(year=2020, month=10, day=1),
@@ -67,7 +70,7 @@ async def test_backtest_day():
 
 @pytest.mark.asyncio
 async def test_backtest_min():
-    print("*** test_backtest_min ***")
+    logger.info("*** test_backtest_min ***")
     config.debug_enabled = False
     dl = DataLoader(scale=TimeScale.minute)
 
@@ -82,7 +85,7 @@ async def test_backtest_min():
     if not c:
         raise AssertionError("Failed to instantiate scanner")
 
-    print(f"Loaded scanner {c.name}")
+    logger.info("Loaded scanner %s", c.name)
 
     s = await Strategy.get_strategy(
         batch_id=str(uuid.uuid4()),
@@ -96,7 +99,7 @@ async def test_backtest_min():
     if not s:
         raise AssertionError("Failed to instantiate strategy")
 
-    print(f"Loaded strategy {s.name}")
+    logger.info("Loaded strategy %s", s.name)
 
     await backtest_time_range(
         from_date=date(year=2020, month=10, day=1),

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 import hypothesis.strategies as st
@@ -8,6 +9,8 @@ from hypothesis import given, settings
 from hypothesis.extra.pandas import columns, indexes, series
 
 from liualgotrader.fincalcs.support_resistance import get_local_maxima
+
+logger = logging.getLogger(__name__)
 
 est = pytz.timezone("US/Eastern")
 
@@ -25,11 +28,11 @@ est = pytz.timezone("US/Eastern")
     ),
 )
 def test_get_local_maxima(series: pd.Series):
-    print(series)
+    logger.info("%s", series)
     r = get_local_maxima(series)
     if r.empty:
         assert r.empty  # nosec
     else:
         assert not r.empty  # nosec
 
-    print("result", r)
+    logger.info("result %s", r)

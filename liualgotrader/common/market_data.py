@@ -24,6 +24,7 @@ get_trading_day
     Return the date a number of trading days before a date.
 """
 
+import logging
 from datetime import date, datetime
 from typing import Dict, List, Set
 
@@ -37,11 +38,12 @@ from sqlalchemy import select
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.data_loader import m_and_a_data  # type: ignore
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import TimeScale
 from liualgotrader.db.models.ticker_data import TickerData
 from liualgotrader.db.session import session_scope
 from liualgotrader.fincalcs.vwap import add_daily_vwap
+
+logger = logging.getLogger(__name__)
 
 volume_today: Dict[str, int] = {}
 quotes: Dict[str, df] = {}
@@ -159,7 +161,7 @@ async def sp500_historical_constituents(date: str):
 
     Download the index history from Wikipedia and undo index changes and
     mergers dated after date. Convert the index of the shared merger and
-    acquisition data to datetime in place, and print intermediate results.
+    acquisition data to datetime in place, and log intermediate results.
 
     Parameters
     ----------
@@ -170,7 +172,7 @@ async def sp500_historical_constituents(date: str):
     -------
     Return the symbols in no particular order.
     """
-    tlog(f"loading sp500 constituents for {date}")
+    logger.info("loading sp500 constituents for %s", date)
     table = pd.read_html(
         "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     )
@@ -183,13 +185,13 @@ async def sp500_historical_constituents(date: str):
     m_and_a_data.index = m_and_a_data.index.astype("datetime64[ns]", copy=True)
 
     adjusted_symbols = m_and_a_data.loc[date < m_and_a_data.index, "to_symbol"]
-    print("adjusted_symbols", adjusted_symbols)
+    logger.debug("adjusted_symbols %s", adjusted_symbols)
     changes = changes.loc[changes.date > date]
 
     unadusted: Set = set(symbols)
 
-    print(f"changes:{changes}")
-    print(unadusted)
+    logger.debug("changes:%s", changes)
+    logger.debug("%s", unadusted)
     while True:
         no_changes = True
         for _, row in changes.iterrows():

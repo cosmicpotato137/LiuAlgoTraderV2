@@ -10,10 +10,10 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import queue
 import ssl
 import time
-import traceback
 from datetime import datetime, timedelta, timezone
 from threading import Thread
 from typing import Dict, List, Optional
@@ -22,10 +22,11 @@ import pandas as pd
 import pytz
 import websocket
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
+
+logger = logging.getLogger(__name__)
 
 utctz = pytz.timezone("UTC")
 
@@ -135,10 +136,10 @@ class GeminiStream(StreamingAPI):
     async def close(self):
         """Stop the websocket thread, if running, and wait for it to exit."""
         if self.running_task and self.running_task.is_alive():
-            tlog(f"close task {self.running_task}")
+            logger.info("close task %s", self.running_task)
             self.ws.keep_running = False
             self.running_task.join()
-            tlog("task terminated")
+            logger.info("task terminated")
             self.ws = None
             self.running_task = None
 
@@ -182,7 +183,7 @@ class GeminiStream(StreamingAPI):
         error
             The reported error.
         """
-        tlog(f"[ERROR] GeminiStream {error}")
+        logger.error("GeminiStream %s", error)
 
     @classmethod
     def _on_close(cls, ws, close_status_code, close_msg):
@@ -197,8 +198,10 @@ class GeminiStream(StreamingAPI):
         close_msg
             The close message.
         """
-        tlog(
-            f"on_close(): GeminiStream status={close_status_code}, close_msg={close_msg}"
+        logger.info(
+            "on_close(): GeminiStream status=%s, close_msg=%s",
+            close_status_code,
+            close_msg,
         )
 
     @classmethod
@@ -222,7 +225,9 @@ class GeminiStream(StreamingAPI):
         try:
             if (time_diff := (datetime.now(timezone.utc) - timestamp)) > timedelta(seconds=2):  # type: ignore
                 # if randint(1, 100) == 1:  # nosec
-                tlog(f"received a trade for btcusd out of sync w {time_diff}")
+                logger.info(
+                    "received a trade for btcusd out of sync w %s", time_diff
+                )
 
             event = {
                 "symbol": "btcusd",
@@ -245,20 +250,23 @@ class GeminiStream(StreamingAPI):
             cls.get_instance().queues["btcusd"].put(event, block=False)
 
         except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {event['sym']} is FULL:{f}"
+            logger.error(
+                "process_message(): queue for %s is FULL:%s",
+                event["sym"],
+                f,
             )
             raise
         except AssertionError as e:
-            tlog(f"[EXCEPTION] GEMINI process_message(): {e}")
+            logger.error("GEMINI process_message(): %s", e)
             time.sleep(1)
             return
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
+            logger.error(
+                "process_message(): exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
+                exc_info=cls.get_instance().config.debug_enabled,
             )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
 
     async def subscribe(
         self, symbols: List[str], events: List[WSEventType]

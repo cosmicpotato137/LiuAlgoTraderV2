@@ -6,6 +6,7 @@ TradierData
     Market data provider for the Tradier brokerage REST API.
 """
 
+import logging
 import time as time_action
 from datetime import date, datetime, time
 from typing import Callable, Dict, List, Optional
@@ -15,10 +16,11 @@ import pandas_market_calendars
 import pytz
 import requests
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.vendors.tradier.config import TradierConfig
+
+logger = logging.getLogger(__name__)
 
 NY = "America/New_York"
 nytz = pytz.timezone(NY)
@@ -96,7 +98,9 @@ class TradierData(DataAPI):
             },
         )
         if r.status_code in (429, 502):
-            tlog(f"{url} return {r.status_code}, waiting and re-trying")
+            logger.warning(
+                "%s return %s, waiting and re-trying", url, r.status_code
+            )
             time_action.sleep(10)
             return self._get(url, params)
 

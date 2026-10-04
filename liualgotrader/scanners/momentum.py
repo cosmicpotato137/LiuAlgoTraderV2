@@ -7,6 +7,7 @@ Momentum
 """
 
 import asyncio
+import logging
 from datetime import date, datetime, timedelta
 from typing import Callable, List, Optional, Tuple
 
@@ -16,7 +17,6 @@ from sqlalchemy import select
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import DataConnectorType
 from liualgotrader.db.models.ticker_data import StockOhlc
 from liualgotrader.db.models.trending_tickers import TrendingTicker
@@ -26,6 +26,8 @@ from liualgotrader.vendors.alpaca.data import AlpacaData
 from liualgotrader.vendors.polygon.data import PolygonData
 
 from .base import Scanner
+
+logger = logging.getLogger(__name__)
 
 
 class Momentum(Scanner):
@@ -145,8 +147,10 @@ class Momentum(Scanner):
     async def _get_trade_able_symbols(self) -> List[str]:
         """Return the tradeable symbols reported by the trading API."""
         symbols = await self.trading_api.get_tradeable_symbols()
-        tlog(
-            f"loaded list of {len(symbols)} trade-able symbols from {self.trading_api}"
+        logger.info(
+            "loaded list of %s trade-able symbols from %s",
+            len(symbols),
+            self.trading_api,
         )
         return symbols
 
@@ -163,11 +167,14 @@ class Momentum(Scanner):
         filtered = await self.data_loader.data_api.get_market_snapshot(
             filter_func
         )
-        tlog(
-            f"loaded {len(filtered)} tickers of market snapshots after momentum filtering"
+        logger.info(
+            "loaded %s tickers of market snapshots after momentum filtering",
+            len(filtered),
         )
         if not len(filtered):
-            tlog("failed to load any market snapshots for any tickers")
+            logger.warning(
+                "failed to load any market snapshots for any tickers"
+            )
             return []
 
         return [x["ticker"] for x in filtered]
@@ -215,7 +222,7 @@ class Momentum(Scanner):
                     indicators={},
                 )
                 await daily_bar.save()
-                print(f"saved data for {symbol} @ {index}")
+                logger.debug("saved data for %s @ %s", symbol, index)
 
     async def load_from_db(self, back_time: datetime) -> List[str]:
         """Return the symbols recorded for this scanner around a given time.
@@ -251,7 +258,7 @@ class Momentum(Scanner):
                 )
             )
 
-        print("load from db", start, end, len(symbols))
+        logger.debug("load from db %s %s %s", start, end, len(symbols))
         return symbols
 
     def momentum_filter(self, snapshot) -> bool:
@@ -388,7 +395,10 @@ class Momentum(Scanner):
 
         rows = await self.load_from_db(back_time)
 
-        tlog(
-            f"Scanner {self.name} -> back_time={back_time} picked {len(rows)}"
+        logger.info(
+            "Scanner %s -> back_time=%s picked %s",
+            self.name,
+            back_time,
+            len(rows),
         )
         return rows

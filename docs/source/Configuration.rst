@@ -52,6 +52,11 @@ the `tradeplan.toml` configuration file.
 It's used by both the `trader` and `backtester`
 applications.
 
+`LIU_LOG_LEVEL` sets the minimum level of log
+entries written to STDOUT by all `LiuAlgoTrader`
+applications: `DEBUG`, `INFO` (default), `WARNING`
+or `ERROR`.
+
 TOML configuration file
 -----------------------
 the **trader** & **backtester** applications expect a TOML configuration file.

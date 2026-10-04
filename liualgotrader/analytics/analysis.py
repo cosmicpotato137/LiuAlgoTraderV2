@@ -49,6 +49,7 @@ get_portfolio_cash
 """
 
 import copy
+import logging
 from datetime import date, timedelta
 from typing import Dict, Tuple
 
@@ -59,7 +60,6 @@ from tqdm import tqdm
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import AssetType
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
@@ -68,6 +68,8 @@ from liualgotrader.db.models.optimizer import OptimizerRun
 from liualgotrader.db.models.portfolio import Portfolio, PortfolioBatchId
 from liualgotrader.db.session import fetch_as_dataframe
 from liualgotrader.trade.factory import trader_factory
+
+logger = logging.getLogger(__name__)
 
 est = timezone("America/New_York")
 
@@ -250,8 +252,9 @@ async def load_trades_by_batch_id(batch_id: str) -> pd.DataFrame:
         if not df.empty:
             df["client_time"] = pd.to_datetime(df["client_time"])
     except Exception:
-        tlog(
-            f"[Error] load_trades_by_batch_id({batch_id}) can't convert 'client_time' column to datetime"
+        logger.error(
+            "load_trades_by_batch_id(%s) can't convert 'client_time' column to datetime",
+            batch_id,
         )
     return df
 
@@ -296,8 +299,9 @@ async def load_trades_by_portfolio(portfolio_id: str) -> pd.DataFrame:
         if not df.empty:
             df["client_time"] = pd.to_datetime(df["client_time"])
     except Exception:
-        tlog(
-            f"[Error] load_trades_by_portfolio({portfolio_id}) can't convert 'client_time' column to datetime"
+        logger.error(
+            "load_trades_by_portfolio(%s) can't convert 'client_time' column to datetime",
+            portfolio_id,
         )
     return df
 
@@ -585,7 +589,9 @@ def calc_symbol_trades_returns(
                         "equity",
                     ] += value
                 except Exception as e:
-                    tlog(f"Error during calc_symbol_trades_returns(): {e}")
+                    logger.error(
+                        "Error during calc_symbol_trades_returns(): %s", e
+                    )
 
         if row.operation == "buy":
             qty += row.qty
@@ -610,7 +616,7 @@ def calc_symbol_trades_returns(
                     ]
                 )
             except ValueError:
-                print("qty:", qty, t1)
+                logger.debug("qty: %s %s", qty, t1)
                 raise
             daily_returns.loc[daily_returns.index[i], "equity"] += value
 
@@ -644,7 +650,7 @@ def calc_symbol_state(
 async def calc_batch_returns(batch_id: str) -> pd.DataFrame:
     """Compute the daily equity, cash and total value of a batch.
 
-    Print each symbol with a progress count.
+    Log each symbol with a progress count.
 
     Parameters
     ----------
@@ -674,7 +680,7 @@ async def calc_batch_returns(batch_id: str) -> pd.DataFrame:
 
     num_symbols = len(trades.symbol.unique().tolist())
     for c, symbol in enumerate(trades.symbol.unique().tolist(), start=1):
-        print(f"{symbol} ({c}/{num_symbols})")
+        logger.info("%s (%s/%s)", symbol, c, num_symbols)
         symbol_trades = trades[trades.symbol == symbol].sort_values(
             by="client_time"
         )
@@ -865,7 +871,7 @@ async def get_portfolio_equity(portfolio_id: str) -> pd.DataFrame:
                 symbol, symbol_trades, data_loader
             )
         except Exception as e:
-            tlog(str(e))
+            logger.warning("skipping %s: %s", symbol, e)
         else:
             rows.append(
                 {

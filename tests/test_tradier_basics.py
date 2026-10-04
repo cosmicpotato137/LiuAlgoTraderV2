@@ -1,3 +1,4 @@
+import logging
 from datetime import date, timedelta
 
 import pytest
@@ -6,17 +7,20 @@ from liualgotrader.common import config
 from liualgotrader.common.types import TimeScale
 from liualgotrader.vendors.tradier.data import TradierData
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.mark.devtest
 def test_tradier_aapl_data_day() -> bool:
     tradier = TradierData(config.tradier)
-    print(
+    logger.info(
+        "%s",
         tradier.get_symbol_data(
             "AAPL",
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
             scale=TimeScale.day,
-        )
+        ),
     )
     return True
 
@@ -24,12 +28,13 @@ def test_tradier_aapl_data_day() -> bool:
 @pytest.mark.devtest
 def test_tradier_aapl_data_min() -> bool:
     tradier = TradierData(config.tradier)
-    print(
+    logger.info(
+        "%s",
         tradier.get_symbol_data(
             "AAPL",
             start=date.today() - timedelta(days=10),
             end=date.today() - timedelta(days=1),
             scale=TimeScale.minute,
-        )
+        ),
     )
     return True

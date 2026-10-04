@@ -7,6 +7,7 @@ StockCluster
 """
 
 import asyncio
+import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -19,10 +20,11 @@ from urllib3.exceptions import HTTPError
 
 from liualgotrader.common import config
 from liualgotrader.common.decorators import timeit
-from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.ticker_data import TickerData
 from liualgotrader.miners.base import Miner
 from liualgotrader.vendors.polygon.data import PolygonData
+
+logger = logging.getLogger(__name__)
 
 
 class StockCluster(Miner):
@@ -83,7 +85,7 @@ class StockCluster(Miner):
         """
         loop = asyncio.get_running_loop()
         tickers = await loop.run_in_executor(None, self._fetch_tickers)
-        tlog(f"loaded {len(tickers)} tickers")
+        logger.info("loaded %s tickers", len(tickers))
 
         with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
             tasks = [
@@ -97,7 +99,7 @@ class StockCluster(Miner):
                 for response in await asyncio.gather(*tasks)
                 if response is not None
             ]
-        tlog(f"loaded {len(info)} ticker details")
+        logger.info("loaded %s ticker details", len(info))
         await asyncio.gather(*[self._update_ticker_details(i) for i in info])
 
         return True
@@ -131,9 +133,10 @@ class StockCluster(Miner):
                     )
                 ]
             except HTTPError as e:
-                tlog(
-                    f"_fetch_tickers(): got HTTP exception {e}, going to "
-                    "sleep, then retry"
+                logger.warning(
+                    "_fetch_tickers(): got HTTP exception %s, going to "
+                    "sleep, then retry",
+                    e,
                 )
                 time.sleep(30)
 
@@ -162,8 +165,9 @@ class StockCluster(Miner):
         )
 
         if await ticker_data.save() is False:
-            tlog(
-                f"going to wait 30 seconds and retry saving {ticker_info['name']}"
+            logger.warning(
+                "going to wait 30 seconds and retry saving %s",
+                ticker_info["name"],
             )
             await asyncio.sleep(30)
             return await self._update_ticker_details(ticker_info)
@@ -191,7 +195,7 @@ class StockCluster(Miner):
                 client = self._rest_client()
                 details = client.get_ticker_details(ticker)
                 if not isinstance(details, TickerDetails):
-                    tlog(f"no details for {ticker}")
+                    logger.info("no details for %s", ticker)
                     return None
                 if not details.active:
                     return None
@@ -218,8 +222,10 @@ class StockCluster(Miner):
             except BadResponse:
                 return None
             except HTTPError as e:
-                tlog(
-                    f"_fetch_symbol_details(): got HTTP exception {e} for "
-                    f"{ticker}, going to sleep, then retry"
+                logger.warning(
+                    "_fetch_symbol_details(): got HTTP exception %s for "
+                    "%s, going to sleep, then retry",
+                    e,
+                    ticker,
                 )
                 time.sleep(30)

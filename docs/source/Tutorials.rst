@@ -41,15 +41,3 @@ Tracing
 LiuAlgoTrader has a built in performance tracing_ features. The how-to explains how to use them.
 
 .. _tracing: https://amor71.medium.com/liualgotrader-internals-performance-tuning-4cbb24fb7eba
-
-
-End-to-End Trading Platform setup
----------------------------------
-
-This two part how-to walks through setting up LiuAlgoTrader as an automated trading platform on GCP
-
-* Part I: Setup on GCP_ and backtesting.
-
-.. _GCP: https://amor71.medium.com/how-to-setup-your-trading-platform-part-i-64ea8ea828bb
-
-

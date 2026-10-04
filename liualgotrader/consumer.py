@@ -67,6 +67,7 @@ consumer_main
 """
 
 import asyncio
+import logging
 import math
 import os
 from datetime import datetime, timedelta
@@ -82,7 +83,7 @@ from pytz import timezone
 from liualgotrader.analytics.analysis import load_trades_by_portfolio
 from liualgotrader.common import config, market_data, trading_data
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog, tlog_exception
+from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import Order, Trade
 from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.models.portfolio import Portfolio
@@ -93,6 +94,8 @@ from liualgotrader.strategies.base import Strategy, StrategyType
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.trade.factory import (get_trader_by_name,
                                                 trader_factory)
+
+logger = logging.getLogger(__name__)
 
 shortable: Dict = {}
 symbol_data_error: Dict = {}
@@ -110,7 +113,7 @@ async def end_time(reason: str):
         The end reason to store with each run.
     """
     for s in trading_data.strategies:
-        tlog(f"updating end time for strategy {s.name}")
+        logger.info("updating end time for strategy %s", s.name)
         await s.algo_run.update_end_time(end_reason=reason)
 
 
@@ -225,9 +228,9 @@ async def do_strategy_all(
         await execute_run_all_results(strategy, do, trader, data_loader)
 
     except Exception as e:
-        if config.debug_enabled:
-            tlog_exception("do_strategy_all")
-        tlog(f"[Exception] {now} {strategy}->{e}")
+        logger.error(
+            "%s %s->%s", now, strategy, e, exc_info=config.debug_enabled
+        )
 
         raise
 
@@ -242,7 +245,7 @@ async def cancel_lingering_orders(trader: TraderAPI):
     trader: Trader
         The trader used to check and cancel orders.
     """
-    tlog("cancel_lingering_orders() task starting")
+    logger.info("cancel_lingering_orders() task starting")
 
     while True:
         await asyncio.sleep(60)
@@ -252,7 +255,7 @@ async def cancel_lingering_orders(trader: TraderAPI):
 
         ny_now = datetime.now(nyc)
         if not trader.is_market_open(ny_now):
-            tlog("cancel_lingering_orders() market is closed")
+            logger.info("cancel_lingering_orders() market is closed")
             continue
 
         t = list(trading_data.open_orders.items())
@@ -280,7 +283,7 @@ async def periodic_runner(data_loader: DataLoader, trader: TraderAPI) -> None:
     """
     try:
         while True:
-            tlog("periodic_runner() task starting")
+            logger.info("periodic_runner() task starting")
             # run strategies
             tasks = []
             for s in trading_data.strategies:
@@ -312,15 +315,13 @@ async def periodic_runner(data_loader: DataLoader, trader: TraderAPI) -> None:
             await asyncio.sleep(5 * 60.0)
 
     except asyncio.CancelledError:
-        tlog("periodic_runner() cancelled")
+        logger.info("periodic_runner() cancelled")
     except KeyboardInterrupt:
-        tlog("periodic_runner() - Caught KeyboardInterrupt")
+        logger.info("periodic_runner() - Caught KeyboardInterrupt")
     except Exception as e:
-        if config.debug_enabled:
-            tlog_exception("periodic_runner")
-        tlog(f"[EXCEPTION] periodic_runner: {e}")
+        logger.error("periodic_runner: %s", e, exc_info=config.debug_enabled)
 
-    tlog("periodic_runner() task completed")
+    logger.info("periodic_runner() task completed")
 
 
 async def should_cancel_order(order: Order, market_clock: datetime) -> bool:
@@ -557,8 +558,10 @@ async def update_filled_order(
     if symbol in trading_data.open_order_strategy:
         trading_data.open_order_strategy.pop(symbol)
 
-    tlog(
-        f"update_filled_order open order for {symbol} popped. Position now {trading_data.positions[symbol]}"
+    logger.info(
+        "update_filled_order open order for %s popped. Position now %s",
+        symbol,
+        trading_data.positions[symbol],
     )
 
 
@@ -580,7 +583,7 @@ async def handle_trade_update_for_order(trade: Trade) -> bool:
     symbol = trade.symbol.lower()
     event = trade.event
 
-    tlog(f"trade update for {symbol} with event {event}")
+    logger.info("trade update for %s with event %s", symbol, event)
 
     if event == Order.EventType.partial_fill:
         await update_partially_filled_order(
@@ -625,7 +628,7 @@ async def handle_trade_update_wo_order(trade: Trade) -> bool:
     -------
     Return True.
     """
-    tlog(f"trade update without order for {trade}")
+    logger.info("trade update without order for %s", trade)
     return True
 
 
@@ -669,7 +672,7 @@ async def handle_quote(data: Dict) -> bool:
         return True
 
     symbol = data["symbol"].lower()
-    # tlog(f"quote={data}")
+    # logger.debug("quote=%s", data)
     prev_ask = trading_data.voi_ask.get(symbol, None)
     prev_bid = trading_data.voi_bid.get(symbol, None)
     trading_data.voi_ask[symbol] = (
@@ -717,7 +720,7 @@ async def handle_quote(data: Dict) -> bool:
         )
     )
     trading_data.voi[symbol] = voi_stack
-    # tlog(f"{symbol} voi:{trading_data.voi[symbol]}")
+    # logger.debug("%s voi:%s", symbol, trading_data.voi[symbol])
 
     return True
 
@@ -746,7 +749,7 @@ async def aggregate_bar_data(
     symbol = data["symbol"].lower()
 
     if not data_loader.exist(symbol):
-        # print(f"loading data for {symbol}...")
+        # logger.debug("loading data for %s...", symbol)
         data_loader[symbol][-1]
 
     try:
@@ -784,7 +787,7 @@ async def aggregate_bar_data(
     try:
         data_loader[symbol].loc[ts] = new_data
     except ValueError:
-        print(f"loaded for {symbol} {new_data}")
+        logger.debug("loaded for %s %s", symbol, new_data)
         data_loader[symbol][-1]
         data_loader[symbol].loc[ts] = new_data
 
@@ -822,8 +825,9 @@ async def order_inflight(
     try:
         if await should_cancel_order(existing_order, now):
             if config.debug_enabled:
-                tlog(
-                    f"should_cancel_order - checking status w/ order-id {existing_order.order_id}"
+                logger.info(
+                    "should_cancel_order - checking status w/ order-id %s",
+                    existing_order.order_id,
                 )
             (
                 order_status,
@@ -835,8 +839,10 @@ async def order_inflight(
             )
 
             if order_status == Order.EventType.fill:
-                tlog(
-                    f"order_id {existing_order.order_id} for {symbol} already filled"
+                logger.info(
+                    "order_id %s for %s already filled",
+                    existing_order.order_id,
+                    symbol,
                 )
                 await update_filled_order(
                     symbol=symbol,
@@ -848,8 +854,10 @@ async def order_inflight(
                     trade_fee=trade_fee,  # type: ignore
                 )
             elif order_status == Order.EventType.partial_fill:
-                tlog(
-                    f"order_id {existing_order.id} for {symbol} already partially_filled"  # type: ignore
+                logger.info(
+                    "order_id %s for %s already partially_filled",
+                    existing_order.id,  # type: ignore
+                    symbol,
                 )
                 await update_partially_filled_order(
                     symbol=symbol,
@@ -862,21 +870,32 @@ async def order_inflight(
                 )
             else:
                 # Cancel it so we can try again for a fill
-                tlog(
-                    f"Cancel order id {existing_order.order_id} for {symbol} ts={now} submission_ts={existing_order.submitted_at.astimezone(timezone('America/New_York'))}"  # type: ignore
+                logger.info(
+                    "Cancel order id %s for %s ts=%s submission_ts=%s",
+                    existing_order.order_id,
+                    symbol,
+                    now,
+                    existing_order.submitted_at.astimezone(
+                        timezone("America/New_York")
+                    ),
                 )
                 if await trader.cancel_order(existing_order):
                     trading_data.open_orders.pop(symbol)
 
-    except AttributeError as e:
-        if config.debug_enabled:
-            tlog_exception(f"order_inflight() w {e}")
-        tlog(f"Attribute Error in symbol {symbol} w/ {existing_order}")
+    except AttributeError:
+        logger.error(
+            "Attribute Error in symbol %s w/ %s",
+            symbol,
+            existing_order,
+            exc_info=config.debug_enabled,
+        )
     except Exception as e:
-        if config.debug_enabled:
-            tlog_exception(f"order_inflight() w {e}")
-        tlog(
-            f"[EXCEPTION] order_inflight() : {e} for symbol {symbol} w/ {existing_order}"
+        logger.error(
+            "order_inflight() : %s for symbol %s w/ %s",
+            e,
+            symbol,
+            existing_order,
+            exc_info=config.debug_enabled,
         )
 
 
@@ -979,7 +998,7 @@ async def execute_strategy_result(
     -------
     Return True if an order was submitted and False otherwise.
     """
-    tlog(f"execute_strategy_result for {symbol} do {what}")
+    logger.info("execute_strategy_result for %s do %s", symbol, what)
     symbol = symbol.lower()
 
     o = await submit_order(trader, symbol, what, external_account_id)
@@ -997,8 +1016,11 @@ async def execute_strategy_result(
     )
 
     if config.debug_enabled:
-        tlog(
-            f"executed strategy {strategy.name} on {symbol} w data {data_loader[symbol][-10:]}"
+        logger.info(
+            "executed strategy %s on %s w data %s",
+            strategy.name,
+            symbol,
+            data_loader[symbol][-10:],
         )
 
     return True
@@ -1138,9 +1160,9 @@ async def do_strategies(
                     rejects[s.name].append(symbol)
 
         except Exception as e:
-            tlog(f"[EXCEPTION] in do_strategies() : {e}")
-            if config.debug_enabled:
-                tlog_exception("do_strategies()")
+            logger.error(
+                "in do_strategies() : %s", e, exc_info=config.debug_enabled
+            )
 
 
 async def handle_aggregate(
@@ -1234,7 +1256,9 @@ async def handle_data_queue_msg(
 
     if data["EV"] != "AM" and time_diff > timedelta(seconds=15):
         if randint(1, 100) == 1:  # nosec
-            tlog(f"{data['EV']} {symbol} too out of sync w {time_diff}")
+            logger.info(
+                "%s %s too out of sync w %s", data["EV"], symbol, time_diff
+            )
         return False
 
     if (
@@ -1277,17 +1301,17 @@ async def queue_consumer(
     trader: Trader
         The trader that manages orders.
     """
-    tlog("queue_consumer() starting")
+    logger.info("queue_consumer() starting")
     try:
         while True:
             try:
                 data = queue.get(timeout=2)
                 if data["EV"] == "trade_update":
-                    tlog(f"received trade_update: {data}")
+                    logger.info("received trade_update: %s", data)
                     t = Trade(**data["trade"])
                     await handle_trade_update(t)
                 elif data["EV"] == "new_strategy":
-                    tlog(f"received new_strategy: {data}")
+                    logger.info("received new_strategy: %s", data)
                     await handle_new_strategy(
                         batch_id=batch_id,
                         data_loader=data_loader,
@@ -1307,23 +1331,24 @@ async def queue_consumer(
                 await asyncio.sleep(1)
                 continue
             except Exception as e:
-                tlog(
-                    f"Exception in queue_consumer(): exception of type {type(e).__name__} with args {e.args} inside loop"
+                logger.error(
+                    "Exception in queue_consumer(): exception of type %s with args %s inside loop",
+                    type(e).__name__,
+                    e.args,
+                    exc_info=config.debug_enabled,
                 )
-                if config.debug_enabled:
-                    tlog_exception("queue_consumer")
 
     except asyncio.CancelledError:
-        tlog("queue_consumer() cancelled ")
+        logger.info("queue_consumer() cancelled ")
     except Exception as e:
-        tlog(
-            f"Exception in queue_consumer(): exception of type {type(e).__name__} with args {e.args}"
+        logger.error(
+            "Exception in queue_consumer(): exception of type %s with args %s",
+            type(e).__name__,
+            e.args,
+            exc_info=config.debug_enabled,
         )
-
-        if config.debug_enabled:
-            tlog_exception("queue_consumer")
     finally:
-        tlog("queue_consumer() task done.")
+        logger.info("queue_consumer() task done.")
 
 
 async def create_strategies_from_file(
@@ -1370,7 +1395,7 @@ async def create_strategies_from_file(
                 trading_data.positions[symbol] = (
                     trading_data.positions.get(symbol, 0.0) + qty
                 )
-            tlog(f"Loaded {positions} positions for {strategy_name}")
+            logger.info("Loaded %s positions for %s", positions, strategy_name)
 
     return strategy_list
 
@@ -1447,7 +1472,9 @@ async def create_strategies_from_db(
             positions = await load_symbol_position(
                 trade_plan_entry.portfolio_id
             )
-            tlog(f"Loaded {len(positions)} positions for {strategy_name}")
+            logger.info(
+                "Loaded %s positions for %s", len(positions), strategy_name
+            )
             for symbol, qty in positions.items():
                 trading_data.positions[symbol] = (
                     trading_data.positions.get(symbol, 0.0) + qty
@@ -1518,7 +1545,7 @@ async def consumer_async_main(
         data_loader=data_loader,
         strategies_conf=strategies_conf,
     )
-    tlog(f"loaded strategies: {trading_data.strategies}")
+    logger.info("loaded strategies: %s", trading_data.strategies)
     if not file_only:
         trading_data.strategies += await create_strategies_from_db(
             batch_id=unique_id,
@@ -1545,7 +1572,7 @@ async def consumer_async_main(
         return_exceptions=True,
     )
 
-    tlog("consumer_async_main() completed")
+    logger.info("consumer_async_main() completed")
 
 
 def consumer_main(
@@ -1568,7 +1595,8 @@ def consumer_main(
         The configuration, with a strategies section and optional
         portfolio_value, risk and file_only settings.
     """
-    tlog(f"*** consumer_main() starting w pid {os.getpid()} ***")
+    configure_logging()
+    logger.info("*** consumer_main() starting w pid %s ***", os.getpid())
 
     config.portfolio_value = conf.get("portfolio_value", None)
     if "risk" in conf:
@@ -1584,6 +1612,6 @@ def consumer_main(
             ),
         )
     except KeyboardInterrupt:
-        tlog("consumer_main() - Caught KeyboardInterrupt")
+        logger.info("consumer_main() - Caught KeyboardInterrupt")
 
-    tlog("*** consumer_main() completed ***")
+    logger.info("*** consumer_main() completed ***")

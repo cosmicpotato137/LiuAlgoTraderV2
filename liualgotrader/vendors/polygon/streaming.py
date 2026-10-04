@@ -8,18 +8,19 @@ PolygonStream
 
 import asyncio
 import json
+import logging
 import queue
-import traceback
 from typing import Dict, List, Optional, Union
 
 from polygon import WebSocketClient
 from polygon.exceptions import AuthError
 from polygon.websocket.models import Feed, Market
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.polygon.config import PolygonConfig
+
+logger = logging.getLogger(__name__)
 
 # Polygon websocket channel prefix of each event type
 _WS_CHANNELS: Dict[WSEventType, str] = {
@@ -113,7 +114,7 @@ class PolygonStream(StreamingAPI):
             for event in events
         ]
 
-        tlog(f"subscribe(): adding subscription {args}")
+        logger.info("subscribe(): adding subscription %s", args)
         self.polygon_ws_client.subscribe(*args)
 
         return True
@@ -141,7 +142,7 @@ class PolygonStream(StreamingAPI):
             f"{channel}.{symbol.upper()}" for channel in _WS_CHANNELS.values()
         ]
 
-        tlog(f"unsubscribe(): removing subscription {args}")
+        logger.info("unsubscribe(): removing subscription %s", args)
         self.polygon_ws_client.unsubscribe(*args)
 
         return True
@@ -198,7 +199,7 @@ class PolygonStream(StreamingAPI):
     def _handle_event(cls, event: Dict):
         """Put a Polygon event on the queue for its symbol.
 
-        Print the event to standard output.
+        Log the event at debug level.
 
         Parameters
         ----------
@@ -211,7 +212,7 @@ class PolygonStream(StreamingAPI):
         Raise queue.Full if the queue stays full for one second; log and
         suppress any other error.
         """
-        print("event:", event)
+        logger.debug("event: %s", event)
         try:
             event["EV"] = event["ev"]
             if "s" in event:
@@ -238,15 +239,18 @@ class PolygonStream(StreamingAPI):
                 event["count"] = event["z"]
             cls.get_instance().queues[event["sym"]].put(event, timeout=1)
         except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {event['sym']} is FULL:{f}, sleeping for 2 seconds and re-trying."
+            logger.error(
+                "process_message(): queue for %s is FULL:%s, sleeping for 2 seconds and re-trying.",
+                event["sym"],
+                f,
             )
             raise
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
+            logger.exception(
+                "process_message(): exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
             )
-            traceback.print_exc()
 
     @classmethod
     def _process_message(cls, message):
@@ -275,7 +279,7 @@ class PolygonStream(StreamingAPI):
         error
             The reported error.
         """
-        tlog(f"[ERROR] on_error(): {error}")
+        logger.error("on_error(): %s", error)
 
     @classmethod
     def _on_close(cls, ws, close_status_code, close_msg):
@@ -290,4 +294,6 @@ class PolygonStream(StreamingAPI):
         close_msg
             The close message.
         """
-        tlog(f"[INFO] on_close() called with {close_status_code, close_msg}")
+        logger.info(
+            "on_close() called with (%s, %s)", close_status_code, close_msg
+        )

@@ -7,13 +7,14 @@ Scanner
 """
 
 import importlib
-import traceback
+import logging
 from abc import ABCMeta, abstractmethod
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog
+
+logger = logging.getLogger(__name__)
 
 
 class Scanner(metaclass=ABCMeta):
@@ -132,8 +133,9 @@ class Scanner(metaclass=ABCMeta):
             custom_scanner = getattr(custom_scanner_module, class_name)
 
             if not issubclass(custom_scanner, Scanner):
-                tlog(
-                    f"custom scanner must inherit from class {Scanner.__name__}"
+                logger.error(
+                    "custom scanner must inherit from class %s",
+                    Scanner.__name__,
                 )
                 exit(0)
 
@@ -151,15 +153,18 @@ class Scanner(metaclass=ABCMeta):
                     **scanner_details,
                 )
         except FileNotFoundError as e:
-            tlog(
-                f"[EXCEPTION] {e} : file not found `{scanner_details['filename']}`"
+            logger.error(
+                "%s : file not found `%s`",
+                e,
+                scanner_details["filename"],
             )
             exit(0)
         except Exception as e:
-            tlog(
-                f"[Error]exception of type {type(e).__name__} with args {e.args}"
+            logger.exception(
+                "exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
             )
-            traceback.print_exc()
             exit(0)
 
         else:

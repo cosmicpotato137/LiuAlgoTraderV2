@@ -35,7 +35,7 @@ class AlpacaConfig:
     broker_api_secret: Optional[str]
         The Broker API secret.
     debug_enabled: bool
-        Whether to print the traceback of errors in event handlers.
+        Whether to log the traceback of errors in event handlers.
     detailed_dl_debug_enabled: bool
         Whether to log each historical data request.
     """

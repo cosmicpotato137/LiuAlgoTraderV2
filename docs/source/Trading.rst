@@ -94,12 +94,12 @@ An expected beginning of execution should look like:
 Understanding *trader* output and Logging
 *****************************************
 
-The *trader* application writes output to STDOUT
-(standard output). It will also send
-logging to `google-cloud-logging` if configured.
-To learn more about how to configure
-this feature read
-the `How to Install & Setup` section.
+The *trader* application writes its log to STDOUT
+(standard output) using the Python `logging` module.
+Each entry is tagged with its time, process ID, level,
+logger and function. Set the environment variable
+`LIU_LOG_LEVEL` (for example `DEBUG` or `WARNING`) to
+control how much is logged; the default is `INFO`.
 
 The *trader* application uses a producer-consumers
 design patterns. In other words, when executed the

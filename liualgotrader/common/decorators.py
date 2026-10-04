@@ -7,10 +7,12 @@ timeit
 """
 
 import inspect
+import logging
 import time
 
 from liualgotrader.common import config
-from liualgotrader.common.tlog import tlog
+
+logger = logging.getLogger(__name__)
 
 
 def timeit(func):
@@ -53,10 +55,12 @@ def timeit(func):
         **params
             Keyword arguments for the wrapped function.
         """
-        tlog(f"{func.__name__} started")
+        logger.info("%s started", func.__name__)
         start = time.time()
         result = await process(func, *args, **params)
-        tlog(f"{func.__name__} >>> {round(time.time() - start, 3)} seconds")
+        logger.info(
+            "%s >>> %s seconds", func.__name__, round(time.time() - start, 3)
+        )
         return result
 
     return helper

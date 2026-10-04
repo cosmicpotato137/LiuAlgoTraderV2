@@ -10,6 +10,7 @@ fetch_as_dataframe
     Run a query and return its rows as a DataFrame.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
@@ -20,7 +21,8 @@ from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
                                     create_async_engine)
 
 from liualgotrader.common import config
-from liualgotrader.common.tlog import tlog
+
+logger = logging.getLogger(__name__)
 
 _session_factory: Optional[async_sessionmaker[AsyncSession]] = None
 
@@ -38,7 +40,7 @@ def _connect(dsn: str) -> async_sessionmaker[AsyncSession]:
         max_overflow=0,
     )
     _session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    tlog(f"db connection pool initialized w {dsn}")
+    logger.info("db connection pool initialized w %s", dsn)
     return _session_factory
 
 

@@ -7,8 +7,8 @@ AlpacaStream
 """
 
 import asyncio
+import logging
 import queue
-import traceback
 from datetime import datetime, timedelta
 from random import randint
 from typing import Callable, Dict, List, Optional, Union
@@ -22,11 +22,12 @@ from alpaca.data.live import CryptoDataStream, StockDataStream
 from alpaca.data.live.websocket import DataStream
 
 from liualgotrader.common.list_utils import chunks
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
 from liualgotrader.vendors.alpaca.data import _crypto_pair, _is_crypto_symbol
+
+logger = logging.getLogger(__name__)
 
 NY = "America/New_York"
 nytz = pytz.timezone(NY)
@@ -214,7 +215,7 @@ class AlpacaStream(StreamingAPI):
             await client._send_subscribe_msg()
         except Exception as e:
             # the client subscribes again when it reconnects
-            tlog(f"[EXCEPTION] subscribe(): {type(e).__name__} {e}")
+            logger.error("subscribe(): %s %s", type(e).__name__, e)
 
     @classmethod
     async def _bar_handler(cls, msg):
@@ -248,17 +249,19 @@ class AlpacaStream(StreamingAPI):
             }
             cls.get_instance().queues[msg.symbol].put(event, timeout=1)
         except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {msg.symbol} "
-                f"is FULL:{f}"
+            logger.error(
+                "process_message(): queue for %s is FULL:%s",
+                msg.symbol,
+                f,
             )
             raise
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
+            logger.error(
+                "process_message(): exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
+                exc_info=cls.get_instance().config.debug_enabled,
             )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
 
     @classmethod
     async def _crypto_bar_handler(cls, msg):
@@ -294,17 +297,19 @@ class AlpacaStream(StreamingAPI):
             }
             cls.get_instance().queues[symbol].put(event, timeout=1)
         except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {msg.symbol} "
-                f"is FULL:{f}"
+            logger.error(
+                "process_message(): queue for %s is FULL:%s",
+                msg.symbol,
+                f,
             )
             raise
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
+            logger.error(
+                "process_message(): exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
+                exc_info=cls.get_instance().config.debug_enabled,
             )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
 
     @classmethod
     async def _trades_handler(cls, msg):
@@ -326,8 +331,10 @@ class AlpacaStream(StreamingAPI):
             ) and randint(  # nosec
                 1, 100
             ) == 1:  # nosec
-                tlog(
-                    f"Received trade for {msg.symbol} too out of sync w {time_diff}"
+                logger.info(
+                    "Received trade for %s too out of sync w %s",
+                    msg.symbol,
+                    time_diff,
                 )
 
             event = {
@@ -353,17 +360,19 @@ class AlpacaStream(StreamingAPI):
             cls.get_instance().queues[msg.symbol].put(event, block=False)
 
         except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {msg.symbol} "
-                f"is FULL:{f}"
+            logger.error(
+                "process_message(): queue for %s is FULL:%s",
+                msg.symbol,
+                f,
             )
             raise
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
+            logger.error(
+                "process_message(): exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
+                exc_info=cls.get_instance().config.debug_enabled,
             )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
 
     @classmethod
     async def _crypto_trades_handler(cls, msg):
@@ -387,9 +396,10 @@ class AlpacaStream(StreamingAPI):
             ) and randint(  # nosec
                 1, 100
             ) == 1:  # nosec
-                tlog(
-                    f"Received trade for {symbol} too out of sync "
-                    f"w {time_diff}"
+                logger.info(
+                    "Received trade for %s too out of sync w %s",
+                    symbol,
+                    time_diff,
                 )
 
             event = {
@@ -415,17 +425,19 @@ class AlpacaStream(StreamingAPI):
             cls.get_instance().queues[symbol].put(event, block=False)
 
         except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {msg.symbol} "
-                f"is FULL:{f}"
+            logger.error(
+                "process_message(): queue for %s is FULL:%s",
+                msg.symbol,
+                f,
             )
             raise
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] process_message(): exception of type {type(e).__name__} with args {e.args}"
+            logger.error(
+                "process_message(): exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
+                exc_info=cls.get_instance().config.debug_enabled,
             )
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
 
     @classmethod
     async def _quotes_handler(cls, msg):
@@ -455,11 +467,11 @@ class AlpacaStream(StreamingAPI):
         -------
         Return True.
         """
-        tlog(f"Starting subscription for {len(symbols)} symbols")
+        logger.info("Starting subscription for %s symbols", len(symbols))
         upper_symbols = [symbol.upper() for symbol in symbols]
         stock, crypto = self.stock_ws_client, self.crypto_ws_client
         for syms in chunks(upper_symbols, 1000):
-            tlog(f"\tsubscribe {len(syms)}/{len(upper_symbols)}")
+            logger.info("\tsubscribe %s/%s", len(syms), len(upper_symbols))
 
             crypto_symbols = list(filter(_is_crypto_symbol, syms))
             equity_symbols = [x for x in syms if x not in crypto_symbols]
@@ -514,12 +526,12 @@ class AlpacaStream(StreamingAPI):
 
             await asyncio.sleep(1)
 
-        tlog(f"Completed subscription for {len(symbols)} symbols")
+        logger.info("Completed subscription for %s symbols", len(symbols))
         return True
 
     async def close(self) -> None:
         """Stop the WebSocket clients and wait for streaming to end."""
-        tlog("Closing AlpacaStream")
+        logger.info("Closing AlpacaStream")
 
         if self.task:
             for client in self._client_tasks:
@@ -529,4 +541,4 @@ class AlpacaStream(StreamingAPI):
             while not self.task.done():
                 await asyncio.sleep(1.0)
 
-            tlog("Task Done. Closed AlpacaStream")
+            logger.info("Task Done. Closed AlpacaStream")

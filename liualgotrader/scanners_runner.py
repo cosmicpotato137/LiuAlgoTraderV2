@@ -18,9 +18,9 @@ main
 
 import asyncio
 import json
+import logging
 import multiprocessing as mp
 import os
-import traceback
 from datetime import timedelta
 from typing import Dict, List
 
@@ -28,13 +28,15 @@ from pytz import timezone
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog
+from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import DataConnectorType
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner
 from liualgotrader.scanners.momentum import Momentum
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.trade.factory import trader_factory
+
+logger = logging.getLogger(__name__)
 
 nyc = timezone("America/New_York")
 
@@ -57,7 +59,9 @@ async def scanner_runner(scanner: Scanner, queue: mp.Queue) -> None:
             symbols = await scanner.run()
 
             if len(symbols):
-                tlog(f"Scanner {scanner.name} picked {len(symbols)} symbols")
+                logger.info(
+                    "Scanner %s picked %s symbols", scanner.name, len(symbols)
+                )
                 queue.put(
                     json.dumps(
                         [
@@ -74,18 +78,20 @@ async def scanner_runner(scanner: Scanner, queue: mp.Queue) -> None:
                 break
 
             await asyncio.sleep(scanner.recurrence.total_seconds())
-            tlog(f"scanner {scanner.name} re-running")
+            logger.info("scanner %s re-running", scanner.name)
     except asyncio.CancelledError:
-        tlog(
-            f"scanner_runner() cancelled, closing scanner task {scanner.name}"
+        logger.info(
+            "scanner_runner() cancelled, closing scanner task %s", scanner.name
         )
     except Exception as e:
-        traceback.print_exc()
-        tlog(
-            f"[ERROR]Exception in scanner_runner({scanner.name}): exception of type {type(e).__name__} with args {e.args}"
+        logger.exception(
+            "Exception in scanner_runner(%s): exception of type %s with args %s",
+            scanner.name,
+            type(e).__name__,
+            e.args,
         )
     finally:
-        tlog(f"scanner_runner {scanner.name} completed")
+        logger.info("scanner_runner %s completed", scanner.name)
 
 
 async def create_momentum_scanner(
@@ -126,8 +132,10 @@ async def create_momentum_scanner(
             ),
         )
     except KeyError as e:
-        tlog(
-            f"Error {e} in processing of scanner configuration {scanner_details}"
+        logger.error(
+            "Error %s in processing of scanner configuration %s",
+            e,
+            scanner_details,
         )
         exit(0)
 
@@ -165,9 +173,9 @@ async def create_scanners(
                     scanners_conf[scanner_name],
                 )
             )
-            tlog("instantiated momentum scanner")
+            logger.info("instantiated momentum scanner")
         else:
-            tlog(f"custom scanner {scanner_name} selected")
+            logger.info("custom scanner %s selected", scanner_name)
             scanners.append(
                 await Scanner.get_scanner(
                     data_loader, scanner_name, scanners_conf[scanner_name]
@@ -194,7 +202,7 @@ async def scanners_runner(
     trader: Trader
         The trader passed to the scanners.
     """
-    print("** scanners_runner() task starting **")
+    logger.info("** scanners_runner() task starting **")
     scanners: List[Scanner] = await create_scanners(
         trader, DataLoader(), scanners_conf
     )
@@ -210,25 +218,26 @@ async def scanners_runner(
         )
 
     except asyncio.CancelledError:
-        tlog(
+        logger.info(
             "scanners_runner.scanners_runner() cancelled, closing scanner tasks"
         )
 
         for task in scanner_tasks:
-            tlog(
-                f"scanners_runner.scanners_runner()  requesting task {task.get_name()} to cancel"
+            logger.info(
+                "scanners_runner.scanners_runner()  requesting task %s to cancel",
+                task.get_name(),
             )
             task.cancel()
             try:
                 await task
             except asyncio.CancelledError:
-                tlog(
+                logger.info(
                     "scanners_runner.scanners_runner()  task is cancelled now"
                 )
 
     finally:
         queue.close()
-        tlog("scanners_runner.scanners_runner()  done.")
+        logger.info("scanners_runner.scanners_runner()  done.")
 
 
 async def async_main(scanners_conf: Dict, queue: mp.Queue) -> None:
@@ -280,16 +289,21 @@ def main(
     ------
     Raise KeyError if conf_dict has no scanners section.
     """
-    tlog(f"*** scanners_runner.main() starting w pid {os.getpid()} ***")
+    configure_logging()
+    logger.info(
+        "*** scanners_runner.main() starting w pid %s ***", os.getpid()
+    )
 
     if scanners_conf := conf_dict["scanners"]:
         try:
             asyncio.run(async_main(scanners_conf, scanner_queue))
         except KeyboardInterrupt:
-            tlog("scanners_runner.main() - Caught KeyboardInterrupt")
+            logger.info("scanners_runner.main() - Caught KeyboardInterrupt")
         except Exception as e:
-            tlog(
-                f"scanners_runner.main() - exception of type {type(e).__name__} with args {e.args}"
+            logger.error(
+                "scanners_runner.main() - exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
             )
 
-    tlog("*** scanners_runner.main() completed ***")
+    logger.info("*** scanners_runner.main() completed ***")

@@ -6,15 +6,15 @@ Gainloss
     Miner that computes gain and loss data for recent trading batches.
 """
 
-import sys
-import traceback
+import logging
 from datetime import date, timedelta
 from typing import Dict
 
 from liualgotrader.analytics import consolidate
-from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.miners.base import Miner
+
+logger = logging.getLogger(__name__)
 
 
 class Gainloss(Miner):
@@ -78,16 +78,15 @@ class Gainloss(Miner):
         data = await AlgoRun.get_batch_ids(
             start_date=date.today() - timedelta(days=self.days)
         )
-        tlog(f"Miner {self.name} will consolidate {len(data)} batches")
+        logger.info(
+            "Miner %s will consolidate %s batches", self.name, len(data)
+        )
         for index, row in data.iterrows():
-            tlog(f"{int(index)+1}/{len(data)}")
+            logger.info("%s/%s", int(index) + 1, len(data))
             try:
                 await consolidate.trades(row.batch_id)
             except Exception as e:
-                tlog(f"[ERROR] aborted w/ exception {e}")
-                exc_info = sys.exc_info()
-                traceback.print_exception(*exc_info)
-                del exc_info
+                logger.exception("aborted w/ exception %s", e)
                 raise
 
         return True

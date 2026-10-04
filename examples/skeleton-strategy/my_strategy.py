@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import Dict, List, Tuple
 
@@ -5,7 +6,6 @@ import pandas as pd
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog
 #
 # common.trading_data includes global variables, cross strategies that may be
 # helpful
@@ -15,6 +15,8 @@ from liualgotrader.common.trading_data import (buy_indicators,
                                                sell_indicators, stop_prices,
                                                target_prices)
 from liualgotrader.strategies.base import Strategy, StrategyType
+
+logger = logging.getLogger(__name__)
 
 #
 # TALIB is *NOT* available as part of LiuAlgoTrader distribution,
@@ -75,7 +77,7 @@ class MyStrategy(Strategy):
         :return:
         """
         await super().create()
-        tlog(f"strategy {self.name} created")
+        logger.info("strategy %s created", self.name)
         return True
 
     async def should_run_all(self):
@@ -93,8 +95,8 @@ class MyStrategy(Strategy):
         backtesting: bool = False,
     ) -> Tuple[bool, Dict]:
         current_second_data = minute_history.iloc[-1]
-        tlog(f"{symbol} position is {position}")
-        tlog(f"{symbol} data: {current_second_data}")
+        logger.info("%s position is %s", symbol, position)
+        logger.info("%s data: %s", symbol, current_second_data)
 
         if await super().is_buy_time(now) and not position:
             #
@@ -112,8 +114,11 @@ class MyStrategy(Strategy):
             #
             buy_indicators[symbol] = {"my_indicator": "random"}
 
-            tlog(
-                f"[{self.name}] Submitting buy 10 shares of {symbol} at {current_second_data.close}"
+            logger.info(
+                "[%s] Submitting buy 10 shares of %s at %s",
+                self.name,
+                symbol,
+                current_second_data.close,
             )
             return (
                 True,
@@ -135,7 +140,9 @@ class MyStrategy(Strategy):
         ):
             # check if we already have open order
             if open_orders.get(symbol) is not None:
-                tlog(f"{self.name}: open order for {symbol} exists, skipping")
+                logger.info(
+                    "%s: open order for %s exists, skipping", self.name, symbol
+                )
                 return False, {}
 
             # Check for liquidation signals
@@ -145,8 +152,12 @@ class MyStrategy(Strategy):
                 else "reached stop"
             }
 
-            tlog(
-                f"[{self.name}] Submitting sell for {position} shares of {symbol} at market w/ {sell_indicators}"
+            logger.info(
+                "[%s] Submitting sell for %s shares of %s at market w/ %s",
+                self.name,
+                position,
+                symbol,
+                sell_indicators,
             )
             return (
                 True,

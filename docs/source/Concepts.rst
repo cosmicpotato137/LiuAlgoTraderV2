@@ -163,7 +163,7 @@ files for a future developer.
     |   |   ├── types.py
     |   |   ├── config.py
     |   |   ├── market_data.py
-    |   |   ├── tlog.py
+    |   |   ├── log.py
     |   |   ├── data_loader.py
     |   |   └── trading_data.py
     |   ├── data
@@ -224,7 +224,7 @@ The `common` folder contains 5 important files that the developer should be awar
 
 - `config.py` is a file for global configuration. The file includes internal constants which are not accessible via the environment variables of the configuration file for now,
 - `types.py` includes various enums/classes used throughout the framework,
-- `tlog.py` is a simple log implementation which write log entries both to STDOUT and GCP *stackdriver* logger, if it is configured,
+- `log.py` configures the standard Python `logging` module to write log entries to STDOUT, at the level set by the `LIU_LOG_LEVEL` environment variable,
 - `data_loader.py` explained above,
 - `trading_data` includes global variables that are shared between the strategies and the consumer infrastructure. This file should be viewed in details to understand data passing.
 

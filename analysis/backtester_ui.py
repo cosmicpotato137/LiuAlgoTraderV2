@@ -2,7 +2,7 @@ import asyncio
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-import traceback
+import logging
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -17,7 +17,11 @@ from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_trades_by_batch_id)
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
+from liualgotrader.common.log import configure_logging
 from liualgotrader.db.session import create_db_connection
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 loop.run_until_complete(create_db_connection())
 st.title("LiuAlgoTrading Framework")
@@ -41,7 +45,7 @@ if app == "analyzer":
             how_was_my_batch = pd.DataFrame()
             t = loop.run_until_complete(load_trades_by_batch_id(bid))
 
-            print(t)
+            logger.debug("%s", t)
 
             if t.empty:
                 st.info("No trades, select another batch")
@@ -101,9 +105,8 @@ if app == "analyzer":
                 end_index = symbol_data.close.index.get_indexer(
                     [end_date], method="nearest"
                 )[0]
-            except Exception as e:
-                traceback.print_exc()
-                print(f"Error for {symbol}: {e}")
+            except Exception:
+                logger.exception("Error for %s", symbol)
                 continue
 
             open_price = symbol_data.close.iloc[start_index]

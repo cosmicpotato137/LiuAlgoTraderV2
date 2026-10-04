@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import date, datetime, timedelta
 from typing import Dict
 
@@ -12,8 +13,12 @@ import streamlit as st
 from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_runs, load_trades)
 from liualgotrader.common import config
+from liualgotrader.common.log import configure_logging
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.polygon.data import PolygonData
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 st.title("Day-trade Session Analysis")
 st.markdown(
@@ -150,7 +155,7 @@ if st.sidebar.checkbox("Show details"):
                 [end_date], method="nearest"
             )[0]
         except Exception as e:
-            print(f"Error for {symbol}: {e}")
+            logger.error("Error for %s: %s", symbol, e)
             continue
 
         open_price = minute_history[symbol]["close"].iloc[start_index]

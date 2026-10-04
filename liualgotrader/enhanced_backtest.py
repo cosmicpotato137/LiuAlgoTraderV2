@@ -32,7 +32,7 @@ backtest
 
 import asyncio
 import inspect
-import traceback
+import logging
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
@@ -44,7 +44,6 @@ from pytz import timezone
 from liualgotrader.common import config, trading_data
 from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog, tlog_exception
 from liualgotrader.common.types import AssetType, TimeScale
 from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.session import create_db_connection
@@ -54,6 +53,8 @@ from liualgotrader.strategies.base import Strategy
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.trade.factory import trader_factory
 from liualgotrader.vendors.alpaca.data import AlpacaData
+
+logger = logging.getLogger(__name__)
 
 run_scanners: Dict[Scanner, datetime] = {}
 symbol_data: Dict[str, pd.DataFrame] = {}
@@ -85,7 +86,7 @@ async def create_scanners(
     for scanner_name in scanners_conf:
         if scanner_names and scanner_name not in scanner_names:
             continue
-        tlog(f"scanner {scanner_name} selected")
+        logger.info("scanner %s selected", scanner_name)
         if scanner_name == "momentum":
             scanners.append(
                 await create_momentum_scanner(
@@ -311,8 +312,12 @@ async def do_strategy_result(
             else:
                 await strategy.sell_callback(symbol, price, qty, now)
     except Exception as e:
-        tlog(
-            f"do_strategy_result({symbol}, {what}, {now}) failed w/ {e}. operation not executed"
+        logger.error(
+            "do_strategy_result(%s, %s, %s) failed w/ %s. operation not executed",
+            symbol,
+            what,
+            now,
+            e,
         )
         return False
 
@@ -418,8 +423,7 @@ async def do_strategy_all(
             )
 
     except Exception as e:
-        tlog(f"[Exception] {now} {strategy}->{e}")
-        traceback.print_exc()
+        logger.exception("%s %s->%s", now, strategy, e)
         raise
 
 
@@ -468,13 +472,21 @@ async def do_strategy_by_symbol(
                     data_loader, strategy, symbol, now, what
                 )
         except ValueError:
-            tlog(
-                f"symbol {symbol} for now have data in the range {now - timedelta(days=1)}-{now}"
+            logger.info(
+                "symbol %s for now have data in the range %s-%s",
+                symbol,
+                now - timedelta(days=1),
+                now,
             )
         except Exception as e:
-            tlog(f"[Exception] {now} {strategy}({symbol}):`{e}`")
-            if config.debug_enabled:
-                traceback.print_exc()
+            logger.error(
+                "%s %s(%s):`%s`",
+                now,
+                strategy,
+                symbol,
+                e,
+                exc_info=config.debug_enabled,
+            )
             raise
 
 
@@ -611,7 +623,7 @@ async def backtest_day(
     Log and re-raise TypeError if a scanner result is not a list of symbols.
     """
     day_start, day_end = get_day_start_end(asset_type, day)
-    print(day_start, day_end)
+    logger.debug("%s %s", day_start, day_end)
     current_time = day_start
     prefetched: List[str] = []
     while current_time < day_end:
@@ -629,7 +641,9 @@ async def backtest_day(
             if item not in prefetched
         ]
         for symbol in prefetch:
-            tlog(f"Prefetch data for {symbol}@{day_start}-{day_end}")
+            logger.info(
+                "Prefetch data for %s@%s-%s", symbol, day_start, day_end
+            )
 
             data_loader[symbol][day_start:day_end]
             prefetched.append(symbol)
@@ -644,11 +658,10 @@ async def backtest_day(
                 }
 
             except TypeError as e:
-                if config.debug_enabled:
-                    tlog_exception("backtest_day")
-
-                tlog(
-                    f"[EXCEPTION] {e} (hint: check scanner(s) return list of symbols?)"
+                logger.error(
+                    "%s (hint: check scanner(s) return list of symbols?)",
+                    e,
+                    exc_info=config.debug_enabled,
                 )
                 raise
 
@@ -781,13 +794,16 @@ async def backtest_main(
     strategies: Optional[List], default None
         The names of the strategies to create, or None for all.
     """
-    tlog(
-        f"Starting back-test from {from_date} to {to_date} with time scale {scale}"
+    logger.info(
+        "Starting back-test from %s to %s with time scale %s",
+        from_date,
+        to_date,
+        scale,
     )
     if scanners:
-        tlog(f"with scanners:{scanners}")
+        logger.info("with scanners:%s", scanners)
     if strategies:
-        tlog(f"with strategies:{strategies}")
+        logger.info("with strategies:%s", strategies)
 
     if "portfolio_value" in tradeplan:
         global portfolio_value
@@ -802,11 +818,11 @@ async def backtest_main(
         if "scanners" in tradeplan
         else []
     )
-    tlog(f"instantiated {len(scanners)} scanners")
+    logger.info("instantiated %s scanners", len(scanners))
     strategies = await create_strategies(
         uid, tradeplan["strategies"], data_loader, strategies
     )
-    tlog(f"instantiated {len(strategies)} strategies")
+    logger.info("instantiated %s strategies", len(strategies))
 
     await backtest_time_range(
         from_date=from_date,
@@ -835,7 +851,7 @@ def backtest(
     """Run a backtesting session and return its batch identifier.
 
     Do not call from a coroutine. Log, rather than raise, any error or keyboard
-    interrupt, and print the batch identifier in all cases.
+    interrupt, and log the batch identifier in all cases.
 
     Parameters
     ----------
@@ -878,14 +894,15 @@ def backtest(
             )
         )
     except KeyboardInterrupt:
-        tlog("backtest() - Caught KeyboardInterrupt")
+        logger.info("backtest() - Caught KeyboardInterrupt")
     except Exception as e:
-        tlog(
-            f"backtest() - exception of type {type(e).__name__} with args {e.args}"
+        logger.exception(
+            "backtest() - exception of type %s with args %s",
+            type(e).__name__,
+            e.args,
         )
-        traceback.print_exc()
     finally:
-        print("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
-        print(f"new batch-id: {uid}")
+        logger.info("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
+        logger.info("new batch-id: %s", uid)
 
     return uid

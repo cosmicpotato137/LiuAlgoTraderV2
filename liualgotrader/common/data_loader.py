@@ -29,6 +29,7 @@ getitem
 """
 
 import concurrent.futures
+import logging
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -37,10 +38,11 @@ from dateutil.parser import parse as date_parser
 from pytz import timezone
 
 from liualgotrader.common import config
-from liualgotrader.common.tlog import tlog, tlog_exception
 from liualgotrader.common.types import DataConnectorType, TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.data.factory import data_loader_factory
+
+logger = logging.getLogger(__name__)
 
 nyc = timezone("America/New_York")
 
@@ -894,7 +896,7 @@ class SymbolData:
                 return rc[self.name]
             except Exception:
                 if config.debug_enabled:
-                    tlog_exception("__getitem__")
+                    logger.exception("__getitem__(%s) failed", key)
                 raise
 
         def __getattr__(self, attr):
@@ -995,7 +997,7 @@ class SymbolData:
         try:
             return self.symbol_data.index.get_loc(index, method=method)
         except ValueError:
-            tlog(f"[EXCEPTION] ValueError {index},{self.symbol_data.index}")
+            logger.error("ValueError %s,%s", index, self.symbol_data.index)
             raise
         except KeyError:
             self.symbol_data = fetch_data_datetime(
@@ -1043,7 +1045,7 @@ class SymbolData:
             return rc
         except Exception:
             if config.debug_enabled:
-                tlog_exception("__getitem__")
+                logger.exception("__getitem__(%s) failed", key)
             raise
 
     def __repr__(self):

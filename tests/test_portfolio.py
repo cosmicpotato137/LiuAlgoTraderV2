@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 import pandas as pd
@@ -6,6 +7,8 @@ import pytest
 from liualgotrader.common.types import AssetType
 from liualgotrader.db.models.portfolio import Portfolio
 from liualgotrader.db.session import create_db_connection
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)
@@ -19,7 +22,7 @@ async def test_exists_negative() -> bool:
     result = await Portfolio.exists("1234")
     if result == True:
         raise AssertionError("result should be False")
-    print(result)
+    logger.info("%s", result)
     return True
 
 
@@ -37,7 +40,7 @@ async def test_exists_positive() -> bool:
     if result == False:
         raise AssertionError(f"result should be True for {id}")
 
-    print(result)
+    logger.info("%s", result)
     return True
 
 
@@ -55,7 +58,7 @@ async def test_balance_positive() -> bool:
     if result != 5000:
         raise AssertionError("result should be 5000")
 
-    print(result)
+    logger.info("%s", result)
     return True
 
 
@@ -69,7 +72,7 @@ async def test_get_get_external_account_id_positive() -> bool:
     if external_account_id != x_id or broker != "ALPACA":
         raise AssertionError("failed to load external_account_id details")
 
-    print(external_account_id, broker)
+    logger.info("%s %s", external_account_id, broker)
     return True
 
 
@@ -88,7 +91,7 @@ async def test_get_get_external_account_id_positive2() -> bool:
     if external_account_id or broker:
         raise AssertionError("failed to load external_account_id details")
 
-    print(external_account_id, broker)
+    logger.info("%s %s", external_account_id, broker)
     return True
 
 
@@ -101,7 +104,7 @@ async def test_crypto_1() -> bool:
     if result == False:
         raise AssertionError(f"result should be True for {id}")
 
-    print(result)
+    logger.info("%s", result)
     return True
 
 
@@ -115,7 +118,7 @@ async def test_crypto_2() -> bool:
         raise AssertionError(f"result should be True for {id}")
 
     p = await Portfolio.load_by_portfolio_id(id)
-    print(p)
+    logger.info("%s", p)
     if p.asset_type != AssetType.CRYPTO:
         raise AssertionError("wrong asset-type")
     if p.portfolio_size != 5000:

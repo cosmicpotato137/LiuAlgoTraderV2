@@ -29,7 +29,7 @@ class GeminiConfig:
     trading_base_websocket: str
         The websocket API base URL for trading.
     debug_enabled: bool
-        Whether to print the traceback of errors in stream handlers.
+        Whether to log the traceback of errors in stream handlers.
     """
 
     api_key: Optional[str] = None

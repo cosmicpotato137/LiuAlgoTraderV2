@@ -1,10 +1,13 @@
 import asyncio
+import logging
 
 import pytest
 
 from liualgotrader.common import config
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.gemini.trader import GeminiTrader
+
+logger = logging.getLogger(__name__)
 
 gemini_trader: GeminiTrader
 
@@ -19,11 +22,11 @@ async def db_connection():
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_get_symbols():
-    print("test_get_symbols")
+    logger.info("test_get_symbols")
     global gemini_trader
     assets = await gemini_trader.get_tradeable_symbols()
-    print(assets)
-    print(len(assets))
+    logger.info("%s", assets)
+    logger.info("%s", len(assets))
     await asyncio.sleep(1.0)
     return True
 
@@ -31,18 +34,18 @@ async def test_get_symbols():
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_get_shortable_symbols():
-    print("test_get_shortable_symbols")
+    logger.info("test_get_shortable_symbols")
     global gemini_trader
     assets = await gemini_trader.get_shortable_symbols()
-    print(assets)
-    print(len(assets))
+    logger.info("%s", assets)
+    logger.info("%s", len(assets))
     return True
 
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_market_buy_order():
-    print("test_market_buy_order")
+    logger.info("test_market_buy_order")
     global gemini_trader
     if (
         gemini_trader.config.trading_base_url
@@ -66,7 +69,7 @@ async def test_market_buy_order():
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_limit_buy_order():
-    print("test_limit_buy_order")
+    logger.info("test_limit_buy_order")
     global gemini_trader
     if (
         gemini_trader.config.trading_base_url
@@ -83,7 +86,7 @@ async def test_limit_buy_order():
     )
     await asyncio.sleep(1.0)
     order_status = await gemini_trader.get_order(order.order_id)
-    print(order_status)
+    logger.info("%s", order_status)
     await asyncio.sleep(1.0)
     return True
 
@@ -91,7 +94,7 @@ async def test_limit_buy_order():
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_order_negative():
-    print("test_order_negative")
+    logger.info("test_order_negative")
     global gemini_trader
     if (
         gemini_trader.config.trading_base_url
@@ -110,7 +113,7 @@ async def test_order_negative():
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_order_completed():
-    print("test_order_completed")
+    logger.info("test_order_completed")
     global gemini_trader
     if (
         gemini_trader.config.trading_base_url
@@ -127,14 +130,14 @@ async def test_order_completed():
     )
     await asyncio.sleep(1.0)
     order_status = await gemini_trader.is_order_completed(order.order_id)
-    print(order_status)
+    logger.info("%s", order_status)
     return True
 
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_buy_websocket1():
-    print("test_order_completed")
+    logger.info("test_order_completed")
     global gemini_trader
     if (
         gemini_trader.config.trading_base_url
@@ -143,7 +146,7 @@ async def test_buy_websocket1():
         raise AssertionError("Can only run test in sandbox")
 
     task_id = await gemini_trader.run()
-    print("task_id", task_id, "created")
+    logger.info("task_id %s created", task_id)
     await asyncio.sleep(1.0)
 
     try:
@@ -155,12 +158,12 @@ async def test_buy_websocket1():
             limit_price="100000",
         )
     except AssertionError as e:
-        print(f"Assertion Error {e}")
+        logger.info("Assertion Error %s", e)
         return True
 
     await asyncio.sleep(30.0)
     order_status = await gemini_trader.is_order_completed(order)
-    print(order_status)
+    logger.info("%s", order_status)
 
     await gemini_trader.close()
     return True
@@ -169,7 +172,7 @@ async def test_buy_websocket1():
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_get_position():
-    print("test_get_position")
+    logger.info("test_get_position")
     global gemini_trader
     if (
         gemini_trader.config.trading_base_url
@@ -179,6 +182,6 @@ async def test_get_position():
 
     await asyncio.sleep(1.0)
     position = gemini_trader.get_position("BTC")
-    print("BTC=", position)
+    logger.info("BTC= %s", position)
 
     return True

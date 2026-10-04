@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -6,10 +7,12 @@ import pytest
 from liualgotrader.common import config
 from liualgotrader.fincalcs.vwap import add_daily_vwap, anchored_vwap
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.mark.devtest
 def test_add_daily_vwap_single_line() -> bool:
-    print("test_add_daily_vwap_single_line")
+    logger.info("test_add_daily_vwap_single_line")
     start = datetime.utcnow().replace(second=0, microsecond=0)
     end = start
 
@@ -23,9 +26,9 @@ def test_add_daily_vwap_single_line() -> bool:
         "volume": [100],
     }
     df = pd.DataFrame(data=d, index=index)
-    print(df)
+    logger.info("%s", df)
     success = add_daily_vwap(df, back_time=start)
-    print(df)
+    logger.info("%s", df)
     if 50.0 / 3 != df.iloc[0].vwap:
         raise AssertionError(f"Unexpected VWAP {df.iloc[0].vwap}")
     if 50.0 / 3 != df.iloc[0].average:
@@ -38,7 +41,7 @@ def test_add_daily_vwap_single_line() -> bool:
 
 @pytest.mark.devtest
 def test_add_daily_vwap_two_line() -> bool:
-    print("test_add_daily_vwap_two_line")
+    logger.info("test_add_daily_vwap_two_line")
     start = datetime.utcnow().replace(second=0, microsecond=0)
     end = start + timedelta(minutes=1)
 
@@ -51,11 +54,11 @@ def test_add_daily_vwap_two_line() -> bool:
         "close": [20, 20],
         "volume": [100, 100],
     }
-    print("index:", index)
+    logger.info("index: %s", index)
     df = pd.DataFrame(data=d, index=index)
-    print("df:", df)
+    logger.info("df: %s", df)
     success = add_daily_vwap(df, back_time=start)
-    print("df w/ vwap:", df)
+    logger.info("df w/ vwap: %s", df)
     if 50.0 / 3 != df.iloc[1].vwap:
         raise AssertionError(f"Unexpected VWAP {df.iloc[1].vwap}")
     if 50.0 / 3 != df.iloc[1].average:
@@ -68,7 +71,7 @@ def test_add_daily_vwap_two_line() -> bool:
 
 @pytest.mark.devtest
 def test_add_daily_vwap_three_line() -> bool:
-    print("test_add_daily_vwap_three_line")
+    logger.info("test_add_daily_vwap_three_line")
     start = datetime.utcnow().replace(second=0, microsecond=0)
     end = start + timedelta(minutes=2)
 
@@ -81,11 +84,11 @@ def test_add_daily_vwap_three_line() -> bool:
         "close": [20, 20, 70],
         "volume": [100, 100, 100],
     }
-    print(index)
+    logger.info("%s", index)
     df = pd.DataFrame(data=d, index=index)
-    print(df)
+    logger.info("%s", df)
     success = add_daily_vwap(df, debug=True, back_time=start)
-    print(df)
+    logger.info("%s", df)
     if df.iloc[2].vwap != 25.0:
         raise AssertionError(f"Unexpected VWAP {df.iloc[2].vwap}")
 
@@ -97,7 +100,7 @@ def test_add_daily_vwap_three_line() -> bool:
 
 @pytest.mark.devtest
 def test_anchored_vwap_three_line() -> bool:
-    print("test_anchored_vwap_three_line")
+    logger.info("test_anchored_vwap_three_line")
     start = datetime.utcnow().replace(second=0, microsecond=0)
     end = start + timedelta(minutes=2)
 
@@ -110,11 +113,11 @@ def test_anchored_vwap_three_line() -> bool:
         "close": [20, 20, 70],
         "volume": [100, 100, 100],
     }
-    print(index)
+    logger.info("%s", index)
     df = pd.DataFrame(data=d, index=index)
-    print(df)
+    logger.info("%s", df)
     s = anchored_vwap(df, start, debug=True)
-    print(s)
+    logger.info("%s", s)
     if s.iloc[-1] != 25.0:
         raise AssertionError(f"Unexpected VWAP {s.iloc[-1]}")
 

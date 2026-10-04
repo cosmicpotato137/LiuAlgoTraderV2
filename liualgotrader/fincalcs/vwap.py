@@ -8,6 +8,7 @@ anchored_vwap
     Return the VWAP series anchored at a start time.
 """
 
+import logging
 from datetime import datetime
 
 import pandas as pd
@@ -15,7 +16,8 @@ from pandas import DataFrame as df
 from pandas import Timestamp as ts
 
 from liualgotrader.common import config
-from liualgotrader.common.tlog import tlog
+
+logger = logging.getLogger(__name__)
 
 
 def add_daily_vwap(
@@ -43,7 +45,7 @@ def add_daily_vwap(
     onward. Return False if the anchor cannot be located.
     """
     if debug:
-        tlog(f"before vwap {minute_data}")
+        logger.info("before vwap %s", minute_data)
 
     try:
         back_time_index = minute_data["close"].index.get_indexer(
@@ -51,8 +53,10 @@ def add_daily_vwap(
         )[0]
     except Exception as e:
         if debug:
-            tlog(
-                f"IndexError exception {e} in add_daily_vwap for {minute_data}"
+            logger.error(
+                "IndexError exception %s in add_daily_vwap for %s",
+                e,
+                minute_data,
             )
         return False
 

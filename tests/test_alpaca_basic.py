@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import date
 
@@ -8,17 +9,20 @@ from liualgotrader.common import config
 from liualgotrader.common.types import TimeScale
 from liualgotrader.vendors.alpaca.data import AlpacaData
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.mark.devtest
 def test_alpaca_aapl_data_day() -> bool:
     alpaca = AlpacaData(config.alpaca)
-    print(
+    logger.info(
+        "%s",
         alpaca.get_symbol_data(
             "AAPL",
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
             scale=TimeScale.day,
-        )
+        ),
     )
     return True
 
@@ -26,12 +30,13 @@ def test_alpaca_aapl_data_day() -> bool:
 @pytest.mark.devtest
 def test_alpaca_aapl_data_min() -> bool:
     alpaca = AlpacaData(config.alpaca)
-    print(
+    logger.info(
+        "%s",
         alpaca.get_symbol_data(
             "AAPL",
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
-        ).between_time("9:30", "16:00")
+        ).between_time("9:30", "16:00"),
     )
     return True
 
@@ -43,8 +48,10 @@ def test_alpaca_get_symbols() -> bool:
     t0 = time.time()
     symbols = alpaca.get_symbols()
     t1 = time.time()
-    print(
-        f"{len(symbols)} symbols are retrieved from Alpaca in {t1-t0} seconds"
+    logger.info(
+        "%s symbols are retrieved from Alpaca in %s seconds",
+        len(symbols),
+        t1 - t0,
     )
     return True
 
@@ -56,8 +63,10 @@ async def test_alpaca_get_market_snapshot() -> bool:
     t0 = time.time()
     market_snapshots = await alpaca.get_market_snapshot()
     t1 = time.time()
-    print(
-        f"{len(market_snapshots)} tickers of market snapshots are retrieved from Alpaca in {t1-t0} seconds"
+    logger.info(
+        "%s tickers of market snapshots are retrieved from Alpaca in %s seconds",
+        len(market_snapshots),
+        t1 - t0,
     )
     return True
 
@@ -65,12 +74,13 @@ async def test_alpaca_get_market_snapshot() -> bool:
 @pytest.mark.devtest
 def test_alpaca_multi_symbols_min() -> bool:
     alpaca = AlpacaData(config.alpaca)
-    print(
+    logger.info(
+        "%s",
         alpaca.get_symbols_data(
             ["AAPL", "IBM"],
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
-        )
+        ),
     )
     return True
 
@@ -78,13 +88,14 @@ def test_alpaca_multi_symbols_min() -> bool:
 @pytest.mark.devtest
 def test_alpaca_multi_symbols_day() -> bool:
     alpaca = AlpacaData(config.alpaca)
-    print(
+    logger.info(
+        "%s",
         alpaca.get_symbols_data(
             ["AAPL", "IBM"],
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
             TimeScale.day,
-        )
+        ),
     )
     return True
 

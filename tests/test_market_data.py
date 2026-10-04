@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import date, datetime
 
@@ -16,6 +17,8 @@ from liualgotrader.common.types import TimeScale
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.alpaca.trader import AlpacaTrader
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.fixture(autouse=True)
 async def db_connection():
@@ -27,7 +30,7 @@ async def db_connection():
 async def test_get_market_industries():
     industry_list = await get_market_industries()
 
-    print(industry_list)
+    logger.info("%s", industry_list)
 
     return True
 
@@ -36,7 +39,7 @@ async def test_get_market_industries():
 @pytest.mark.devtest
 async def test_get_market_sectors():
     sector_list = await get_market_sectors()
-    print(sector_list)
+    logger.info("%s", sector_list)
 
     return True
 
@@ -47,7 +50,7 @@ async def test_get_market_sectors_symbols():
     sector_list = await get_market_sectors()
 
     l = await get_sectors_tickers(sector_list)
-    print(f"sectors_tickers {l}")
+    logger.info("sectors_tickers %s", l)
 
     return True
 
@@ -57,7 +60,7 @@ async def test_get_market_sectors_symbols():
 async def test_get_market_industries_symbols():
     industries_list = await get_market_industries()
     l = await get_industries_tickers(industries_list)
-    print(l)
+    logger.info("%s", l)
 
     return True
 
@@ -66,7 +69,7 @@ async def test_get_market_industries_symbols():
 @pytest.mark.devtest
 async def test_sp500_historical_constituents():
     sp500_symbols = await sp500_historical_constituents(datetime.now())
-    print(sp500_symbols)
+    logger.info("%s", sp500_symbols)
 
     return True
 
@@ -76,7 +79,7 @@ async def test_sp500_historical_constituents():
 async def test_get_trading_holidays():
     holidays = await get_trading_holidays()
 
-    print(holidays)
+    logger.info("%s", holidays)
 
     return True
 
@@ -88,35 +91,35 @@ async def test_get_trading_day():
     today = date.today()
 
     d1 = await get_trading_day(now=today, offset=1)
-    print(d1)
+    logger.info("%s", d1)
     _df = alpaca.get_trading_days(d1, today)
 
     if len(_df.index) < 1 or len(_df.index) > 2:
         raise AssertionError("expected offset 1")
 
     d1 = await get_trading_day(now=today, offset=40)
-    print(d1)
+    logger.info("%s", d1)
     _df = alpaca.get_trading_days(d1, today)
 
     if len(_df.index) < 40 or len(_df.index) > 41:
         raise AssertionError("expected offset 40")
 
     d1 = await get_trading_day(now=today, offset=100)
-    print(d1)
+    logger.info("%s", d1)
     _df = alpaca.get_trading_days(d1, today)
 
     if len(_df.index) < 100 or len(_df.index) > 101:
         raise AssertionError("expected offset 100")
 
     d1 = await get_trading_day(now=today, offset=300)
-    print(d1)
+    logger.info("%s", d1)
     _df = alpaca.get_trading_days(d1, today)
 
     if len(_df.index) < 300 or len(_df.index) > 301:
         raise AssertionError("expected offset 300")
 
     d1 = await get_trading_day(now=today, offset=1000)
-    print(d1)
+    logger.info("%s", d1)
     _df = alpaca.get_trading_days(d1, today)
     if len(_df.index) < 1000 or len(_df.index) > 1001:
         raise AssertionError("expected offset 1000")
@@ -130,7 +133,7 @@ async def test_load_basic_sp500():
     today = datetime.today()
     sp500_symbols = await sp500_historical_constituents(today)
 
-    print(sp500_symbols)
+    logger.info("%s", sp500_symbols)
 
     return True
 
@@ -140,7 +143,7 @@ async def test_load_basic_sp500():
 async def test_load_sp500_data_w_adjustments():
 
     sp500_symbols = await sp500_historical_constituents("2019-01-11")
-    print(sp500_symbols)
+    logger.info("%s", sp500_symbols)
 
     return True
 
@@ -151,27 +154,31 @@ async def test_load_sp500_data():
 
     today = datetime.today()
     sp500_symbols = await sp500_historical_constituents(today)
-    print(sp500_symbols)
+    logger.info("%s", sp500_symbols)
     dl = DataLoader(scale=TimeScale.day)
     d1 = await get_trading_day(now=today.date(), offset=200)
 
-    print(f"start:{d1}, end:{today.date()}")
+    logger.info("start:%s, end:%s", d1, today.date())
     t0 = time.time()
     dl.pre_fetch(symbols=sp500_symbols, start=d1, end=today.date())
     t = time.time() - t0
-    print(f"loaded SP500 in {t}")
+    logger.info("loaded SP500 in %s", t)
 
     t0 = time.time()
     dl[sp500_symbols[0]][d1 : today.date()]
     t = time.time() - t0
-    print(f"loaded first symbol in {t}")
-    print(sp500_symbols[0], dl[sp500_symbols[0]][d1 : today.date()])
+    logger.info("loaded first symbol in %s", t)
+    logger.info(
+        "%s %s", sp500_symbols[0], dl[sp500_symbols[0]][d1 : today.date()]
+    )
 
     t0 = time.time()
     dl[sp500_symbols[-1]][d1 : today.date()]
     t = time.time() - t0
-    print(f"loaded last symbol in {t}")
-    print(sp500_symbols[-1], dl[sp500_symbols[-1]][d1 : today.date()])
+    logger.info("loaded last symbol in %s", t)
+    logger.info(
+        "%s %s", sp500_symbols[-1], dl[sp500_symbols[-1]][d1 : today.date()]
+    )
 
 
 @pytest.mark.asyncio
@@ -182,20 +189,24 @@ async def test_load_sp500_data_minute():
     dl = DataLoader(scale=TimeScale.minute)
     d1 = await get_trading_day(now=today.date(), offset=10)
 
-    print(f"start:{d1}, end:{today.date()}")
+    logger.info("start:%s, end:%s", d1, today.date())
     t0 = time.time()
     dl.pre_fetch(symbols=sp500_symbols, start=d1, end=today.date())
     t = time.time() - t0
-    print(f"loaded SP500 in {t}")
+    logger.info("loaded SP500 in %s", t)
 
     t0 = time.time()
     dl[sp500_symbols[0]][d1 : today.date()]
     t = time.time() - t0
-    print(f"loaded first symbol in {t}")
-    print(sp500_symbols[0], dl[sp500_symbols[0]][d1 : today.date()])
+    logger.info("loaded first symbol in %s", t)
+    logger.info(
+        "%s %s", sp500_symbols[0], dl[sp500_symbols[0]][d1 : today.date()]
+    )
 
     t0 = time.time()
     dl[sp500_symbols[-1]][d1 : today.date()]
     t = time.time() - t0
-    print(f"loaded last symbol in {t}")
-    print(sp500_symbols[-1], dl[sp500_symbols[-1]][d1 : today.date()])
+    logger.info("loaded last symbol in %s", t)
+    logger.info(
+        "%s %s", sp500_symbols[-1], dl[sp500_symbols[-1]][d1 : today.date()]
+    )

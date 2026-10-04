@@ -1,4 +1,7 @@
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 os.environ["DATA_CONNECTOR"] = "alpaca"
 
@@ -19,7 +22,7 @@ async def test_returns() -> bool:
     td = await analysis.calc_batch_returns(
         "0664dc2c-f126-4c7f-a069-c5dc246e2df4"
     )
-    print(td)
+    logger.info("%s", td)
     return True
 
 
@@ -29,6 +32,6 @@ async def test_load_trades_by_portfolio():
     trades = await analysis.load_trades_by_portfolio(
         "71f0eaa7-281a-40ad-b120-d2f74eb0b05d"
     )
-    print(trades)
+    logger.info("%s", trades)
 
     return True

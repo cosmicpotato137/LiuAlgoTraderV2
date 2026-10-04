@@ -1,8 +1,12 @@
+import logging
+
 import pytest
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +28,6 @@ async def test_get_scanner():
     if not s:
         raise AssertionError("Failed to instantiate scanner")
 
-    print(f"Loaded scanner {s.name}")
+    logger.info("Loaded scanner %s", s.name)
 
     return True

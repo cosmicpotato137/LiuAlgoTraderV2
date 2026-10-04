@@ -36,3 +36,6 @@ export LIU_TRACE_ENABLED=0
 
 # Enable debugging,  enabled = 1, disabled = 0 (DEFAULT)
 export LIU_DEBUG_ENABLED=1
+
+# Minimum log level: DEBUG/INFO (DEFAULT)/WARNING/ERROR
+export LIU_LOG_LEVEL=INFO

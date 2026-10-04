@@ -6,15 +6,18 @@ trades
     Save the gain, loss and trade analysis records of a batch.
 """
 
+import logging
+
 import pandas as pd
 from pandas import DataFrame, Timestamp
 
 from liualgotrader.analytics.analysis import load_trades_by_batch_id
 from liualgotrader.common import config
 from liualgotrader.common.decorators import timeit
-from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.gain_loss import GainLoss, TradeAnalysis
 from liualgotrader.db.session import create_db_connection
+
+logger = logging.getLogger(__name__)
 
 
 @timeit
@@ -37,10 +40,10 @@ async def trades(batch_id: str) -> None:
     trades_data = await load_trades_by_batch_id(batch_id=batch_id)
 
     if trades_data.empty:
-        tlog(f"loaded empty data-set in {batch_id}. aborting.")
+        logger.error("loaded empty data-set in %s. aborting.", batch_id)
         return
 
-    tlog(f"loaded {len(trades_data)} trades")
+    logger.info("loaded %s trades", len(trades_data))
 
     gain_loss = DataFrame(
         columns=[
@@ -237,6 +240,9 @@ async def trades(batch_id: str) -> None:
     if len(trade_analysis) != len(
         trade_analysis.loc[trade_analysis.status == "close"]
     ):
-        tlog(
-            f"{batch_id} has {len(trade_analysis) -  len(trade_analysis.loc[trade_analysis.status == 'close'])} skipped open trades."
+        logger.info(
+            "%s has %s skipped open trades.",
+            batch_id,
+            len(trade_analysis)
+            - len(trade_analysis.loc[trade_analysis.status == "close"]),
         )

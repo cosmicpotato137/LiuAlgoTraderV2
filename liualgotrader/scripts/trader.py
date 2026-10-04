@@ -13,6 +13,7 @@ main_cli
 """
 
 import copy
+import logging
 import multiprocessing as mp
 import os
 import sys
@@ -25,10 +26,12 @@ from pytz import timezone
 
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import calc_num_consumer_processes
-from liualgotrader.common.tlog import tlog
+from liualgotrader.common.log import configure_logging
 from liualgotrader.consumer import consumer_main
 from liualgotrader.producer import producer_main
 from liualgotrader.scanners_runner import main
+
+logger = logging.getLogger(__name__)
 
 
 def motd(filename: str, version: str, unique_id: str) -> None:
@@ -43,12 +46,12 @@ def motd(filename: str, version: str, unique_id: str) -> None:
     unique_id: str
         The batch identifier of the run.
     """
-    tlog("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    tlog("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    tlog(f"{filename} {version} starting")
-    tlog(f"unique id: {unique_id}")
-    tlog("----------------------------------------------------------")
-    tlog("----------------------------------------------------------")
+    logger.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.info("%s %s starting", filename, version)
+    logger.info("unique id: %s", unique_id)
+    logger.info("----------------------------------------------------------")
+    logger.info("----------------------------------------------------------")
 
 
 def main_cli():
@@ -58,6 +61,7 @@ def main_cli():
     trade plan has a scanners section, and wait for them to finish. Stop them
     all on a keyboard interrupt. Exit if the trade plan is not found.
     """
+    configure_logging()
     config.filename = os.path.basename(__file__)
     mp.set_start_method("spawn")
 
@@ -73,15 +77,15 @@ def main_cli():
     fname = f"{folder}{config.configuration_filename}"
     try:
         conf_dict = copy.deepcopy(toml.load(fname))
-        print(conf_dict)
-        tlog(f"loaded configuration file from {fname}")
+        logger.debug("configuration: %s", conf_dict)
+        logger.info("loaded configuration file from %s", fname)
     except FileNotFoundError:
-        tlog(f"[ERROR] could not locate tradeplan file {fname}")
+        logger.error("could not locate tradeplan file %s", fname)
         sys.exit(0)
 
     # Consumers first
     num_consumer_processes = calc_num_consumer_processes()
-    tlog(f"Starting {num_consumer_processes} consumer processes")
+    logger.info("Starting %s consumer processes", num_consumer_processes)
     queues: List[Queue] = [Queue() for _ in range(num_consumer_processes)]
     consumers = [
         mp.Process(
@@ -109,7 +113,7 @@ def main_cli():
 
     scanner = None
     if "scanners" in conf_dict:
-        tlog("Starting scanners process")
+        logger.info("Starting scanners process")
         scanner = mp.Process(
             target=main,
             args=(
