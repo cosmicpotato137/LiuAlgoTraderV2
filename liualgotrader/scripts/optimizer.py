@@ -29,6 +29,7 @@ main_cli
 
 import copy
 import getopt
+import logging
 import multiprocessing as mp
 import os
 import sys
@@ -41,7 +42,9 @@ import parsedatetime.parsedatetime as pdt
 from liualgotrader.backtesting.optimizer import backtest_iteration
 from liualgotrader.common import config
 from liualgotrader.common.hyperparameter import Hyperparameters, Parameter
-from liualgotrader.common.tlog import tlog
+from liualgotrader.common.log import configure_logging
+
+logger = logging.getLogger(__name__)
 
 
 def motd(filename: str, version: str) -> None:
@@ -54,11 +57,11 @@ def motd(filename: str, version: str) -> None:
     version: str
         The build label.
     """
-    tlog("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    tlog("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-    tlog(f"{filename} {version} starting")
-    tlog("----------------------------------------------------------")
-    tlog("----------------------------------------------------------")
+    logger.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    logger.info("%s %s starting", filename, version)
+    logger.info("----------------------------------------------------------")
+    logger.info("----------------------------------------------------------")
 
 
 def show_usage():
@@ -90,7 +93,7 @@ def create_parameters(parameters: Dict) -> List[Parameter]:
                 )
             )
 
-    tlog(f"created {len(params)} parameters")
+    logger.info("created %s parameters", len(params))
     return params
 
 
@@ -103,7 +106,7 @@ def create_hyperparameters(parameters: Dict) -> Hyperparameters:
         The configuration, in the form accepted by create_parameters.
     """
     params = create_parameters(parameters)
-    tlog(f"created {len(params)} hyper-parameters")
+    logger.info("created %s hyper-parameters", len(params))
     return Hyperparameters(params)
 
 
@@ -194,9 +197,13 @@ def optimize(
         The maximum number of backtests to run at the same time.
     """
     optimizer_session_id = str(uuid.uuid4())
-    tlog("-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-")
-    tlog(f"optimizer session_id {optimizer_session_id} starting")
-    tlog("-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-")
+    logger.info(
+        "-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"
+    )
+    logger.info("optimizer session_id %s starting", optimizer_session_id)
+    logger.info(
+        "-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"
+    )
 
     processes = []
     for hyperparameter in iter(hyperparameters):
@@ -219,7 +226,7 @@ def optimize(
                 p.join()
             processes = []
 
-    print("done.")
+    logger.info("done.")
 
 
 def load_configuration(filename: str):
@@ -236,9 +243,9 @@ def load_configuration(filename: str):
         import toml
 
         conf_dict = toml.load(filename)
-        tlog(f"loaded configuration file from {filename}")
+        logger.info("loaded configuration file from %s", filename)
     except FileNotFoundError:
-        tlog(f"[ERROR] could not locate tradeplan file {filename}")
+        logger.error("could not locate tradeplan file %s", filename)
         sys.exit(0)
 
     return conf_dict
@@ -252,6 +259,7 @@ def main_cli() -> None:
     backtests. Exit early on invalid arguments, a missing optimizer section or
     unparsable dates.
     """
+    configure_logging()
     mp.set_start_method("spawn")
 
     if len(sys.argv) > 2:
@@ -274,7 +282,7 @@ def main_cli() -> None:
         sys.exit(0)
     config.filename = os.path.basename(__file__)
     motd(filename=config.filename, version=config.build_label)
-    tlog(f"using concurrency {concurrency}")
+    logger.info("using concurrency %s", concurrency)
     folder = (
         config.tradeplan_folder
         if config.tradeplan_folder[-1] == "/"
@@ -284,16 +292,16 @@ def main_cli() -> None:
     conf_dict = load_configuration(fname)
 
     if "optimizer" not in conf_dict:
-        tlog(f"optimizer directive not found in {fname}. aborting.")
+        logger.error("optimizer directive not found in %s. aborting.", fname)
         sys.exit(0)
 
-    tlog(f"optimizer directive found in {fname}")
+    logger.info("optimizer directive found in %s", fname)
 
     try:
         start_date = dateFromString(conf_dict["optimizer"]["start_date"])
         end_date = dateFromString(conf_dict["optimizer"]["end_date"])
     except Exception:
-        tlog("failed to load start & end dates")
+        logger.error("failed to load start & end dates")
         sys.exit(0)
 
     optimize(

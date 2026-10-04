@@ -9,7 +9,7 @@ backtest_iteration
 """
 
 import asyncio
-import traceback
+import logging
 import uuid
 from datetime import date
 from typing import Dict
@@ -18,9 +18,11 @@ from liualgotrader import enhanced_backtest
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.hyperparameter import Hyperparameters
-from liualgotrader.common.tlog import tlog
+from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType, TimeScale
 from liualgotrader.db.models.optimizer import OptimizerRun
+
+logger = logging.getLogger(__name__)
 
 
 async def save_optimizer_session(
@@ -50,7 +52,7 @@ def backtest_iteration(
     """Run one daily US-equities back-test and record it in the session.
 
     Intended as the target of a separate process. Record the batch only if the
-    back-test succeeds, log any exception instead of raising it, and print the
+    back-test succeeds, log any exception instead of raising it, and log the
     new batch identifier.
 
     Parameters
@@ -66,8 +68,12 @@ def backtest_iteration(
     hypers: Hyperparameters
         The hyper-parameter values being tested.
     """
-    tlog(
-        f"starting backtest with start_date={start_date}, end_date={end_date} w/ configuration={conf_dict}"
+    configure_logging()
+    logger.info(
+        "starting backtest with start_date=%s, end_date=%s w/ configuration=%s",
+        start_date,
+        end_date,
+        conf_dict,
     )
     uid = str(uuid.uuid4())
 
@@ -88,16 +94,17 @@ def backtest_iteration(
             )
         )
     except KeyboardInterrupt:
-        tlog("backtest() - Caught KeyboardInterrupt")
+        logger.info("backtest() - Caught KeyboardInterrupt")
     except Exception as e:
-        tlog(
-            f"backtest() - exception of type {type(e).__name__} with args {e.args}"
+        logger.exception(
+            "backtest() - exception of type %s with args %s",
+            type(e).__name__,
+            e.args,
         )
-        traceback.print_exc()
     else:
         loop.run_until_complete(
             save_optimizer_session(optimizer_session_id, uid, hypers)
         )
     finally:
-        print("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
-        print(f"new batch-id: {uid}")
+        logger.info("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
+        logger.info("new batch-id: %s", uid)

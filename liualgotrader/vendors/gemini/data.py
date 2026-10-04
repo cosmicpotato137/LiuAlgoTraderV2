@@ -13,6 +13,7 @@ requests_get
 
 import asyncio
 import concurrent.futures
+import logging
 import time
 from datetime import date, datetime, timedelta, timezone
 from threading import Thread
@@ -22,10 +23,11 @@ import pandas as pd
 import pytz
 import requests
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
+
+logger = logging.getLogger(__name__)
 
 utctz = pytz.timezone("UTC")
 
@@ -44,7 +46,9 @@ def requests_get(url):
     r = requests.get(url)
 
     if r.status_code in (429, 502):
-        tlog(f"{url} return {r.status_code}, waiting and re-trying")
+        logger.warning(
+            "%s return %s, waiting and re-trying", url, r.status_code
+        )
         time.sleep(10)
         return requests_get(url)
 
@@ -242,8 +246,12 @@ class GeminiData(DataAPI):
         Raise ValueError if a request returns an HTTP error status.
         """
         symbol = symbol.lower()
-        tlog(
-            f"GEMINI start loading {symbol} from {start} to {end} w scale {scale}"
+        logger.info(
+            "GEMINI start loading %s from %s to %s w scale %s",
+            symbol,
+            start,
+            end,
+            scale,
         )
         ranges = self._get_ranges(start, end)
         endpoint = f"/v1/trades/{symbol}"
@@ -277,8 +285,12 @@ class GeminiData(DataAPI):
                         ~returned_df.index.duplicated(keep="first")
                     ]
 
-        tlog(
-            f"GEMINI completed loading {symbol} from {start} to {end} w scale {scale}"
+        logger.info(
+            "GEMINI completed loading %s from %s to %s w scale %s",
+            symbol,
+            start,
+            end,
+            scale,
         )
         return returned_df
 

@@ -7,6 +7,7 @@ NewTrade
 """
 
 import json
+import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,10 +16,11 @@ from sqlalchemy import ForeignKey, Numeric, func, select, update
 from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.base import Base
 from liualgotrader.db.session import session_scope
+
+logger = logging.getLogger(__name__)
 
 
 class NewTrade(Base):
@@ -204,7 +206,7 @@ class NewTrade(Base):
                 trade.indicators or {},
                 trade.tstamp,
             )
-        tlog(f"{symbol} no data for strategy {strategy_name}")
+        logger.info("%s no data for strategy %s", symbol, strategy_name)
         raise ValueError
 
     @classmethod

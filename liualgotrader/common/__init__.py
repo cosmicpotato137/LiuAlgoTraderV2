@@ -22,8 +22,8 @@ list_utils
     Sequence utilities.
 market_data
     Market data, industry membership and trading calendar lookups.
-tlog
-    Framework logging, optionally forwarded to Google Cloud Logging.
+log
+    Logging set-up for the framework's processes.
 trading_data
     Global trading state shared within a process.
 types

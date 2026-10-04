@@ -9,7 +9,7 @@ Strategy
 """
 
 import importlib
-import traceback
+import logging
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -17,11 +17,12 @@ from typing import Dict, List, Optional, Tuple
 from pandas import DataFrame as df
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.keystore import KeyStore
 from liualgotrader.trade.base import TraderAPI
+
+logger = logging.getLogger(__name__)
 
 
 class StrategyType(Enum):
@@ -433,7 +434,9 @@ class Strategy(object):
             custom_strategy = getattr(custom_strategy_module, class_name)
 
             if not issubclass(custom_strategy, Strategy):
-                tlog(f"strategy must inherit from class {Strategy.__name__}")
+                logger.error(
+                    "strategy must inherit from class %s", Strategy.__name__
+                )
                 exit(0)
             strategy_details.pop("filename", None)
             s = custom_strategy(
@@ -444,15 +447,18 @@ class Strategy(object):
             )
             success = await s.create()
         except FileNotFoundError as e:
-            tlog(
-                f"[EXCEPTION] {e} : file not found `{strategy_details['filename']}`"
+            logger.error(
+                "%s : file not found `%s`",
+                e,
+                strategy_details["filename"],
             )
             raise
         except Exception as e:
-            tlog(
-                f"[Error]exception of type {type(e).__name__} with args {e.args}"
+            logger.exception(
+                "exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
             )
-            traceback.print_exc()
             exit(0)
         else:
             return s if success else None

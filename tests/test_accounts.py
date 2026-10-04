@@ -1,7 +1,11 @@
+import logging
+
 import pytest
 
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.session import create_db_connection
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)
@@ -16,7 +20,7 @@ async def test_create() -> bool:
         allow_negative=True,
         credit_line=2000.0,
     )
-    print(f"new account_id:{account_id}")
+    logger.info("new account_id:%s", account_id)
 
     return True
 
@@ -30,7 +34,7 @@ async def test_negative_create() -> bool:
             allow_negative=True,
         )
     except Exception as e:
-        print(e)
+        logger.info("%s", e)
 
     return True
 
@@ -44,10 +48,10 @@ async def test_balance() -> bool:
         allow_negative=True,
         credit_line=2000.0,
     )
-    print(f"new account_id:{account_id}")
+    logger.info("new account_id:%s", account_id)
     if balance != await Account.get_balance(account_id):
         raise AssertionError("get_balance() did not return the expect value")
-    print(f"balance {balance}")
+    logger.info("balance %s", balance)
     return True
 
 
@@ -129,18 +133,18 @@ async def test_add_transaction5() -> bool:
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_clear_balance() -> bool:
-    print("test_clear_balance")
+    logger.info("test_clear_balance")
     balance = 1234.0
     account_id = await Account.create(
         balance=balance,
         allow_negative=True,
         credit_line=2000.0,
     )
-    print(f"new account_id:{account_id}")
+    logger.info("new account_id:%s", account_id)
     if balance != await Account.get_balance(account_id):
         raise AssertionError("get_balance() did not return the expect value")
 
-    print(f"balance {balance}")
+    logger.info("balance %s", balance)
 
     await Account.clear_balance(account_id, 0)
     if await Account.get_balance(account_id) != 0.0:
@@ -152,7 +156,7 @@ async def test_clear_balance() -> bool:
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_clear_transactions() -> bool:
-    print("test_clear_transactions")
+    logger.info("test_clear_transactions")
     balance = 100.0
     account_id = await Account.create(
         balance=balance, allow_negative=True, credit_line=5000.0
@@ -177,7 +181,7 @@ async def test_clear_transactions() -> bool:
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_check_if_enough_balance_positive_1() -> bool:
-    print("test_check_if_enough_balance_positive_1")
+    logger.info("test_check_if_enough_balance_positive_1")
 
     balance = 1000.0
     account_id = await Account.create(
@@ -195,7 +199,7 @@ async def test_check_if_enough_balance_positive_1() -> bool:
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_check_if_enough_balance_positive_2() -> bool:
-    print("test_check_if_enough_balance_positive_2")
+    logger.info("test_check_if_enough_balance_positive_2")
 
     balance = 1000.0
     account_id = await Account.create(
@@ -215,7 +219,7 @@ async def test_check_if_enough_balance_positive_2() -> bool:
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_check_if_enough_balance_positive_3() -> bool:
-    print("test_check_if_enough_balance_positive_3")
+    logger.info("test_check_if_enough_balance_positive_3")
 
     balance = 1000.0
     account_id = await Account.create(
@@ -234,7 +238,7 @@ async def test_check_if_enough_balance_positive_3() -> bool:
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_check_if_enough_balance_positive_4() -> bool:
-    print("test_check_if_enough_balance_positive_4")
+    logger.info("test_check_if_enough_balance_positive_4")
 
     balance = 1000.0
     account_id = await Account.create(
@@ -255,7 +259,7 @@ async def test_check_if_enough_balance_positive_4() -> bool:
 @pytest.mark.asyncio
 @pytest.mark.devtest
 async def test_check_if_enough_balance_negative_1() -> bool:
-    print("test_check_if_enough_balance_negative_1")
+    logger.info("test_check_if_enough_balance_negative_1")
 
     balance = 1000.0
     account_id = await Account.create(

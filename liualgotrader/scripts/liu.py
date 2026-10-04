@@ -36,6 +36,7 @@ import requests
 
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import get_event_loop
+from liualgotrader.common.log import configure_logging
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.portfolio import Portfolio
 from liualgotrader.db.session import create_db_connection
@@ -469,6 +470,7 @@ def main_cli() -> None:
     portfolio command, which takes a positive amount and an optional positive
     credit line. Print the usage text for a missing or unknown command.
     """
+    configure_logging()
     config.filename = os.path.basename(__file__)
 
     if len(sys.argv) < 2:

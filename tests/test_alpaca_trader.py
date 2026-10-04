@@ -1,8 +1,12 @@
+import logging
+
 import pytest
 
 from liualgotrader.common import config
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.alpaca.trader import AlpacaTrader
+
+logger = logging.getLogger(__name__)
 
 alpaca_trader: AlpacaTrader
 
@@ -19,8 +23,8 @@ async def db_connection():
 async def test_get_symbols():
     global alpaca_trader
     assets = await alpaca_trader.get_tradeable_symbols()
-    print(assets)
-    print(len(assets))
+    logger.info("%s", assets)
+    logger.info("%s", len(assets))
     return True
 
 
@@ -29,8 +33,8 @@ async def test_get_symbols():
 async def test_get_shortable_symbols():
     global alpaca_trader
     assets = await alpaca_trader.get_shortable_symbols()
-    print(assets)
-    print(len(assets))
+    logger.info("%s", assets)
+    logger.info("%s", len(assets))
     return True
 
 
@@ -39,13 +43,13 @@ async def test_get_shortable_symbols():
 async def test_is_fractionable():
     global alpaca_trader
     apa_fractionable = await alpaca_trader.is_fractionable("APA")
-    print("APA:", apa_fractionable)
+    logger.info("APA: %s", apa_fractionable)
 
     if not apa_fractionable:
-        print("APA is not fractionable")
+        logger.info("APA is not fractionable")
     aapl_fractionable = await alpaca_trader.is_fractionable("AAPL")
-    print("AAPL:", aapl_fractionable)
+    logger.info("AAPL: %s", aapl_fractionable)
     if not aapl_fractionable:
-        print("AAPL is fractionable ")
+        logger.info("AAPL is fractionable ")
 
     return True

@@ -27,17 +27,16 @@ producer_main
 import asyncio
 import inspect
 import json
+import logging
 import os
 import random
-import sys
-import traceback
 from datetime import datetime
 from multiprocessing import Queue
 from queue import Empty
 from typing import Dict, List
 
 from liualgotrader.common import config
-from liualgotrader.common.tlog import tlog, tlog_exception
+from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.models.trending_tickers import TrendingTicker
@@ -45,6 +44,8 @@ from liualgotrader.db.session import create_db_connection
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.stream.factory import streaming_factory
 from liualgotrader.trade.factory import trader_factory
+
+logger = logging.getLogger(__name__)
 
 last_msg_tstamp: datetime = datetime.now()
 symbols: List[str] = []
@@ -138,8 +139,12 @@ async def scanners_iteration(
         await subscribe_new_symbols(new_symbols)
         await TrendingTicker.save_symbols(config.batch_id, new_symbols)
         symbols += new_symbols
-        tlog(
-            f"added {len(new_symbols)}:{new_symbols[:20]}..{new_symbols[-20:]} TOTAL: {len(symbols)}"
+        logger.info(
+            "added %s:%s..%s TOTAL: %s",
+            len(new_symbols),
+            new_symbols[:20],
+            new_symbols[-20:],
+            len(symbols),
         )
         await asyncio.sleep(1)
 
@@ -163,7 +168,7 @@ async def scanner_input(
     num_consumer_processes: int
         The number of consumer queues in use.
     """
-    tlog("scanner_input() task starting ")
+    logger.info("scanner_input() task starting ")
 
     while True:
         try:
@@ -175,21 +180,17 @@ async def scanner_input(
         except Empty:
             await asyncio.sleep(30)
         except asyncio.CancelledError:
-            tlog("scanner_input() task task cancelled ")
+            logger.info("scanner_input() task task cancelled ")
             break
         except Exception as e:
-            tlog(
-                f"Exception in scanner_input(): exception of type {type(e).__name__} with args {e.args}"
+            logger.error(
+                "Exception in scanner_input(): exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
+                exc_info=config.debug_enabled,
             )
-            if config.debug_enabled:
-                exc_info = sys.exc_info()
-                lines = traceback.format_exception(*exc_info)
-                for line in lines:
-                    tlog(f"error: {line}")
-                traceback.print_exception(*exc_info)
-                del exc_info
 
-    tlog("scanner_input() task completed")
+    logger.info("scanner_input() task completed")
 
 
 async def trade_run(qm: SymbolQueueMap) -> None:
@@ -201,9 +202,9 @@ async def trade_run(qm: SymbolQueueMap) -> None:
         The queue mapper passed to the trader.
     """
     at = trader_factory(qm)
-    tlog(f"trade_run() starting using {at} trading")
+    logger.info("trade_run() starting using %s trading", at)
     await at.run()
-    tlog("trade_run() completed")
+    logger.info("trade_run() completed")
 
 
 async def dispense_strategies(
@@ -234,11 +235,12 @@ async def dispense_strategies(
         try:
             happy_consumer.put(payload)
         except Exception as e:
-            tlog(
-                f"Exception in dispense_strategies: exception of type {type(e).__name__} with args {e.args}"
+            logger.error(
+                "Exception in dispense_strategies: exception of type %s with args %s",
+                type(e).__name__,
+                e.args,
+                exc_info=config.debug_enabled,
             )
-            if config.debug_enabled:
-                tlog_exception(str(e))
 
 
 async def tradeplan_scanner(
@@ -254,14 +256,15 @@ async def tradeplan_scanner(
     consumer_queues: List[Queue]
         The consumer queues.
     """
-    tlog("tradeplan_scanner() task starting ")
+    logger.info("tradeplan_scanner() task starting ")
 
     last_scan: datetime = datetime.utcnow()
     while True:
         await asyncio.sleep(5 * 60)
 
-        tlog(
-            f"tradeplan_scanner(): check for new execution requests since {last_scan}"
+        logger.info(
+            "tradeplan_scanner(): check for new execution requests since %s",
+            last_scan,
         )
         try:
             new_tradeplan_entries = await TradePlan.get_new_entries(
@@ -270,18 +273,19 @@ async def tradeplan_scanner(
             last_scan = datetime.utcnow()
 
             if new_tradeplan_entries:
-                tlog(
-                    f"found {len(new_tradeplan_entries)} new tradeplan entries for execution"
+                logger.info(
+                    "found %s new tradeplan entries for execution",
+                    len(new_tradeplan_entries),
                 )
                 await dispense_strategies(
                     consumer_queues, new_tradeplan_entries
                 )
         except Exception as e:
-            tlog(f"[EXCEPTION] tradeplan_scanner() {e}")
-            if config.debug_enabled:
-                tlog_exception(str(e))
+            logger.error(
+                "tradeplan_scanner() %s", e, exc_info=config.debug_enabled
+            )
 
-    tlog("tradeplan_scanner() task completed")
+    logger.info("tradeplan_scanner() task completed")
 
 
 async def run(
@@ -362,7 +366,7 @@ async def producer_async_main(
         return_exceptions=True,
     )
 
-    tlog("producer_async_main() completed")
+    logger.info("producer_async_main() completed")
 
 
 def producer_main(
@@ -390,19 +394,21 @@ def producer_main(
     num_consumer_processes: int
         The number of consumer queues in use.
     """
-    tlog(f"*** producer_main() starting w pid {os.getpid()} ***")
+    configure_logging()
+    logger.info("*** producer_main() starting w pid %s ***", os.getpid())
     try:
         config.batch_id = unique_id
         asyncio.run(
             producer_async_main(queues, scanner_queue, num_consumer_processes)
         )
     except KeyboardInterrupt:
-        tlog("producer_main() - Caught KeyboardInterrupt")
+        logger.info("producer_main() - Caught KeyboardInterrupt")
     except Exception as e:
-        tlog(
-            f"producer_main() - exception of type {type(e).__name__} with args {e.args}"
+        logger.error(
+            "producer_main() - exception of type %s with args %s",
+            type(e).__name__,
+            e.args,
+            exc_info=config.debug_enabled,
         )
-        if config.debug_enabled:
-            traceback.print_exc()
 
-    tlog("*** producer_main() completed ***")
+    logger.info("*** producer_main() completed ***")

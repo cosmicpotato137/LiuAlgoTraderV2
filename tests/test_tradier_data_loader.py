@@ -1,3 +1,5 @@
+import logging
+
 import pandas as pd
 import pytest
 from pytz import timezone
@@ -5,6 +7,8 @@ from pytz import timezone
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, TimeScale
+
+logger = logging.getLogger(__name__)
 
 nyc = timezone("America/New_York")
 
@@ -16,44 +20,48 @@ def test_create_data_loader_default() -> bool:
 
 @pytest.mark.devtest
 def test_apple_stock_latest_price() -> bool:
-    print("test_apple_stock_latest_price")
+    logger.info("test_apple_stock_latest_price")
 
-    print("**** TRADIER ****")
+    logger.info("**** TRADIER ****")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     last_price = dl["AAPL"].close[-1]
     last_price_time = dl["AAPL"].close.index[-1]
 
-    # print(dl["AAPL"])
-    print(f"apple {last_price} @ {last_price_time}")
+    # logger.info("%s", dl["AAPL"])
+    logger.info("apple %s @ %s", last_price, last_price_time)
 
-    print("**** ALPACA ****")
+    logger.info("**** ALPACA ****")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
     last_price = dl["AAPL"].close[-1]
     last_price_time = dl["AAPL"].close.index[-1]
 
-    print(f"apple {last_price} @ {last_price_time}")
+    logger.info("apple %s @ %s", last_price, last_price_time)
 
-    # print("**** POLYGON ****")
+    # logger.info("**** POLYGON ****")
     # dl = DataLoader(TimeScale.minute, connector=DataConnectorType.polygon)
     # last_price = dl["AAPL"].close[-1]
     # last_price_time = dl["AAPL"].close.index[-1]
 
-    # print(f"apple {last_price} @ {last_price_time}")
+    # logger.info("apple %s @ %s", last_price, last_price_time)
 
     return True
 
 
 @pytest.mark.devtest
 def test_apple_stock_current_price() -> bool:
-    print("test_apple_stock_current_price")
+    logger.info("test_apple_stock_current_price")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     last_price = dl["AAPL"].close[-1]
     last_price_time = dl["AAPL"].close.index[-1]
     before_price = dl["AAPL"].close[-5]
     before_price_time = dl["AAPL"].close.index[-5]
 
-    print(
-        f"apple {last_price} @ {last_price_time}, before was {before_price}@{before_price_time}"
+    logger.info(
+        "apple %s @ %s, before was %s@%s",
+        last_price,
+        last_price_time,
+        before_price,
+        before_price_time,
     )
 
     return True
@@ -61,27 +69,27 @@ def test_apple_stock_current_price() -> bool:
 
 @pytest.mark.devtest
 def test_apple_stock_current_price_range_int_minute() -> bool:
-    print("test_apple_stock_current_price_range_int_minute")
+    logger.info("test_apple_stock_current_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     last_price_range = dl["AAPL"].close[-5:-1]  # type:ignore
 
-    print(last_price_range)
+    logger.info("%s", last_price_range)
     return True
 
 
 @pytest.mark.devtest
 def test_apple_stock_current_price_range_int_day() -> bool:
-    print("test_apple_stock_current_price_range_int_day")
+    logger.info("test_apple_stock_current_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
     last_price_range = dl["AAPL"].close[-6:-1]  # type:ignore
-    print(last_price_range)
+    logger.info("%s", last_price_range)
 
     return True
 
 
 @pytest.mark.devtest
 def test_day_num_data_points() -> bool:
-    print("test_day_num_data_points")
+    logger.info("test_day_num_data_points")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
     data = dl["AAPL"].close[-90:]  # type:ignore
 
@@ -95,7 +103,7 @@ def test_day_num_data_points() -> bool:
 
 @pytest.mark.devtest
 def test_day_num_data_points_w_date() -> bool:
-    print("test_day_num_data_points")
+    logger.info("test_day_num_data_points")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
     data = dl["AAPL"].close[-90:"2021-09-10 09:30:00"]  # type:ignore
 
@@ -109,14 +117,19 @@ def test_day_num_data_points_w_date() -> bool:
 
 @pytest.mark.devtest
 def no_test_apple_stock_daily_price() -> bool:
-    print("test_apple_stock_daily_price")
+    logger.info("test_apple_stock_daily_price")
     dl = DataLoader(scale=TimeScale.day, connector=DataConnectorType.tradier)
     last_price = dl["AAPL"].close[-1]
     last_price_time = dl["AAPL"].close.index[-1]
-    print(last_price, last_price_time)
+    logger.info("%s %s", last_price, last_price_time)
     before_price = dl["AAPL"].close[-5]
-    print(f"before_price {before_price}, {dl['AAPL']}")
-    print(f"apple {last_price} @ {last_price_time}, before was {before_price}")
+    logger.info("before_price %s, %s", before_price, dl["AAPL"])
+    logger.info(
+        "apple %s @ %s, before was %s",
+        last_price,
+        last_price_time,
+        before_price,
+    )
 
     return True
 
@@ -134,63 +147,63 @@ def test_negative_current_price() -> bool:
 
 @pytest.mark.devtest
 def test_apple_stock_close_price_range_str_day() -> bool:
-    print("test_apple_stock_close_price_range_int_day")
+    logger.info("test_apple_stock_close_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
     last_price_range = dl["AAPL"].close[
         "2021-01-01":"2021-01-05"  # type:ignore
     ]  # type:ignore
-    print(last_price_range)
+    logger.info("%s", last_price_range)
 
     return True
 
 
 @pytest.mark.devtest
 def test_apple_stock_price_range_int_minute() -> bool:
-    print("test_apple_stock_price_range_int_minute")
+    logger.info("test_apple_stock_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     last_price_range = dl["AAPL"][-5:-1]  # type:ignore
-    print(last_price_range)
+    logger.info("%s", last_price_range)
 
     return True
 
 
 @pytest.mark.devtest
 def test_apple_stock_price_range_int_day() -> bool:
-    print("test_apple_stock_price_range_int_day")
+    logger.info("test_apple_stock_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
     last_price_range = dl["AAPL"][-5:-1]  # type:ignore
-    print(last_price_range)
+    logger.info("%s", last_price_range)
 
     return True
 
 
 @pytest.mark.devtest
 def test_apple_stock_price_range_date_day() -> bool:
-    print("test_apple_stock_price_range_date_day")
+    logger.info("test_apple_stock_price_range_date_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
     last_price_range = dl["AAPL"]["2020-10-05":"2020-10-08"]  # type:ignore
-    print(last_price_range)
+    logger.info("%s", last_price_range)
 
     return True
 
 
 @pytest.mark.devtest
 def test_apple_stock_price_range_date_int_day() -> bool:
-    print("test_apple_stock_price_range_date_int_day")
+    logger.info("test_apple_stock_price_range_date_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
     last_price_range = dl["AAPL"]["2020-10-05":-1]  # type:ignore
-    print(last_price_range)
+    logger.info("%s", last_price_range)
 
     return True
 
 
 @pytest.mark.devtest
 def test_apple_stock_price_range_date_min_open() -> bool:
-    print("test_apple_stock_price_range_date_min_open")
+    logger.info("test_apple_stock_price_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     try:
         last_price_range = dl["AAPL"][:]  # type:ignore
-        print(last_price_range)
+        logger.info("%s", last_price_range)
     except ValueError:
         return True
     return True
@@ -198,11 +211,11 @@ def test_apple_stock_price_range_date_min_open() -> bool:
 
 @pytest.mark.devtest
 def test_apple_stock_price_open_range_date_min_open() -> bool:
-    print("test_apple_stock_price_open_range_date_min_open")
+    logger.info("test_apple_stock_price_open_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     try:
         last_price_range = dl["AAPL"].open[:]  # type:ignore
-        print(last_price_range)
+        logger.info("%s", last_price_range)
     except ValueError:
         return True
     return True

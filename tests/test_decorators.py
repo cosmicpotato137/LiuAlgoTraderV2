@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 import pandas as pd
@@ -6,6 +7,8 @@ import pytest
 from liualgotrader.common.decorators import timeit
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.trade.factory import trader_factory
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)
@@ -31,5 +34,5 @@ async def test_trader_calendar() -> bool:
     td = await get_trading_days(
         trader=trader, start_date=date(year=2021, month=1, day=1)
     )
-    print(td)
+    logger.info("%s", td)
     return True

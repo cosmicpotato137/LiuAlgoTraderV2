@@ -15,18 +15,20 @@ main_cli
 
 import asyncio
 import importlib.util
+import logging
 import os
 import sys
-import traceback
 from typing import Dict, List, Optional
 
 import toml
 
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import get_event_loop
-from liualgotrader.common.tlog import tlog
+from liualgotrader.common.log import configure_logging
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.miners.base import Miner
+
+logger = logging.getLogger(__name__)
 
 # rom liualgotrader.miners.stock_cluster import StockCluster
 
@@ -41,11 +43,11 @@ def motd(filename: str, version: str) -> None:
     version: str
         The build label.
     """
-    print("+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=+")
-    tlog(f"{filename} {version} starting")
-    print("+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=+")
-    tlog(f"DSN: {config.dsn}")
-    print("+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=+")
+    logger.info("+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=+")
+    logger.info("%s %s starting", filename, version)
+    logger.info("+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=+")
+    logger.info("DSN: %s", config.dsn)
+    logger.info("+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=+")
 
 
 async def main(conf_dict: Dict):
@@ -82,10 +84,12 @@ async def main(conf_dict: Dict):
             miner_class = getattr(module, class_name)
 
             if not issubclass(miner_class, Miner):
-                tlog(f"Miner must inherit from class {Miner.__name__}")
+                logger.error(
+                    "Miner must inherit from class %s", Miner.__name__
+                )
                 exit(0)
         except Exception as e:
-            tlog(f"[ERROR] miner {miner} resulted in exception:`{e}`")
+            logger.error("miner %s resulted in exception:`%s`", miner, e)
 
 
 def main_cli() -> None:
@@ -94,18 +98,22 @@ def main_cli() -> None:
     Load the miner configuration from the current directory and run main. Exit
     if the configuration file is not found.
     """
+    configure_logging()
     filename = os.path.basename(__file__)
     motd(filename=filename, version=config.build_label)
 
     # load configuration
-    tlog(
-        f"loading configuration file from {os.getcwd()}/{config.miner_configuration_filename}"
+    logger.info(
+        "loading configuration file from %s/%s",
+        os.getcwd(),
+        config.miner_configuration_filename,
     )
     try:
         conf_dict = toml.load(config.miner_configuration_filename)
     except FileNotFoundError:
-        tlog(
-            f"[ERROR] could not locate market_miner configuration file {config.miner_configuration_filename}"
+        logger.error(
+            "could not locate market_miner configuration file %s",
+            config.miner_configuration_filename,
         )
         sys.exit(0)
 
@@ -113,13 +121,12 @@ def main_cli() -> None:
         get_event_loop().close()
         asyncio.run(main(conf_dict))
     except KeyboardInterrupt:
-        tlog("market_miner.main() - Caught KeyboardInterrupt")
+        logger.info("market_miner.main() - Caught KeyboardInterrupt")
     except Exception as e:
-        tlog(
-            f"market_miner.main() - exception of type {type(e).__name__} with args {e.args}"
+        logger.exception(
+            "market_miner.main() - exception of type %s with args %s",
+            type(e).__name__,
+            e.args,
         )
-        exc_info = sys.exc_info()
-        traceback.print_exception(*exc_info)
-        del exc_info
 
-    tlog("*** market_miner completed ***")
+    logger.info("*** market_miner completed ***")

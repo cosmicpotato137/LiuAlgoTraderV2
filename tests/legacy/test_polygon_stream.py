@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from multiprocessing import Queue
 
 import pytest
@@ -8,6 +9,8 @@ from liualgotrader.common.types import SymbolQueueMap
 from liualgotrader.stream.base import WSEventType
 from liualgotrader.vendors.alpaca.trader import AlpacaTrader
 from liualgotrader.vendors.polygon.streaming import PolygonStream
+
+logger = logging.getLogger(__name__)
 
 queues: SymbolQueueMap
 polygon_stream: PolygonStream
@@ -38,10 +41,10 @@ async def test_apple_sec_agg():
     apple = await polygon_stream.subscribe(
         ["AAPL", "GLD"], [WSEventType.MIN_AGG]
     )
-    print(apple)
+    logger.info("%s", apple)
     await asyncio.sleep(1 * 60)
 
-    print("done")
+    logger.info("done")
     await polygon_stream.close()
 
     return True

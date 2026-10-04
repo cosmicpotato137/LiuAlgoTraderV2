@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from liualgotrader.common import config
@@ -7,6 +9,8 @@ from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.momentum import Momentum
 from liualgotrader.trade.factory import trader_factory
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.fixture(autouse=True)
 async def db_connection():
@@ -15,7 +19,7 @@ async def db_connection():
 
 @pytest.mark.asyncio
 async def test_scanner_alpaca() -> bool:
-    print("test_scanner_alpaca")
+    logger.info("test_scanner_alpaca")
 
     config.debug_enabled = False
     dl = DataLoader(connector=DataConnectorType.alpaca)
@@ -35,13 +39,13 @@ async def test_scanner_alpaca() -> bool:
 
     symbols = await scanner.run()
 
-    print(symbols)
+    logger.info("%s", symbols)
     return True
 
 
 @pytest.mark.asyncio
 async def no_test_scanner_polygon() -> bool:
-    print("test_scanner_polygon")
+    logger.info("test_scanner_polygon")
 
     config.debug_enabled = True
     dl = DataLoader(connector=DataConnectorType.polygon)
@@ -61,5 +65,5 @@ async def no_test_scanner_polygon() -> bool:
 
     symbols = await scanner.run()
 
-    print(symbols)
+    logger.info("%s", symbols)
     return True

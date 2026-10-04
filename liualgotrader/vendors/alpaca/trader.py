@@ -7,9 +7,9 @@ AlpacaTrader
 """
 
 import asyncio
+import logging
 import queue
 import time
-import traceback
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -31,10 +31,11 @@ from alpaca.trading.stream import TradingStream
 from pytz import timezone
 from requests.auth import HTTPBasicAuth
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import Order, SymbolQueueMap, Trade
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
+
+logger = logging.getLogger(__name__)
 
 nyc = timezone("America/New_York")
 
@@ -315,11 +316,13 @@ class AlpacaTrader(TraderAPI):
         endpoint: str = (
             f"/v1/trading/accounts/{external_order_id}/orders/{order_id}"
         )
-        tlog(f"_is_brokerage_account_order_completed:{endpoint}")
+        logger.info("_is_brokerage_account_order_completed:%s", endpoint)
         url: str = self.config.broker_api_base_url + endpoint
 
         response = await self._get_request(url)
-        tlog(f"_is_brokerage_account_order_completed: response: {response}")
+        logger.info(
+            "_is_brokerage_account_order_completed: response: %s", response
+        )
         event = (
             Order.EventType.canceled
             if response["status"] in ["canceled", "expired", "replaced"]
@@ -559,7 +562,7 @@ class AlpacaTrader(TraderAPI):
         if not self.alpaca_ws_client:
             raise AssertionError("Must call w/ authenticated Alpaca client")
         if not self.running_task:
-            tlog("starting Alpaca listener")
+            logger.info("starting Alpaca listener")
             # TradingStream.run() calls asyncio.run(), which cannot be used
             # inside the running loop, so schedule its coroutine directly.
             self.running_task = asyncio.create_task(
@@ -662,8 +665,11 @@ class AlpacaTrader(TraderAPI):
         url: str = self.config.broker_api_base_url + endpoint
 
         response_code = await self._delete_request(url)
-        tlog(
-            f"cancel_brokerage_order {account_id},{order_id} -> {response_code}"
+        logger.info(
+            "cancel_brokerage_order %s,%s -> %s",
+            account_id,
+            order_id,
+            response_code,
         )
         return response_code == 204
 
@@ -817,17 +823,19 @@ class AlpacaTrader(TraderAPI):
 
         if response.status_code in (429, 504):
             if "x-ratelimit-reset" in response.headers:
-                tlog(
-                    f"ALPACA BROKERAGE rate-limit till {response.headers['x-ratelimit-reset']}"
+                logger.info(
+                    "ALPACA BROKERAGE rate-limit till %s",
+                    response.headers["x-ratelimit-reset"],
                 )
                 await asyncio.sleep(
                     int(time.time())
                     - int(response.headers["x-ratelimit-reset"])
                 )
-                tlog("ALPACA BROKERAGE going to retry")
+                logger.warning("ALPACA BROKERAGE going to retry")
             else:
-                tlog(
-                    f"ALPACA BROKERAGE push-back w/ {response.status_code} and no x-ratelimit-reset header"
+                logger.info(
+                    "ALPACA BROKERAGE push-back w/ %s and no x-ratelimit-reset header",
+                    response.status_code,
                 )
                 await asyncio.sleep(10.0)
 
@@ -866,17 +874,19 @@ class AlpacaTrader(TraderAPI):
 
         if response.status_code in (429, 504):
             if "x-ratelimit-reset" in response.headers:
-                tlog(
-                    f"ALPACA BROKERAGE rate-limit till {response.headers['x-ratelimit-reset']}"
+                logger.info(
+                    "ALPACA BROKERAGE rate-limit till %s",
+                    response.headers["x-ratelimit-reset"],
                 )
                 await asyncio.sleep(
                     int(time.time())
                     - int(response.headers["x-ratelimit-reset"])
                 )
-                tlog("ALPACA BROKERAGE going to retry")
+                logger.warning("ALPACA BROKERAGE going to retry")
             else:
-                tlog(
-                    f"ALPACA BROKERAGE push-back w/ {response.status_code} and no x-ratelimit-reset header"
+                logger.info(
+                    "ALPACA BROKERAGE push-back w/ %s and no x-ratelimit-reset header",
+                    response.status_code,
                 )
                 await asyncio.sleep(10.0)
 
@@ -912,17 +922,19 @@ class AlpacaTrader(TraderAPI):
         # TODO: create a decorator the the re-try / push-backs from server instead of copying.
         if response.status_code in (429, 504):
             if "x-ratelimit-reset" in response.headers:
-                tlog(
-                    f"ALPACA BROKERAGE rate-limit till {response.headers['x-ratelimit-reset']}"
+                logger.info(
+                    "ALPACA BROKERAGE rate-limit till %s",
+                    response.headers["x-ratelimit-reset"],
                 )
                 await asyncio.sleep(
                     int(time.time())
                     - int(response.headers["x-ratelimit-reset"])
                 )
-                tlog("ALPACA BROKERAGE going to retry")
+                logger.warning("ALPACA BROKERAGE going to retry")
             else:
-                tlog(
-                    f"ALPACA BROKERAGE push-back w/ {response.status_code} and no x-ratelimit-reset header"
+                logger.info(
+                    "ALPACA BROKERAGE push-back w/ %s and no x-ratelimit-reset header",
+                    response.status_code,
                 )
                 await asyncio.sleep(10.0)
 
@@ -1015,7 +1027,7 @@ class AlpacaTrader(TraderAPI):
         json_response: Dict = await self._post_request(
             url=url, payload=payload
         )
-        tlog(f"ALPACA BROKERAGE RESPONSE: {json_response}")
+        logger.info("ALPACA BROKERAGE RESPONSE: %s", json_response)
 
         return self._json_to_order(json_response, on_behalf_of)
 
@@ -1205,14 +1217,18 @@ class AlpacaTrader(TraderAPI):
                 q.put(to_send, timeout=1)
 
         except queue.Full as f:
-            tlog(
-                f"[EXCEPTION] process_message(): queue for {data.order.symbol} is FULL:{f}, sleeping for 2 seconds and re-trying."
+            logger.error(
+                "process_message(): queue for %s is FULL:%s, sleeping for 2 seconds and re-trying.",
+                data.order.symbol,
+                f,
             )
             raise
         # except AssertionError:
         #    for q in cls.get_instance().queues.get_allqueues():
         #        q.put(data.__dict__["_raw"], timeout=1)
         except Exception as e:
-            tlog(f"[EXCEPTION] process_message(): exception {e}")
-            if cls.get_instance().config.debug_enabled:
-                traceback.print_exc()
+            logger.error(
+                "process_message(): exception %s",
+                e,
+                exc_info=cls.get_instance().config.debug_enabled,
+            )

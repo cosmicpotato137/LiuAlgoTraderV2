@@ -10,6 +10,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import queue
 import ssl
 import time
@@ -23,10 +24,11 @@ import websocket
 from pytz import timezone
 
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import Order, SymbolQueueMap, ThreadFlags, Trade
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
+
+logger = logging.getLogger(__name__)
 
 utctz = timezone("UTC")
 
@@ -290,7 +292,7 @@ class GeminiTrader(TraderAPI):
         trade_dict: Dict
             An order event received from the WebSocket stream.
         """
-        tlog(f"GEMINI GOING TO SEND {trade_dict}")
+        logger.info("GEMINI GOING TO SEND %s", trade_dict)
         return Trade(
             order_id=trade_dict["order_id"],
             symbol=trade_dict["symbol"].lower(),
@@ -499,9 +501,9 @@ class GeminiTrader(TraderAPI):
         ------
         Raise AssertionError if a heartbeat fails.
         """
-        tlog("GEMINI HEARTBEAT thread starting")
+        logger.info("GEMINI HEARTBEAT thread starting")
         while flags.run:
-            tlog("GEMINI HEARTBEAT")
+            logger.debug("GEMINI HEARTBEAT")
             endpoint = "/v1/heartbeat"
             url = self.config.trading_base_url + endpoint
 
@@ -518,7 +520,7 @@ class GeminiTrader(TraderAPI):
 
             time.sleep(20)
 
-        tlog("GEMINI HEARTBEAT thread terminated")
+        logger.info("GEMINI HEARTBEAT thread terminated")
 
     @classmethod
     def on_message(cls, ws, msgs):
@@ -551,7 +553,7 @@ class GeminiTrader(TraderAPI):
             ]:
                 trade = cls._trade_from_dict(msg)
                 symbol = trade.symbol.lower()
-                tlog(f"GEMINI TRADING UPDATE:{trade}")
+                logger.info("GEMINI TRADING UPDATE:%s", trade)
                 to_send = {
                     "EV": "trade_update",
                     "symbol": symbol,
@@ -562,8 +564,10 @@ class GeminiTrader(TraderAPI):
                         for q in qs.get_allqueues():
                             q.put(to_send, timeout=1)
                 except queue.Full as f:
-                    tlog(
-                        f"[EXCEPTION] : queue for {symbol} is FULL:{f}, sleeping for 2 seconds and re-trying."
+                    logger.error(
+                        "queue for %s is FULL:%s, sleeping for 2 seconds and re-trying.",
+                        symbol,
+                        f,
                     )
                     raise
 
@@ -578,7 +582,7 @@ class GeminiTrader(TraderAPI):
         error
             The reported error.
         """
-        tlog(f"[ERROR] GeminiTrader {error}")
+        logger.error("GeminiTrader %s", error)
 
     @classmethod
     def on_close(cls, ws, close_status_code, close_msg):
@@ -593,7 +597,9 @@ class GeminiTrader(TraderAPI):
         close_msg
             The close message.
         """
-        tlog(f"on_close(): status={close_status_code}, close_msg={close_msg}")
+        logger.info(
+            "on_close(): status=%s, close_msg=%s", close_status_code, close_msg
+        )
 
     async def run(self):
         """Start the order event listener and heartbeat threads.
@@ -608,7 +614,7 @@ class GeminiTrader(TraderAPI):
         Raise AssertionError if the API key or secret is not set.
         """
         if not self.running_task:
-            tlog("starting Gemini listener")
+            logger.info("starting Gemini listener")
             endpoint = "/v1/order/events"
             payload = {"request": endpoint}
             headers = self._generate_ws_headers(payload)
@@ -636,12 +642,12 @@ class GeminiTrader(TraderAPI):
         Block until both threads have finished.
         """
         if self.running_task and self.running_task.is_alive():
-            tlog(f"close task {self.running_task}")
+            logger.info("close task %s", self.running_task)
             self.ws.keep_running = False
             self.flags.run = False
             self.running_task.join()
             self.hb_task.join()
-            tlog("task terminated")
+            logger.info("task terminated")
             self.ws = None
             self.running_task = None
             self.hb_task = None

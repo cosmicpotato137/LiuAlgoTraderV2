@@ -1,9 +1,12 @@
+import logging
 import uuid
 
 import pytest
 
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.strategies.base import Strategy
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +28,6 @@ async def test_get_strategy():
     if not s:
         raise AssertionError("Failed to instantiate strategy")
 
-    print(f"Loaded strategy {s.name}")
+    logger.info("Loaded strategy %s", s.name)
 
     return True

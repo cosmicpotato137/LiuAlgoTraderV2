@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 import hypothesis.strategies as st
@@ -7,6 +8,8 @@ from hypothesis import given, settings
 from hypothesis.extra.pandas import columns, data_frames, indexes
 
 from liualgotrader.fincalcs.resample import ResampleRangeType, resample
+
+logger = logging.getLogger(__name__)
 
 est = pytz.timezone("US/Eastern")
 
@@ -34,11 +37,11 @@ est = pytz.timezone("US/Eastern")
     st.sampled_from(ResampleRangeType),
 )
 def test_resample(ohlc: pd.DataFrame, resample_range: ResampleRangeType):
-    print(ohlc.index)
+    logger.info("%s", ohlc.index)
     r = resample(ohlc, resample_range)
     if ohlc.empty:
         assert r.empty  # nosec
     else:
         assert not r.empty  # nosec
 
-    print("result", r)
+    logger.info("result %s", r)

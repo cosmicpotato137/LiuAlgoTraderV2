@@ -31,6 +31,7 @@ from tabulate import tabulate
 
 from liualgotrader.analytics import analysis
 from liualgotrader.common.concurrency import get_event_loop
+from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType
 from liualgotrader.db.models.portfolio import Portfolio
 from liualgotrader.db.session import create_db_connection
@@ -203,6 +204,7 @@ def main_cli() -> None:
 
     Expose the create, equity, recalc, account, trades and list commands.
     """
+    configure_logging()
     fire.Fire(
         {
             "create": create,

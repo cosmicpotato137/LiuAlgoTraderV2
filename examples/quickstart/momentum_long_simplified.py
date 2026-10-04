@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from datetime import datetime, timedelta
@@ -8,7 +9,6 @@ from stockstats import StockDataFrame
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.trading_data import (buy_indicators, buy_time,
                                                cool_down, last_used_strategy,
                                                latest_cost_basis,
@@ -17,6 +17,8 @@ from liualgotrader.common.trading_data import (buy_indicators, buy_time,
                                                target_prices)
 from liualgotrader.fincalcs.support_resistance import find_stop
 from liualgotrader.strategies.base import Strategy, StrategyType
+
+logger = logging.getLogger(__name__)
 
 
 class MomentumLongV3(Strategy):
@@ -64,7 +66,7 @@ class MomentumLongV3(Strategy):
 
     async def create(self) -> bool:
         await super().create()
-        tlog(f"strategy {self.name} created")
+        logger.info("strategy %s created", self.name)
         return True
 
     async def should_cool_down(self, symbol: str, now: datetime):
@@ -108,8 +110,13 @@ class MomentumLongV3(Strategy):
                 high_15m = minute_history[lbound:ubound]["high"].max()  # type: ignore
             except Exception:
 
-                tlog(
-                    f"{symbol}[{now}] failed to aggregate {lbound}:{ubound} {minute_history}"
+                logger.warning(
+                    "%s[%s] failed to aggregate %s:%s %s",
+                    symbol,
+                    now,
+                    lbound,
+                    ubound,
+                    minute_history,
                 )
                 return False, {}
 
@@ -153,25 +160,41 @@ class MomentumLongV3(Strategy):
                 ):
 
                     if debug:
-                        tlog(f"[{self.name}][{now}] slow macd confirmed trend")
+                        logger.info(
+                            "[%s][%s] slow macd confirmed trend",
+                            self.name,
+                            now,
+                        )
 
                     # check RSI does not indicate overbought
                     rsi = stock["rsi_20"]
 
                     if debug:
-                        tlog(
-                            f"[{self.name}][{now}] {symbol} RSI={round(rsi.iloc[-1], 2)}"
+                        logger.info(
+                            "[%s][%s] %s RSI=%s",
+                            self.name,
+                            now,
+                            symbol,
+                            round(rsi.iloc[-1], 2),
                         )
 
                     rsi_limit = 75
                     if rsi.iloc[-1] < rsi_limit:
                         if debug:
-                            tlog(
-                                f"[{self.name}][{now}] {symbol} RSI {round(rsi.iloc[-1], 2)} <= {rsi_limit}"
+                            logger.info(
+                                "[%s][%s] %s RSI %s <= %s",
+                                self.name,
+                                now,
+                                symbol,
+                                round(rsi.iloc[-1], 2),
+                                rsi_limit,
                             )
                     else:
-                        tlog(
-                            f"[{self.name}][{now}] {symbol} RSI over-bought, cool down for 5 min"
+                        logger.info(
+                            "[%s][%s] %s RSI over-bought, cool down for 5 min",
+                            self.name,
+                            now,
+                            symbol,
                         )
                         cool_down[symbol] = now.replace(
                             second=0, microsecond=0
@@ -196,8 +219,15 @@ class MomentumLongV3(Strategy):
                         self.whipsawed[symbol] = False
 
                         buy_price = max(data.close, data.vwap)
-                        tlog(
-                            f"[{self.name}][{now}] Submitting buy for {shares_to_buy} shares of {symbol} at {buy_price} target {target_prices[symbol]} stop {stop_prices[symbol]}"
+                        logger.info(
+                            "[%s][%s] Submitting buy for %s shares of %s at %s target %s stop %s",
+                            self.name,
+                            now,
+                            shares_to_buy,
+                            symbol,
+                            buy_price,
+                            target_prices[symbol],
+                            stop_prices[symbol],
                         )
 
                         buy_indicators[symbol] = {
@@ -218,7 +248,9 @@ class MomentumLongV3(Strategy):
                                 "limit_price": str(buy_price),
                             }
             elif debug:
-                tlog(f"[{self.name}][{now}] {data.close} < 15min high ")
+                logger.info(
+                    "[%s][%s] %s < 15min high ", self.name, now, data.close
+                )
         if (
             await super().is_sell_time(now)
             and position > 0
@@ -345,8 +377,14 @@ class MomentumLongV3(Strategy):
 
                 if partial_sell:
                     qty = int(position / 2) if position > 1 else 1
-                    tlog(
-                        f"[{self.name}][{now}] Submitting sell for {qty} shares of {symbol} at limit of {data.close}with reason:{sell_reasons}"
+                    logger.info(
+                        "[%s][%s] Submitting sell for %s shares of %s at limit of %swith reason:%s",
+                        self.name,
+                        now,
+                        qty,
+                        symbol,
+                        data.close,
+                        sell_reasons,
                     )
 
                     return (
@@ -361,8 +399,14 @@ class MomentumLongV3(Strategy):
 
                 else:
                     if limit_sell:
-                        tlog(
-                            f"[{self.name}][{now}] Submitting sell for {position} shares of {symbol} at {data.close} with reason:{sell_reasons}"
+                        logger.info(
+                            "[%s][%s] Submitting sell for %s shares of %s at %s with reason:%s",
+                            self.name,
+                            now,
+                            position,
+                            symbol,
+                            data.close,
+                            sell_reasons,
                         )
                         return (
                             True,
@@ -374,8 +418,13 @@ class MomentumLongV3(Strategy):
                             },
                         )
                     else:
-                        tlog(
-                            f"[{self.name}][{now}] Submitting sell for {position} shares of {symbol} at market with reason:{sell_reasons}"
+                        logger.info(
+                            "[%s][%s] Submitting sell for %s shares of %s at market with reason:%s",
+                            self.name,
+                            now,
+                            position,
+                            symbol,
+                            sell_reasons,
                         )
                         return (
                             True,

@@ -20,6 +20,7 @@ main_cli
 """
 
 import getopt
+import logging
 import os
 import sys
 from datetime import date, datetime
@@ -34,7 +35,7 @@ from requests.exceptions import HTTPError
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import config, market_data, trading_data
 from liualgotrader.common.decorators import timeit
-from liualgotrader.common.tlog import tlog
+from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType, TimeScale
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.new_trades import NewTrade
@@ -43,6 +44,8 @@ from liualgotrader.fincalcs.vwap import add_daily_vwap
 from liualgotrader.scanners.base import Scanner
 from liualgotrader.scanners.momentum import Momentum
 from liualgotrader.strategies.base import Strategy, StrategyType
+
+logger = logging.getLogger(__name__)
 
 
 def show_usage():
@@ -122,6 +125,7 @@ def main_cli() -> None:
     and exit. Print the usage text and exit on missing or invalid arguments,
     and exit if the trade plan is not found.
     """
+    configure_logging()
     if len(sys.argv) == 1:
         show_usage()
         sys.exit(0)
@@ -136,9 +140,9 @@ def main_cli() -> None:
     fname = f"{folder}{config.configuration_filename}"
     try:
         conf_dict = toml.load(fname)
-        tlog(f"loaded configuration file from {fname}")
+        logger.info("loaded configuration file from %s", fname)
     except FileNotFoundError:
-        tlog(f"[ERROR] could not locate tradeplan file {fname}")
+        logger.error("could not locate tradeplan file %s", fname)
         sys.exit(0)
     conf_dict = toml.load(config.configuration_filename)
     config.portfolio_value = conf_dict.get("portfolio_value", None)
@@ -147,7 +151,7 @@ def main_cli() -> None:
 
     if sys.argv[1] == "from":
         from_date = dateFromString(sys.argv[2])
-        tlog(f"selected {sys.argv[2]} applied {from_date}")
+        logger.info("selected %s applied %s", sys.argv[2], from_date)
         try:
             scanners: Optional[List] = None
             strategies: Optional[List] = None

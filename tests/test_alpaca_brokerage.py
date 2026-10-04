@@ -1,8 +1,12 @@
+import logging
+
 import pytest
 
 from liualgotrader.common import config
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.alpaca.trader import AlpacaTrader
+
+logger = logging.getLogger(__name__)
 
 alpaca_trader: AlpacaTrader
 
@@ -31,9 +35,9 @@ async def test_sell_apple():
             on_behalf_of=account_id,
         )
     except AssertionError as e:
-        print(f"AssertionError with {e}")
+        logger.info("AssertionError with %s", e)
     else:
-        print(order)
+        logger.info("%s", order)
 
     return True
 
@@ -51,8 +55,8 @@ async def test_buy_apple():
             order_type="market",
             on_behalf_of=account_id,
         )
-        print(order)
+        logger.info("%s", order)
     except Exception as e:
-        print(f"EXCEPTION: {e}")
+        logger.info("EXCEPTION: %s", e)
 
     return True

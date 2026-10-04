@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 import pandas as pd
@@ -8,17 +9,20 @@ from liualgotrader.common.types import (SymbolQueueMap, TimeScale, WSConnectStat
                                         WSEventType)
 from liualgotrader.vendors.polygon.data import PolygonData
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.mark.devtest
 def test_polygon_aapl_data_day() -> bool:
     polygon = PolygonData(config.polygon)
-    print(
+    logger.info(
+        "%s",
         polygon.get_symbol_data(
             "AAPL",
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
             scale=TimeScale.day,
-        )
+        ),
     )
     return True
 
@@ -26,12 +30,13 @@ def test_polygon_aapl_data_day() -> bool:
 @pytest.mark.devtest
 def test_polygon_aapl_data_min() -> bool:
     polygon = PolygonData(config.polygon)
-    print(
+    logger.info(
+        "%s",
         polygon.get_symbol_data(
             "AAPL",
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
-        ).between_time("9:30", "16:00")
+        ).between_time("9:30", "16:00"),
     )
     return True
 
@@ -40,7 +45,7 @@ def test_polygon_aapl_data_min() -> bool:
 def test_polygon_get_symbols() -> bool:
     polygon = PolygonData(config.polygon)
     symbols = polygon.get_symbols()
-    print(f"{len(symbols)} symbols are retrieved from Polygon")
+    logger.info("%s symbols are retrieved from Polygon", len(symbols))
     return True
 
 
@@ -49,7 +54,8 @@ def test_polygon_get_symbols() -> bool:
 def test_polygon_get_market_snapshot() -> bool:
     polygon = PolygonData(config.polygon)
     market_snapshots = polygon.get_market_snapshot()
-    print(
-        f"{len(market_snapshots)} tickers of market snapshots are retrieved from Polygon"
+    logger.info(
+        "%s tickers of market snapshots are retrieved from Polygon",
+        len(market_snapshots),
     )
     return True

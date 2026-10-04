@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 import pandas as pd
@@ -8,31 +9,34 @@ from liualgotrader.common.types import (SymbolQueueMap, TimeScale, WSConnectStat
                                         WSEventType)
 from liualgotrader.vendors.finnhub.data import FinnhubData
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.mark.devtest
 def test_create_finnhub() -> bool:
     finnhub = FinnhubData(config.finnhub)
-    print(finnhub.stock_exchanges)
+    logger.info("%s", finnhub.stock_exchanges)
     return True
 
 
 @pytest.mark.devtest
 def test_finnhub_us_symbols() -> bool:
     finnhub = FinnhubData(config.finnhub)
-    print(finnhub.get_symbols())
+    logger.info("%s", finnhub.get_symbols())
     return True
 
 
 @pytest.mark.devtest
 def test_finnhub_aapl_data_day() -> bool:
     finnhub = FinnhubData(config.finnhub)
-    print(
+    logger.info(
+        "%s",
         finnhub.get_symbol_data(
             "AAPL",
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
             scale=TimeScale.day,
-        )
+        ),
     )
     return True
 
@@ -40,11 +44,12 @@ def test_finnhub_aapl_data_day() -> bool:
 @pytest.mark.devtest
 def test_finnhub_aapl_data_min() -> bool:
     finnhub = FinnhubData(config.finnhub)
-    print(
+    logger.info(
+        "%s",
         finnhub.get_symbol_data(
             "AAPL",
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
-        ).between_time("9:30", "16:00")
+        ).between_time("9:30", "16:00"),
     )
     return True

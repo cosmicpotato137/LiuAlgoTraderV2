@@ -9,6 +9,7 @@ AccountTransaction
 """
 
 import datetime
+import logging
 from typing import Any, Dict, Optional
 
 import pandas as pd
@@ -16,9 +17,10 @@ from sqlalchemy import DateTime, ForeignKey, delete, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.base import Base
 from liualgotrader.db.session import fetch_as_dataframe, session_scope
+
+logger = logging.getLogger(__name__)
 
 
 class Account(Base):
@@ -197,8 +199,13 @@ class Account(Base):
             async with session_scope() as session:
                 session.add(transaction)
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] add_transaction({account_id}, {amount}, {tstamp} ) failed with {e} current balance={await cls.get_balance(account_id)}"
+            logger.error(
+                "add_transaction(%s, %s, %s ) failed with %s current balance=%s",
+                account_id,
+                amount,
+                tstamp,
+                e,
+                await cls.get_balance(account_id),
             )
             raise
 
@@ -251,8 +258,10 @@ class Account(Base):
                     .values(balance=new_balance)
                 )
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] clear_balance() failed with {e} current balance={await cls.get_balance(account_id)}"
+            logger.error(
+                "clear_balance() failed with %s current balance=%s",
+                e,
+                await cls.get_balance(account_id),
             )
             raise
 
@@ -277,8 +286,10 @@ class Account(Base):
                     )
                 )
         except Exception as e:
-            tlog(
-                f"[EXCEPTION] clear_account_transactions() failed with {e} current balance={await cls.get_balance(account_id)}"
+            logger.error(
+                "clear_account_transactions() failed with %s current balance=%s",
+                e,
+                await cls.get_balance(account_id),
             )
             raise
 

@@ -8,6 +8,7 @@ TradeAnalysis
     Result of a trade in a strategy run, stored in trade_analysis.
 """
 
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
@@ -17,10 +18,11 @@ from sqlalchemy import (DateTime, ForeignKey, Numeric, UniqueConstraint, func,
                         select)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.base import Base
 from liualgotrader.db.session import fetch_as_dataframe, session_scope
+
+logger = logging.getLogger(__name__)
 
 
 class GainLoss(Base):
@@ -88,7 +90,9 @@ class GainLoss(Base):
                             )
                         )
                 except Exception as e:
-                    tlog(f"[ERROR] inserting {row} resulted in exception {e}")
+                    logger.error(
+                        "inserting %s resulted in exception %s", row, e
+                    )
 
     @classmethod
     async def load(cls, start_date: date) -> DataFrame:
@@ -197,7 +201,9 @@ class TradeAnalysis(Base):
                             )
                         )
                 except Exception as e:
-                    tlog(f"[ERROR] inserting {row} resulted in exception {e}")
+                    logger.error(
+                        "inserting %s resulted in exception %s", row, e
+                    )
 
     @classmethod
     async def load(cls, start_date: date) -> DataFrame:

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 import hypothesis.strategies as st
@@ -8,6 +9,8 @@ from hypothesis import given, settings
 from hypothesis.extra.pandas import indexes, series
 
 from liualgotrader.fincalcs.trends import SeriesTrendType, get_series_trend
+
+logger = logging.getLogger(__name__)
 
 
 @settings(max_examples=200)
@@ -28,6 +31,6 @@ from liualgotrader.fincalcs.trends import SeriesTrendType, get_series_trend
 )
 @pytest.mark.devtest
 def test_get_series_trend(serie: pd.Series):
-    print(serie)
+    logger.info("%s", serie)
     r, t = get_series_trend(serie)
-    print("result", r, t)
+    logger.info("result %s %s", r, t)

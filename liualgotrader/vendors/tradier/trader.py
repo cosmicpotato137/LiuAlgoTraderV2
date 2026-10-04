@@ -8,6 +8,7 @@ TradierTrader
 
 import asyncio
 import json
+import logging
 import queue
 import time as time_action
 from datetime import date, datetime, time, timedelta
@@ -20,10 +21,11 @@ import requests
 import websocket
 
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import Order, SymbolQueueMap, ThreadFlags, Trade
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.tradier.config import TradierConfig
+
+logger = logging.getLogger(__name__)
 
 NY = "America/New_York"
 nytz = pytz.timezone(NY)
@@ -140,7 +142,9 @@ class TradierTrader(TraderAPI):
             },
         )
         if r.status_code in (429, 502):
-            tlog(f"{r.url} return {r.status_code}, waiting and re-trying")
+            logger.warning(
+                "%s return %s, waiting and re-trying", r.url, r.status_code
+            )
             time_action.sleep(10)
             return self._get(url, params)
         elif r.status_code != 200:
@@ -177,7 +181,9 @@ class TradierTrader(TraderAPI):
             },
         )
         if r.status_code in (429, 502):
-            tlog(f"{r.url} return {r.status_code}, waiting and re-trying")
+            logger.warning(
+                "%s return %s, waiting and re-trying", r.url, r.status_code
+            )
             time_action.sleep(10)
             return self._post(url, params)
         elif r.status_code != 200:
@@ -214,7 +220,9 @@ class TradierTrader(TraderAPI):
             },
         )
         if r.status_code in (429, 502):
-            tlog(f"{r.url} return {r.status_code}, waiting and re-trying")
+            logger.warning(
+                "%s return %s, waiting and re-trying", r.url, r.status_code
+            )
             time_action.sleep(10)
             return self._delete(url, params)
         elif r.status_code != 200:
@@ -621,8 +629,8 @@ class TradierTrader(TraderAPI):
                 "excludeAccounts": [],
             }
             self.ws.send(json.dumps(payload))
-            tlog(
-                f"subscribed for order update on session {self.ws_session_id}"
+            logger.info(
+                "subscribed for order update on session %s", self.ws_session_id
             )
 
     async def submit_order(
@@ -751,7 +759,7 @@ class TradierTrader(TraderAPI):
         Raise ValueError if no streaming session can be created.
         """
         if not self.running_task:
-            tlog("starting Tradier Account listener")
+            logger.info("starting Tradier Account listener")
 
             url = f"{self.config.base_url}accounts/events/session"
 
@@ -763,8 +771,10 @@ class TradierTrader(TraderAPI):
             ws_url = data["stream"]["url"]
             self.ws_session_id = data["stream"]["sessionid"]
 
-            tlog(
-                f"starting WebSocketApp on {ws_url} with session-id {self.ws_session_id}"
+            logger.info(
+                "starting WebSocketApp on %s with session-id %s",
+                ws_url,
+                self.ws_session_id,
             )
             self.ws = websocket.WebSocketApp(
                 ws_url,
@@ -787,10 +797,10 @@ class TradierTrader(TraderAPI):
         Block until the listener thread has finished.
         """
         if self.running_task and self.running_task.is_alive():
-            tlog(f"close task {self.running_task}")
+            logger.info("close task %s", self.running_task)
             self.ws.keep_running = False
             self.running_task.join()
-            tlog("task terminated")
+            logger.info("task terminated")
             self.ws = None
             self.running_task = None
             self.ws_session_id = None
@@ -859,7 +869,7 @@ class TradierTrader(TraderAPI):
         ):
             trade = cls._trade_from_dict(msg)
             symbol = trade.symbol.lower()
-            tlog(f"TRADIER TRADING UPDATE:{trade}")
+            logger.info("TRADIER TRADING UPDATE:%s", trade)
             to_send = {
                 "EV": "trade_update",
                 "symbol": symbol,
@@ -870,8 +880,10 @@ class TradierTrader(TraderAPI):
                     for q in qs.get_allqueues():
                         q.put(to_send, timeout=1)
             except queue.Full as f:
-                tlog(
-                    f"[EXCEPTION] queue for {symbol} is FULL:{f}, sleeping for 2 seconds and re-trying."
+                logger.error(
+                    "queue for %s is FULL:%s, sleeping for 2 seconds and re-trying.",
+                    symbol,
+                    f,
                 )
                 raise
 
@@ -886,7 +898,7 @@ class TradierTrader(TraderAPI):
         error
             The reported error.
         """
-        tlog(f"[ERROR] TradierTrader {error}")
+        logger.error("TradierTrader %s", error)
 
     @classmethod
     def on_close(cls, ws, close_status_code, close_msg):
@@ -901,6 +913,8 @@ class TradierTrader(TraderAPI):
         close_msg
             The close message.
         """
-        tlog(
-            f"on_close(): TradierTrader status={close_status_code}, close_msg={close_msg}"
+        logger.info(
+            "on_close(): TradierTrader status=%s, close_msg=%s",
+            close_status_code,
+            close_msg,
         )

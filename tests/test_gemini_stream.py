@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from multiprocessing import Queue
 from threading import Thread
@@ -8,6 +9,8 @@ import pytest
 from liualgotrader.common import config
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.vendors.gemini.streaming import GeminiStream
+
+logger = logging.getLogger(__name__)
 
 gemini_stream: GeminiStream
 queues: SymbolQueueMap
@@ -23,16 +26,16 @@ async def stream_setup():
 
 
 def listener(q: Queue):
-    print("start listen", q)
+    logger.info("start listen %s", q)
     while not stop:
         try:
             d = q.get(timeout=2)
-            print("got in q:", d)
+            logger.info("got in q: %s", d)
         except Exception as e:
-            print(e, "timeout...")
+            logger.info("%s timeout...", e)
             time.sleep(1)
 
-    print("end listen")
+    logger.info("end listen")
 
 
 @pytest.mark.asyncio
@@ -41,22 +44,22 @@ async def test_apple_sec_agg():
     global gemini_stream
     global stop
     await gemini_stream.run()
-    print("going to subscribe")
+    logger.info("going to subscribe")
     q = Queue()
     queues["BTCUSD"] = q
     running_task = Thread(
         target=listener,
         args=(q,),
     )
-    print("start thread")
+    logger.info("start thread")
     running_task.start()
-    print("started")
+    logger.info("started")
     await asyncio.sleep(2)
 
     status = await gemini_stream.subscribe(
         ["BTCUSD"], [WSEventType.MIN_AGG, WSEventType.TRADE]
     )
-    print(f"subscribe result: {status}")
+    logger.info("subscribe result: %s", status)
     if not status:
         raise AssertionError(f"Failed in gemini_stream.subscribe w/ {status}")
     await asyncio.sleep(1 * 60)

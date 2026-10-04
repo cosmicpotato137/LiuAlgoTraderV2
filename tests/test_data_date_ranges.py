@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import date
 
@@ -8,9 +9,11 @@ from hypothesis import strategies as st
 from liualgotrader.common.types import DataConnectorType, TimeScale
 from liualgotrader.data.factory import data_loader_factory
 
+logger = logging.getLogger(__name__)
+
 
 def test_alpaca_num_trading_day():
-    print("test_alpaca_num_trading_days_positive")
+    logger.info("test_alpaca_num_trading_days_positive")
     alpaca_dl = data_loader_factory(DataConnectorType.alpaca)
     if (
         alpaca_dl.num_trading_days(
@@ -72,7 +75,7 @@ def test_alpaca_num_trading_day():
 
 
 def test_alpaca_concurrency_ranges_min():
-    print("test_alpaca_concurrency_ranges_min")
+    logger.info("test_alpaca_concurrency_ranges_min")
     alpaca_dl = data_loader_factory(DataConnectorType.alpaca)
 
     t = time.time()
@@ -88,7 +91,7 @@ def test_alpaca_concurrency_ranges_min():
         != 5
     ):
         raise AssertionError("expected 5")
-    print(time.time() - t)
+    logger.info("%s", time.time() - t)
 
     t = time.time()
     if (
@@ -103,7 +106,7 @@ def test_alpaca_concurrency_ranges_min():
         != 2
     ):
         raise AssertionError("expected 2")
-    print(time.time() - t)
+    logger.info("%s", time.time() - t)
 
     return True
 
@@ -122,4 +125,4 @@ def test_hpy_alpaca_concurrency_ranges_min(start: date, end: date):
     )
     duration = time.time() - t
 
-    print(f"duration={duration}, len={len(r)} -> {r}")
+    logger.info("duration=%s, len=%s -> %s", duration, len(r), r)

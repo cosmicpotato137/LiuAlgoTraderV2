@@ -8,6 +8,7 @@ AlpacaData
 
 import asyncio
 import concurrent.futures
+import logging
 import time
 from datetime import date, datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple, cast
@@ -36,10 +37,11 @@ from alpaca.trading.models import Asset, Calendar
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 from dateutil.parser import parse as date_parser
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
+
+logger = logging.getLogger(__name__)
 
 NY = "America/New_York"
 nytz = pytz.timezone(NY)
@@ -740,9 +742,9 @@ class AlpacaData(DataAPI):
                 ),
             ).df
         except APIError as e:
-            tlog(f"received APIError: {e}")
+            logger.warning("received APIError: %s", e)
             if e.status_code in (500, 502, 504, 429):
-                tlog("retrying")
+                logger.warning("retrying")
                 time.sleep(10)
                 return self.get_symbols_data(symbols, start, end, scale)
             raise
@@ -798,7 +800,13 @@ class AlpacaData(DataAPI):
 
         try:
             if self.config.detailed_dl_debug_enabled:
-                tlog(f"symbol={symbol}, timeframe={t}, range=({_start, _end})")
+                logger.info(
+                    "symbol=%s, timeframe=%s, range=(%s, %s)",
+                    symbol,
+                    t,
+                    _start,
+                    _end,
+                )
 
             data = (
                 self._crypto_get_symbol_data(
@@ -808,9 +816,9 @@ class AlpacaData(DataAPI):
                 else self._get_stock_bars(symbol, t, _start, _end)
             )
         except APIError as e:
-            tlog(f"received APIError: {e}")
+            logger.warning("received APIError: %s", e)
             if e.status_code in (500, 502, 504, 429):
-                tlog("retrying")
+                logger.warning("retrying")
                 time.sleep(10)
                 return self.get_symbol_data(symbol, start, end, scale)
             else:

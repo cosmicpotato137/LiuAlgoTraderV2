@@ -9,11 +9,13 @@ get_event_loop
 """
 
 import asyncio
+import logging
 
 import psutil
 
 from liualgotrader.common import config
-from liualgotrader.common.tlog import tlog
+
+logger = logging.getLogger(__name__)
 
 
 def calc_num_consumer_processes() -> int:
@@ -29,14 +31,14 @@ def calc_num_consumer_processes() -> int:
     num_cpu = psutil.cpu_count(False)
 
     if not num_cpu:
-        tlog(
+        logger.info(
             "Can't automatically detect number of CPUs, use fixed configuration"
         )
         return 1
 
     load_pct: float = psutil.cpu_percent(interval=5)
 
-    tlog(f"Total CPU Load:{load_pct}, num_cpu:{num_cpu}")
+    logger.info("Total CPU Load:%s, num_cpu:%s", load_pct, num_cpu)
 
     return int(5.0 * (1 - load_pct / 100.0) * num_cpu)
 

@@ -8,6 +8,7 @@ StockOhlc
     Daily price and volume data for a symbol, stored in stock_ohlc.
 """
 
+import logging
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
@@ -16,9 +17,10 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.common.tlog import tlog
 from liualgotrader.db.models.base import Base
 from liualgotrader.db.session import session_scope
+
+logger = logging.getLogger(__name__)
 
 TOO_MANY_CONNECTIONS = "53300"
 
@@ -121,8 +123,10 @@ class TickerData(Base):
         except DBAPIError as e:
             if getattr(e.orig, "sqlstate", None) != TOO_MANY_CONNECTIONS:
                 raise
-            tlog(
-                f"too many db connections: {e}. Failed to write ticker {self.symbol}, will re-try"
+            logger.warning(
+                "too many db connections: %s. Failed to write ticker %s, will re-try",
+                e,
+                self.symbol,
             )
 
         return False
