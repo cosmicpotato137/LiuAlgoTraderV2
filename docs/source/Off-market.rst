@@ -57,8 +57,7 @@ Currently supported miners:
 Prerequisites
 *************
 
-1. Installed & configured `PostgreSQL` instance, hosting a database with LiuAlgoTrader schema,
-2. Ensuring environment variables are properly set including Alpaca Market API credentials, and the database DSN,
+1. Ensuring environment variables are properly set including Alpaca Market API credentials, and the database DSN when not using the default SQLite database,
 
 Usage
 *****

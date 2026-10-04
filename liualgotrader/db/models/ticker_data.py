@@ -12,12 +12,12 @@ import logging
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Text, UniqueConstraint, func, select
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, insert
+from sqlalchemy import UniqueConstraint, func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import (Base, CurrentTimestamp, JsonDict,
+                                          TextList, dialect_insert)
 from liualgotrader.db.session import session_scope
 
 logger = logging.getLogger(__name__)
@@ -66,14 +66,14 @@ class TickerData(Base):
     symbol: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str]
     description: Mapped[str]
-    tags: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text))
-    similar_tickers: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text))
-    industry: Mapped[Optional[str]]
-    sector: Mapped[Optional[str]]
+    tags: Mapped[Optional[List[str]]] = mapped_column(TextList)
+    similar_tickers: Mapped[Optional[List[str]]] = mapped_column(TextList)
+    industry: Mapped[Optional[str]] = mapped_column(index=True)
+    sector: Mapped[Optional[str]] = mapped_column(index=True)
     exchange: Mapped[Optional[str]]
     short_ratio: Mapped[Optional[float]]
     create_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        server_default=func.current_timestamp()
+        server_default=CurrentTimestamp()
     )
     modify_tstamp: Mapped[Optional[datetime]]
 
@@ -112,11 +112,11 @@ class TickerData(Base):
         try:
             async with session_scope() as session:
                 await session.execute(
-                    insert(TickerData)
+                    dialect_insert(session, TickerData)
                     .values(symbol=self.symbol, **values)
                     .on_conflict_do_update(
                         index_elements=[TickerData.symbol],
-                        set_={**values, "modify_tstamp": func.now()},
+                        set_={**values, "modify_tstamp": CurrentTimestamp()},
                     )
                 )
             return True
@@ -176,17 +176,17 @@ class StockOhlc(Base):
     __table_args__ = (UniqueConstraint("symbol", "symbol_date"),)
 
     stock_ohlc_id: Mapped[int] = mapped_column(primary_key=True)
-    symbol: Mapped[str]
-    symbol_date: Mapped[date]
+    symbol: Mapped[str] = mapped_column(index=True)
+    symbol_date: Mapped[date] = mapped_column(index=True)
     open: Mapped[float]
     high: Mapped[float]
     low: Mapped[float]
     close: Mapped[float]
     volume: Mapped[int]
-    indicators: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    indicators: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
     modify_tstamp: Mapped[Optional[datetime]]
     create_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        server_default=func.current_timestamp()
+        server_default=CurrentTimestamp()
     )
 
     @classmethod
@@ -265,12 +265,12 @@ class StockOhlc(Base):
         )
         async with session_scope() as session:
             await session.execute(
-                insert(StockOhlc)
+                dialect_insert(session, StockOhlc)
                 .values(
                     symbol=self.symbol, symbol_date=self.symbol_date, **values
                 )
                 .on_conflict_do_update(
                     index_elements=[StockOhlc.symbol, StockOhlc.symbol_date],
-                    set_={**values, "modify_tstamp": func.now()},
+                    set_={**values, "modify_tstamp": CurrentTimestamp()},
                 )
             )

@@ -38,8 +38,7 @@ LiuAlgoTrader comes equipped with powerful & user-friendly back-testing tool.
 
 - Python 3.12 or later,
 - Paper, and/or a funded account with [Alpaca Markets](https://alpaca.markets/docs/about-us/).
-OR Polygon.io subscription optional (`Starter` plan and above),
-- Installed [Docker Engine](https://docs.docker.com/engine/install/) and [Docker Compose](https://docs.docker.com/compose/install/)
+OR Polygon.io subscription optional (`Starter` plan and above).
 
 ### Install & Configure
 
@@ -54,9 +53,20 @@ Having issues installation? check out the [installation FAQ page](https://liualg
 
 `liu quickstart` 
 
-and follow the installation wizard instructions. The wizard will walk you
-through the configuration of environment variables, setup of a local 
-dockerized PostgreSQL and pre-populate with test data. 
+and follow the installation wizard instructions. The wizard checks your
+Alpaca credentials, creates the database and downloads the samples.
+
+LiuAlgoTrader keeps track of your trading in a SQLite database at
+`~/.liualgotrader/liu.db`, so there is nothing else to install. To use a
+PostgreSQL server instead, install the `postgres` extra and point the `DSN`
+environment variable at it:
+
+```sh
+pip install 'liualgotrader[postgres]'
+export DSN=postgresql://user:password@host/db
+```
+
+The database tables are created on first use.
  
 **Note** for [WINDOWS](https://liualgotrader-v2.readthedocs.io/en/latest/Troubleshooting.html#q-can-i-run-liu-on-windows) users
 ### Try the samples

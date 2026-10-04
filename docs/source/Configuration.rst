@@ -52,6 +52,11 @@ the `tradeplan.toml` configuration file.
 It's used by both the `trader` and `backtester`
 applications.
 
+`DSN` holds the URL of the database, such as
+`postgresql://user:password@host/db`. Leave it unset
+for the SQLite database at `~/.liualgotrader/liu.db`.
+See `Database Setup` in :doc:`(Advanced) Setup`.
+
 `LIU_LOG_LEVEL` sets the minimum level of log
 entries written to STDOUT by all `LiuAlgoTrader`
 applications: `DEBUG`, `INFO` (default), `WARNING`

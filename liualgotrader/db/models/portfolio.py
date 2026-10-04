@@ -12,13 +12,13 @@ from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from pandas import DataFrame
-from sqlalchemy import DateTime, ForeignKey, func, select
-from sqlalchemy.dialects.postgresql import ENUM, JSONB
+from sqlalchemy import Enum, ForeignKey, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from liualgotrader.common.types import AssetType
 from liualgotrader.db.models.accounts import Account, AccountTransaction
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import (Base, CurrentTimestamp, JsonDict,
+                                          Timestamp)
 from liualgotrader.db.session import session_scope
 
 
@@ -72,18 +72,18 @@ class Portfolio(Base):
 
     portfolio_id: Mapped[str] = mapped_column(primary_key=True)
     portfolio_size: Mapped[int]
-    parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
     expire_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
+        Timestamp(timezone=True)
     )
     tstamp: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )
     account_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("accounts.account_id")
+        ForeignKey("accounts.account_id"), index=True
     )
     asset_type: Mapped[AssetType] = mapped_column(
-        ENUM(AssetType, name="asset_type", create_type=False),
+        Enum(AssetType, name="asset_type", create_constraint=True),
         server_default=AssetType.US_EQUITIES.name,
     )
     external_account_id: Mapped[Optional[str]]
@@ -361,6 +361,6 @@ class PortfolioBatchId(Base):
 
     assoc_id: Mapped[int] = mapped_column(primary_key=True)
     portfolio_id: Mapped[str] = mapped_column(
-        ForeignKey("portfolio.portfolio_id")
+        ForeignKey("portfolio.portfolio_id"), index=True
     )
-    batch_id: Mapped[str]
+    batch_id: Mapped[str] = mapped_column(index=True)

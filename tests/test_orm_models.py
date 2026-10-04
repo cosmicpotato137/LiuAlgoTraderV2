@@ -347,8 +347,12 @@ async def test_trade_plan_new_entries() -> bool:
     portfolio_id, strategy = unique("portfolio"), unique("strategy")
     await Portfolio.save(portfolio_id, 1000, 0, {})
     async with session_scope() as session:
-        # A naive time is in the session time zone of the database.
-        session_now = await session.scalar(select(func.localtimestamp()))
+        # A naive time is in the session time zone of the database, which is
+        # UTC on SQLite.
+        if session.get_bind().dialect.name == "postgresql":
+            session_now = await session.scalar(select(func.localtimestamp()))
+        else:
+            session_now = datetime.now(timezone.utc).replace(tzinfo=None)
         session.add(
             TradePlan(
                 portfolio_id=portfolio_id,

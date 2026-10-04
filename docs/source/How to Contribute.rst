@@ -18,8 +18,7 @@ them, and ``pdm.lock`` pins the exact versions to develop and test with.
 Prerequisites:
 
 - Python 3.12 or later,
-- PDM, for example installed with ``pipx install pdm`` or ``brew install pdm``,
-- Docker Engine and Docker Compose, for the local PostgreSQL database.
+- PDM, for example installed with ``pipx install pdm`` or ``brew install pdm``.
 
 1. Clone LiuAlgoTrader:
 
@@ -56,15 +55,16 @@ Prerequisites:
    the staged Python files. To run the hooks on other files, use
    ``pdm run pre-commit run --files <files>``.
 
-4. If you have not yet set up a local database, run the quickstart wizard:
+4. Optionally, run the quickstart wizard to check your Alpaca credentials,
+   create the default SQLite database and download the samples:
 
    .. code-block:: bash
 
        pdm run liu quickstart
 
-   Follow these_ instructions, skipping `Step 1`. The wizard starts
-   PostgreSQL in Docker and sets up the environment variables that
-   LiuAlgoTrader reads. :doc:`Configuration` lists all of them.
+   Follow these_ instructions, skipping `Step 1`. :doc:`Configuration` lists
+   the environment variables that LiuAlgoTrader reads. To work on PostgreSQL
+   support, also install its driver with ``pdm install -G dev -G postgres``.
 
    .. _these: https://liualgotrader-v2.readthedocs.io/en/latest/Quickstart.html
 
@@ -75,9 +75,10 @@ Prerequisites:
        pdm run pytest
        pdm run pytest tests/test_resample.py
 
-   Most tests need the database (``DSN``). Tests of a broker or data provider
-   also need its API keys, such as ``APCA_API_KEY_ID`` and
-   ``APCA_API_SECRET_KEY`` for Alpaca.
+   The tests use a new SQLite database for each run, unless ``DSN`` names
+   another database, such as a PostgreSQL test database. Tests of a
+   broker or data provider also need its API keys, such as
+   ``APCA_API_KEY_ID`` and ``APCA_API_SECRET_KEY`` for Alpaca.
 
 To add or upgrade a dependency, run ``pdm add <package>`` or
 ``pdm update <package>``, and commit both ``pyproject.toml`` and ``pdm.lock``.

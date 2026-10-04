@@ -108,7 +108,7 @@ The version you are running might have more options than what is shown below:
     :alt: *backtester* usage
 
 
-If you had run a `trader` session  (or have used `liu quickstart` wizard) the
+If you had run a `trader` or `backtester` session the
 database should hold at least one batch-id.
 
 To get a list of previous trading sessions, run:
@@ -226,9 +226,8 @@ command-line alternative, it does include a basic analysis
 tool for visualizng day-trading sessions. Select the `analyzer`
 app on the app selector drop-box and enter a batch-id to visualize. 
 
-Id you have used `liu quickstart` before, you should have the
-batch-id "2398380c-5146-4b58-843a-a50c458c8071" available in your
-database. 
+Use the batch-id of a `trader` or `backtester` session, which they print
+when they start.
 
 *backtester* for Swing-Trading
 ------------------------------

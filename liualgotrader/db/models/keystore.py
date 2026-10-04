@@ -9,11 +9,11 @@ KeyStore
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, func, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import (Base, CurrentTimestamp, Timestamp,
+                                          dialect_insert)
 from liualgotrader.db.session import session_scope
 
 
@@ -42,7 +42,7 @@ class KeyStore(Base):
     key: Mapped[str] = mapped_column(primary_key=True)
     value: Mapped[str]
     tstamp: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )
 
     @classmethod
@@ -72,7 +72,7 @@ class KeyStore(Base):
         """
         async with session_scope() as session:
             await session.execute(
-                insert(cls)
+                dialect_insert(session, cls)
                 .values(key=key, value=value)
                 .on_conflict_do_update(
                     index_elements=[cls.key], set_={"value": value}

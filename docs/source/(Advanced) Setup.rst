@@ -4,12 +4,12 @@ Advanced Setup
 ==============
 
 This section describes the steps to
-install and setup `LiuAlgoTrader` for first time use on a pre-existing PostgreSQL database installation. The section is mostly relevant for users that did not go through the `Quickstart` wizard.
+install and setup `LiuAlgoTrader` for first time use, including on a PostgreSQL database server. The section is mostly relevant for users that did not go through the `Quickstart` wizard.
 
 Prerequisite
 ------------
 - Paper, or a funded Live account with `Alpaca Markets`_ ,
-- An Installed and configured PostgreSQL_ database.
+- Optionally, a PostgreSQL_ database server. Without one, LiuAlgoTrader uses a local SQLite database.
 
 .. _Alpaca Markets: https://alpaca.markets/docs/about-us/
 .. _PostgreSQL: https://www.postgresql.org/
@@ -38,41 +38,54 @@ Database Setup
 --------------
 
 LiuAlgoTrader applications persist trade details to a relational database.
-The applications are developed on-top of PostgreSQL_, however the code may be adopted to use any SQL-supported database .
-
-
 The database is mostly used for storing trade details, including stock name, price, quantity,
 indicators and more. This data is valuable when analysing the trading day,
 and improving the algorithmic strategies. For further reading, see Understanding the Data Model.
 
+By default, the database is a SQLite file at `~/.liualgotrader/liu.db`, which
+needs no installation or configuration. PostgreSQL is supported as well, and
+suits a database shared by several machines, or many trading processes writing
+at once, better.
+
 Database Connection
 *******************
 
-The **DSN** environment variable holds the connection string to the database. For example:
+The **DSN** environment variable holds the URL of the database; leave it unset
+for the default SQLite database. For example:
 
 .. code-block:: bash
 
+    export DSN="sqlite:////path/to/liu.db"
     export DSN="postgresql://momentum@localhost/tradedb"
 
-To `learn more`_ on how to select your connection string.
+PostgreSQL needs its database driver, installed as an extra:
 
-.. _learn more: https://www.postgresql.org/docs/9.3/libpq-connect.html#LIBPQ-CONNSTRING
+.. code-block:: bash
 
+    pip install 'liualgotrader[postgres]'
 
-Database Schema script
-**********************
+A `postgresql://` DSN is a libpq `connection URI`_, so it accepts parameters
+such as `sslmode`, and takes any missing part from the `PG*` environment
+variables. Any other DSN is a SQLAlchemy `database URL`_.
 
-The following SQL script creates the required database schema:
+.. _connection URI: https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING-URIS
+.. _database URL: https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls
 
-.. literalinclude:: ../../database/schema.sql
-  :linenos:
+Database Schema
+***************
 
+LiuAlgoTrader creates the missing tables, with their indexes, the first time it
+uses a database, and leaves existing tables as they are. A PostgreSQL database
+and its user must already exist.
 
 **NOTE**:
-When updating from a predecessor version of `LiuAlgoTrader`, it is recommended to re-run the database script.
-the latest schema file can be found in the `database` folder in LiuAlgoTrader distribution.
-The script is backward compatible and executing the scripts will automatically
-migrate the data to the latest version.
+When updating a PostgreSQL database created by a predecessor version of `LiuAlgoTrader`,
+run the scripts in the `database/migrations` folder of the LiuAlgoTrader repository
+that are newer than that version, oldest first:
+
+.. code-block:: bash
+
+    psql "$DSN" -v ON_ERROR_STOP=1 -f database/migrations/<script>.sql
 
 Data Providers
 --------------
