@@ -14,7 +14,6 @@ import uuid
 from datetime import date
 from typing import Dict
 
-import liualgotrader
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import get_event_loop
@@ -50,9 +49,9 @@ def backtest_iteration(
 ):
     """Run one daily US-equities back-test and record it in the session.
 
-    Intended as the target of a separate process. Set config.build_label,
-    record the batch only if the back-test succeeds, log any exception instead
-    of raising it, and print the new batch identifier.
+    Intended as the target of a separate process. Record the batch only if the
+    back-test succeeds, log any exception instead of raising it, and print the
+    new batch identifier.
 
     Parameters
     ----------
@@ -72,7 +71,6 @@ def backtest_iteration(
     )
     uid = str(uuid.uuid4())
 
-    config.build_label = liualgotrader.__version__ if hasattr(liualgotrader, "__version__") else ""  # type: ignore
     try:
         get_event_loop().close()
         loop = asyncio.new_event_loop()

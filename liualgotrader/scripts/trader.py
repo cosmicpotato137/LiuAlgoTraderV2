@@ -20,7 +20,6 @@ import uuid
 from multiprocessing import Queue
 from typing import List
 
-import pygit2
 import toml
 from pytz import timezone
 
@@ -61,15 +60,6 @@ def main_cli():
     """
     config.filename = os.path.basename(__file__)
     mp.set_start_method("spawn")
-
-    try:
-        config.build_label = pygit2.Repository("../").describe(
-            describe_strategy=pygit2.GIT_DESCRIBE_TAGS
-        )
-    except pygit2.GitError:
-        import liualgotrader
-
-        config.build_label = liualgotrader.__version__ if hasattr(liualgotrader, "__version__") else ""  # type: ignore
 
     uid = str(uuid.uuid4())
     motd(filename=config.filename, version=config.build_label, unique_id=uid)

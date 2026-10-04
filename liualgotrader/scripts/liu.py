@@ -32,7 +32,6 @@ import sys
 import time
 import uuid
 
-import pygit2
 import requests
 
 from liualgotrader.common import config
@@ -471,15 +470,6 @@ def main_cli() -> None:
     credit line. Print the usage text for a missing or unknown command.
     """
     config.filename = os.path.basename(__file__)
-
-    try:
-        config.build_label = pygit2.Repository("../").describe(
-            describe_strategy=pygit2.GIT_DESCRIBE_TAGS
-        )
-    except pygit2.GitError:
-        import liualgotrader
-
-        config.build_label = liualgotrader.__version__ if hasattr(liualgotrader, "__version__") else ""  # type: ignore
 
     if len(sys.argv) < 2:
         show_usage()

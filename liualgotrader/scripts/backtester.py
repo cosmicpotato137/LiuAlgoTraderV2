@@ -27,7 +27,6 @@ from typing import List, Optional
 
 import pandas as pd
 import parsedatetime.parsedatetime as pdt
-import pygit2
 import pytz
 import toml
 from requests.exceptions import HTTPError
@@ -123,15 +122,6 @@ def main_cli() -> None:
     and exit. Print the usage text and exit on missing or invalid arguments,
     and exit if the trade plan is not found.
     """
-    try:
-        config.build_label = pygit2.Repository("../").describe(
-            describe_strategy=pygit2.GIT_DESCRIBE_TAGS
-        )
-    except pygit2.GitError:
-        import liualgotrader
-
-        config.build_label = liualgotrader.__version__ if hasattr(liualgotrader, "__version__") else ""  # type: ignore
-
     if len(sys.argv) == 1:
         show_usage()
         sys.exit(0)

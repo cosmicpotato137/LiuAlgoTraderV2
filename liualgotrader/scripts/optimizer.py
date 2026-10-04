@@ -37,7 +37,6 @@ from datetime import date, datetime
 from typing import Dict, List
 
 import parsedatetime.parsedatetime as pdt
-import pygit2
 
 from liualgotrader.backtesting.optimizer import backtest_iteration
 from liualgotrader.common import config
@@ -273,15 +272,6 @@ def main_cli() -> None:
         print(f"Error parsing options:{e}\n")
         show_usage()
         sys.exit(0)
-    try:
-        config.build_label = pygit2.Repository("../").describe(
-            describe_strategy=pygit2.GIT_DESCRIBE_TAGS
-        )
-    except pygit2.GitError:
-        import liualgotrader
-
-        config.build_label = liualgotrader.__version__ if hasattr(liualgotrader, "__version__") else ""  # type: ignore
-
     config.filename = os.path.basename(__file__)
     motd(filename=config.filename, version=config.build_label)
     tlog(f"using concurrency {concurrency}")
