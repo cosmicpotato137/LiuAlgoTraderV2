@@ -11,18 +11,16 @@ check_auth
     Return a wrapper that requires an authenticated Finnhub client.
 """
 
-import io
 from datetime import date, datetime, timedelta
+from importlib.resources import files
 from typing import Dict, List, Optional
 
 import pandas as pd
 import pytz
-import requests
 from finnhub import Client
 
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
-from liualgotrader.vendors.finnhub import static
 from liualgotrader.vendors.finnhub.config import FinnhubConfig
 
 NY = "America/New_York"
@@ -39,6 +37,7 @@ def check_auth(f):
     f
         The method to wrap.
     """
+
     def wrapper(*args):
         """Return the result of the wrapped method.
 
@@ -97,7 +96,7 @@ class FinnhubData(DataAPI):
     """
 
     def __init__(self, config: FinnhubConfig):
-        """Initialize the Finnhub client and download the stock exchange list.
+        """Initialize the Finnhub client and load the stock exchange list.
 
         Parameters
         ----------
@@ -113,10 +112,12 @@ class FinnhubData(DataAPI):
         if not self.finnhub_rest_client:
             raise AssertionError("Failed to authenticate Finnhub  client")
 
-        s = requests.get(static.finnhub_exchanges_url).content
-        self.stock_exchanges: pd.DataFrame = pd.read_csv(
-            io.StringIO(s.decode("utf-8"))
-        )
+        with (
+            files("liualgotrader")
+            .joinpath("res", "finnhub_exchanges.csv")
+            .open() as f
+        ):
+            self.stock_exchanges: pd.DataFrame = pd.read_csv(f)
 
     @check_auth
     def get_symbols(
@@ -186,9 +187,7 @@ class FinnhubData(DataAPI):
         t: Optional[str] = (
             "1"
             if scale == TimeScale.minute
-            else "D"
-            if scale == TimeScale.day
-            else None
+            else "D" if scale == TimeScale.day else None
         )
 
         if not t:
