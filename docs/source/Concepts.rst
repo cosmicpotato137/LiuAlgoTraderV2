@@ -240,12 +240,14 @@ Those are helper functions for strategy developers:
 db
 **
 Data abstraction layer implementing the persistence and loading of the data model.
-Each model in `db/models` is a SQLAlchemy ORM class that maps one table of
-`database/schema.sql` and carries the queries for that table; `db/models/base.py`
-holds their declarative base. `db/session.py` holds the database sessions; call
-`create_db_connection()` from `liualgotrader.db.session` to connect to a DSN other
-than the configured one. Existing databases are upgraded with the scripts in
-`database/migrations`.
+Each model in `db/models` is a SQLAlchemy ORM class that maps one table and
+carries the queries for that table; together the models define the schema, which
+works on SQLite and PostgreSQL. `db/models/base.py` holds their declarative
+base and the column types and SQL that differ between the databases.
+`db/session.py` holds the database sessions, and creates the missing tables on
+first use; call `create_db_connection()` from `liualgotrader.db.session` to
+connect to a DSN other than the configured one. PostgreSQL databases created by
+earlier versions are upgraded with the scripts in `database/migrations`.
 
 Data Model
 ----------

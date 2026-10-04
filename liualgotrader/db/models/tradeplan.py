@@ -12,11 +12,11 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import DateTime, ForeignKey, func, literal, select
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import ForeignKey, Uuid, literal, select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import (Base, CurrentTimestamp, JsonDict,
+                                          RandomUuid, Timestamp)
 from liualgotrader.db.session import session_scope
 
 
@@ -40,7 +40,7 @@ class TradePlan(Base):
     create_tstamp: Optional[datetime]
         The creation time, set by the database when the entry is saved.
     modify_tstamp: Optional[datetime]
-        The time of the last update, set by the database.
+        The time of the last update through the ORM, or None.
     expire_tstamp: Optional[datetime]
         The time the entry expired, or None.
 
@@ -55,24 +55,25 @@ class TradePlan(Base):
     __tablename__ = "trade_plan"
 
     trade_plan_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid(),
         primary_key=True,
-        server_default=func.uuid_generate_v4(),
+        default=uuid.uuid4,
+        server_default=RandomUuid(),
     )
     portfolio_id: Mapped[str] = mapped_column(
         ForeignKey("portfolio.portfolio_id")
     )
     start_date: Mapped[date]
     strategy_name: Mapped[str]
-    parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
     create_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )
     modify_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
+        Timestamp(timezone=True), onupdate=CurrentTimestamp()
     )
     expire_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
+        Timestamp(timezone=True)
     )
 
     def __str__(self):
@@ -98,7 +99,7 @@ class TradePlan(Base):
         # it in its session time zone rather than the client's local one.
         return await cls._load_active(
             cls.create_tstamp
-            > literal(since, DateTime(timezone=since.tzinfo is not None))
+            > literal(since, Timestamp(timezone=since.tzinfo is not None))
         )
 
     @classmethod
@@ -107,7 +108,7 @@ class TradePlan(Base):
             entries = await session.scalars(
                 select(cls).where(
                     cls.expire_tstamp.is_(None),
-                    cls.start_date <= func.now(),
+                    cls.start_date <= CurrentTimestamp(),
                     *criteria,
                 )
             )
@@ -135,12 +136,12 @@ class TradePlanExecutionAudit(Base):
 
     execution_id: Mapped[int] = mapped_column(primary_key=True)
     trade_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("trade_plan.trade_plan_id")
+        Uuid(), ForeignKey("trade_plan.trade_plan_id")
     )
-    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
     started_on: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )
     ended_on: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )

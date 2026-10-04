@@ -1,9 +1,9 @@
 ## Structural changes
 
 - [ ] Restructure classes to follow the pattern: Filters, Indicators, Signals, Rules. These classes are composed as part of a Strategy
-- [ ] Update the docker compose: create a docker folder to hold configs for local development
 - [ ] Update database schema - not sure what's going on there
 - [ ] Is it a vulnerability to accept num_consumers blindly from config without checking the cpu capacity? (liualgotrader/scripts/trader.py)
+- [x] Update to use SQLite with optional postgres and MySQL
 - [x] Add docstrings
 - [x] Update python and package versions
 - [x] Get readthedocs working

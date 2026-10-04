@@ -39,9 +39,8 @@ trading using the Alpaca Markets APIs.
 
 Prerequisites
 *************
-1. Installed & configured `PostgreSQL` instance, hosting a database with LiuAlgoTrader schema,
-2. Ensuring environment variables are properly set including Alpaca Market API credentials, and the database DSN,
-3. An existing *tradeplan.toml* at the folder where the trader application is executed. For more details on how to setup the trade plan configuration file, see  `How to Configure` section.
+1. Ensuring environment variables are properly set including Alpaca Market API credentials, and the database DSN when not using the default SQLite database,
+2. An existing *tradeplan.toml* at the folder where the trader application is executed. For more details on how to setup the trade plan configuration file, see  `How to Configure` section.
 
 Trading session
 ***************

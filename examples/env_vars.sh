@@ -31,6 +31,10 @@ export NUM_CONSUMERS=4
 # Where to look for tradeplan.toml
 export TRADEPLAN_DIR=.
 
+# Database URL, e.g. postgresql://user:password@localhost/liu; leave unset
+# for the SQLite database at ~/.liualgotrader/liu.db
+# export DSN=""
+
 # Enable tracing, using OpenTelemetry, enabled = 1, disabled = 0 (DEFAULT)
 export LIU_TRACE_ENABLED=0
 

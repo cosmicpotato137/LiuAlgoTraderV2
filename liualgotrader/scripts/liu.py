@@ -12,9 +12,9 @@ show_version
 show_usage
     Print the version banner and the command-line usage of liu.
 setup_db
-    Download the database files and start a PostgreSQL container.
+    Create the database tables that are missing.
 setup_samples
-    Download the samples and write an environment script.
+    Download the quickstart samples.
 quickstart
     Guide the user interactively through the initial setup.
 create_account
@@ -29,7 +29,6 @@ import getopt
 import os
 import pathlib
 import sys
-import time
 import uuid
 
 import requests
@@ -39,7 +38,8 @@ from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.log import configure_logging
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.portfolio import Portfolio
-from liualgotrader.db.session import create_db_connection
+from liualgotrader.db.session import (create_db_connection, create_schema,
+                                      database_url)
 
 
 def show_version():
@@ -62,117 +62,44 @@ def show_usage():
     print()
 
 
-def setup_db(
-    db_location: str,
-    db_name: str,
-    user_name: str,
-    password: str,
-    restore_sample_db: bool,
-):
-    """Download the database files and start a PostgreSQL container.
+def _database_location() -> str:
+    url = database_url(config.dsn)
+    if url.get_backend_name() == "sqlite":
+        return url.database or "an in-memory SQLite database"
+    return url.render_as_string(hide_password=True)
 
-    Start the database with docker-compose. Exit the process if a download
-    fails.
 
-    Parameters
-    ----------
-    db_location: str
-        The directory for the database files, created if missing.
-    db_name: str
-        The database name.
-    user_name: str
-        The database user name.
-    password: str
-        The database password.
-    restore_sample_db: bool
-        Whether to download and restore the sample database.
+def setup_db() -> None:
+    """Create the database tables that are missing.
+
+    Exit the process if the database cannot be reached.
     """
+    print()
+    print("+---------------------+")
+    print("| setting up database |")
+    print("+---------------------+")
+    print()
     try:
-        print()
-        print("+---------------------+")
-        print("| setting up database |")
-        print("+---------------------+")
-        print()
-
-        p = pathlib.Path(db_location)
-        if not p.exists():
-            p.mkdir()
-        if db_location[-1] != "/":
-            db_location += "/"
-
-        print("downloading files..")
-        if os.name == "nt":
-            r = requests.get(
-                "https://raw.github.com/amor71/LiuAlgoTrader/master/database/docker-compose-windows.yml"
-            )
-        else:
-            r = requests.get(
-                "https://raw.github.com/amor71/LiuAlgoTrader/master/database/docker-compose.yml"
-            )
-        resolved = (
-            r.text.replace("{db_name}", db_name)
-            .replace("{user_name}", user_name)
-            .replace("{password}", password)
-        )
-
-        with open(f"{db_location}docker-compose.yml", "w") as f:
-            f.write(resolved)
-            f.write("\n")
-
-        base_url = (
-            "https://raw.github.com/amor71/LiuAlgoTrader/master/database/"
-        )
-        files = ["schema.sql", "postgres.conf"]
-        if restore_sample_db:
-            files.append("liu_dump.sql")
-
-        for file in files:
-            r = requests.get(f"{base_url}{file}")
-            with open(f"{db_location}{file}", "w", encoding="utf-8") as f:
-                f.write(r.text)
-                f.write("")
+        get_event_loop().run_until_complete(create_schema())
     except Exception as e:
         print(f"Something went wrong:{e}")
         print(
-            "Pls open a new issue w/ details 'https://github.com/amor71/LiuAlgoTrader/issues/new'"
+            "Check the DSN environment variable, or unset it to use the default SQLite database."
         )
         exit(0)
 
-    print("files loaded successfully.")
-    print(f"running docker-compose from within {db_location}:")
-    to_run = f"cd {db_location} && docker-compose up -d"
-    print("> ", to_run)
-    os.system(to_run)
-
-    if restore_sample_db:
-        print("waiting for database to complete setup. 2 minutes")
-        time.sleep(120)
-        print("restoring sample database")
-        to_run = f"cd {db_location} && docker exec -i pg-docker psql -q -U liu -W liu liu < liu_dump.sql"
-        print("> ", to_run)
-        os.system(to_run)
-    print()
-    print("check deployment using `\\psql -h localhost -p 5400 -U liu`")
+    print(f"database ready at {_database_location()}")
 
 
-def setup_samples(
-    samples_location: str, user: str, passwd: str, db: str
-) -> None:
-    """Download the quickstart samples and write an environment script.
+def setup_samples(samples_location: str) -> None:
+    """Download the quickstart samples.
 
-    The script sets DSN for the local database. Exit the process if any step
-    fails.
+    Exit the process if any download fails.
 
     Parameters
     ----------
     samples_location: str
         The directory for the samples, created if missing.
-    user: str
-        The database user name.
-    passwd: str
-        The database password.
-    db: str
-        The database name.
     """
     try:
         print()
@@ -200,20 +127,6 @@ def setup_samples(
                 f.write(r.text)
                 f.write("")
 
-        print()
-        print("creating environment variables script")
-
-        if os.name == "nt":
-            with open(f"{samples_location}env_vars.bat", "w") as f:
-                f.write(
-                    f"set DSN=postgresql://{user}:{passwd}@localhost:5400/{db}\n"
-                )
-        else:
-            with open(f"{samples_location}env_vars.sh", "w") as f:
-                f.write(
-                    f"export DSN=postgresql://{user}:{passwd}@localhost:5400/{db}\n"
-                )
-
     except Exception as e:
         print(f"Something went wrong:{e}")
         print(
@@ -225,10 +138,10 @@ def setup_samples(
 def quickstart():
     """Guide the user interactively through the initial framework setup.
 
-    Set up the database and download the samples as the user selects. Exit the
+    Create the database and download the samples as the user selects. Exit the
     process if the Alpaca API key and secret are not configured.
     """
-    print(f"Welcome to Lig Algo Trading Framework v{config.build_label}!")
+    print(f"Welcome to Liu Algo Trading Framework v{config.build_label}!")
     print()
     print("This wizard will guide you through the setup process.")
     print()
@@ -270,81 +183,21 @@ def quickstart():
         sys.exit(0)
 
     print()
-    print("+----------------------------------+")
-    print("| Step #2 - Database configuration |")
-    print("+----------------------------------+")
+    print("+--------------------+")
+    print("| Step #2 - Database |")
+    print("+--------------------+")
     print()
-    print("Do you already have a PostgreSQL instance configured [N]/y:")
-    i = input()
-    already_have_db = len(i) > 0 and (
-        i == "y" or i == "Y" or i.lower() == "yes"
+    print(
+        "Liu Algo Trading Framework keeps track of your trading in a database:"
     )
-
-    if already_have_db:
-        print(
-            "Follow the instructions at 'https://liualgotrader-v2.readthedocs.io/en/latest/(Advanced)%20Setup.html#database-setup' to complete your database setup."
-        )
-        restore_sample_db = False
-    else:
-        pwd = pathlib.Path().absolute()
-        print(
-            "Liu Algo Trading Framework uses `docker-compose` to run a local database."
-        )
-        print(
-            "The installation will download the docker-compose.yml, database schema"
-        )
-        print(
-            "and prepare the database for first time usage. You can stop and re-run"
-        )
-        print(
-            "the database using `docker-compose up -d ` and `docker-compose down`"
-        )
-        print(
-            "respectively. Your data will not be deleted. For more details RTFM."
-        )
+    print(_database_location())
+    if not config.dsn:
         print()
-        print(f"Select location for database files [{pwd}/liu_data/]:")
-        db_location = input()
-        db_location = (
-            f"{pwd}/liu_data/" if not len(db_location) else db_location
-        )
-
-        print()
-        print("** IMPORTANT NOTE**")
         print(
-            "The installation wizard, aside from installing PostgreSQL in a docker"
+            "This is a local SQLite file, so there is nothing to install. To use a"
         )
-        print(
-            "may also download a sample database, with existing data to help you"
-        )
-        print("take your first steps with Liu Algo Trading Framework.")
-        print(
-            "However, in order to restore the sample data, you need to select"
-        )
-        print(
-            "the default username ('liu') password ('liu)', and database name ('liu')."
-        )
-        print(
-            "after you try out the sample, you can delete data and re-run this"
-        )
-        print("wizard to install a fresh copy of the database.")
-        print()
-        print("Would you like to download the sample database? [Y]/n")
-        i = input()
-        restore_sample_db = len(i) == 0 or (
-            i == "y" or i == "Y" or i.lower() == "yes"
-        )
-        print(
-            "Select the database name for keeping track of your trading [liu]:"
-        )
-        db_name = input()
-        db_name = "liu" if not len(db_name) else db_name
-        print("Select the database user-name [liu]:")
-        user_name = input()
-        user_name = "liu" if not len(user_name) else user_name
-        print("Select the database password [liu]:")
-        password = input()
-        password = "liu" if not len(password) else password
+        print("PostgreSQL database instead, set the DSN environment variable,")
+        print("e.g. `export DSN=postgresql://user:password@host/db`.")
 
     print()
     print("+--------------------+")
@@ -369,10 +222,9 @@ def quickstart():
     print("Ready to go?? Press [ENTER] to start the installation..")
     input()
 
-    if not already_have_db:
-        setup_db(db_location, db_name, user_name, password, restore_sample_db)
+    setup_db()
     if samples:
-        setup_samples(sample_location, user_name, password, db_name)
+        setup_samples(sample_location)
     print("setup completed successfully.")
     print()
     print()
@@ -387,15 +239,6 @@ def quickstart():
     print(
         "The full documentation is available here: `https://liualgotrader.rtfd.io`."
     )
-    if restore_sample_db:
-        print()
-        print(
-            "The restored database includes data for the first week and half of Oct 2020."
-        )
-        print(
-            "You may now run a back-testing sessions for these days, as well as "
-        )
-        print("analyze an existing trading session.")
     print()
 
     if sample_location:
@@ -403,18 +246,15 @@ def quickstart():
         print(
             f"1. change your working directory to the sample directory {sample_location} ('cd {sample_location}'),"
         )
-        if os.name == "nt":
-            print("2. run the env-vars script ('env_vars.bat'),")
-        else:
-            print("2. run the env-vars script ('source env_vars.sh'),")
+        print(
+            "2. back-test the sample strategies on a past day ('backtester from <YYYY-MM-DD>'),"
+        )
         print(
             "3.`streamlit run https://raw.github.com/amor71/LiuAlgoTrader/master/analysis/backtester_ui.py`"
         )
-        if restore_sample_db:
-            print("4. On the app selection select the 'analyzer` app")
-            print(
-                "5. copy and paste the batch-id '2398380c-5146-4b58-843a-a50c458c8071' and press <enter>"
-            )
+        print(
+            "4. select the 'analyzer' app, and paste the batch-id that the backtester printed."
+        )
 
     print()
     print("Thank you for choosing Liu Algo Trading Framework. ")

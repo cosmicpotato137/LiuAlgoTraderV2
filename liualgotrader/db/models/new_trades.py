@@ -12,12 +12,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import ForeignKey, Numeric, func, select, update
-from sqlalchemy.dialects.postgresql import ENUM, JSONB
+from sqlalchemy import Enum, ForeignKey, Numeric, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
 from liualgotrader.db.models.algo_run import AlgoRun
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import Base, CurrentTimestamp, JsonDict
 from liualgotrader.db.session import session_scope
 
 logger = logging.getLogger(__name__)
@@ -79,25 +78,25 @@ class NewTrade(Base):
 
     trade_id: Mapped[int] = mapped_column(primary_key=True)
     algo_run_id: Mapped[int] = mapped_column(
-        ForeignKey("algo_run.algo_run_id")
+        ForeignKey("algo_run.algo_run_id"), index=True
     )
-    symbol: Mapped[str]
+    symbol: Mapped[str] = mapped_column(index=True)
     operation: Mapped[str] = mapped_column(
-        ENUM(
+        Enum(
             "buy",
             "sell",
             "sell_short",
             "buy_short",
             name="trade_operation",
-            create_type=False,
+            create_constraint=True,
         )
     )
     qty: Mapped[Decimal] = mapped_column(Numeric(24, 10))
     price: Mapped[Decimal] = mapped_column(Numeric(8, 2))
-    indicators: Mapped[Dict[str, Any]] = mapped_column(JSONB)
+    indicators: Mapped[Dict[str, Any]] = mapped_column(JsonDict)
     client_time: Mapped[Optional[str]]
     tstamp: Mapped[Optional[datetime]] = mapped_column(
-        server_default=func.current_timestamp()
+        server_default=CurrentTimestamp(), index=True
     )
     stop_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
     target_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
@@ -155,7 +154,7 @@ class NewTrade(Base):
             await session.execute(
                 update(cls)
                 .where(cls.trade_id == trade_id)
-                .values(expire_tstamp=func.now())
+                .values(expire_tstamp=CurrentTimestamp())
             )
 
     @classmethod

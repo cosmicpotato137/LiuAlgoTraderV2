@@ -14,24 +14,14 @@ Yes. While `LiuAlgoTrader` is developed & tested on macOS and Linux (Debian), Li
  
 **Database Prerequisites**
  
-LiuAlgoTrader uses PostgreSQL as a database. Liu installation wizard installs and configures a local PostgreSQL
-using docker-compose. Postgres official docker image is based on Linux, and to run it on Windows machines,
-you need to make sure you can run Linux images on your Windows.
- 
-You will need to search online to allow Linux containers on your Windows machine; there are ample 
-resources online. Note that depending on your Windows distribution, your hardware may be required to support Hyper-V.
- 
-To sum up, before installing Liu on your Windows, you need to make sure:
- 
-1. Docker engine is installed and configured,
-2. Docker compose installed and configured,
-3. Your environment supports Linux containers
+LiuAlgoTrader keeps its data in a SQLite database by default, which works on Windows as is,
+so there is nothing to install.
  
 **Trading Setup**
  
 It is OK to use Windows to develop strategies, but it is recommended to use Linux once you're ready to
 move past back-testing. It is also recommended for the `production` environment to use a
-dedicated PostgreSQL setup (local, hosted, or managed) vs. running in the Dockerized background.
+dedicated PostgreSQL server (local, hosted, or managed) rather than the default SQLite database.
  
 **Running Liu applications**
  
@@ -51,8 +41,7 @@ create a dedicated `virtual environment` for Liu:
 
 Good Luck!
 
-**Windows Note:** When quickstart says to run "env_vars.bat", the set command only works in standard windows terminal, manually set the DSN in your shell by
-using the appropriate command for your shell.
+**Windows Note:** The command that sets an environment variable, such as DSN, depends on your shell.
 
 **Example:**
 
@@ -76,27 +65,7 @@ I would like to install `liu` on Ubuntu. Can you please list the steps I need to
 Answer
 ******
 
-**STEP 1** : Install docker engine (Skip if already installed and running)
-
-Follow the instructions for Docker_ installation. Then
-
-.. _Docker: https://docs.docker.com/engine/install/ubuntu/
-
-
-.. code-block:: bash
-
-    $ sudo usermod -aG docker $USER
-
-After successful completion of the above steps, you should logout and login.
-
-**STEP 2**: Install docker-compose (Skip if already installed and working)
-
-.. code-block:: bash
-
-    $ sudo curl -L "https://github.com/docker/compose/releases/download/1.28.4/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    $ sudo chmod +x /usr/local/bin/docker-compose
-
-**STEP 3**: Install Python 3.12 or later and basic tools
+**STEP 1**: Install Python 3.12 or later and basic tools
 
 Ubuntu 24.04 and later include a supported Python:
 
@@ -106,7 +75,7 @@ Ubuntu 24.04 and later include a supported Python:
     $ sudo apt install python3 python3-pip python3-venv
 
 On older releases, install a newer Python from the deadsnakes PPA, and use
-`python3.14` instead of `python3` in STEP 4:
+`python3.14` instead of `python3` in STEP 2:
 
 .. code-block:: bash
 
@@ -114,7 +83,7 @@ On older releases, install a newer Python from the deadsnakes PPA, and use
     $ sudo apt update
     $ sudo apt install python3.14 python3.14-venv
 
-**STEP 4**: Install LiuAlgoTrader 
+**STEP 2**: Install LiuAlgoTrader 
 
 .. code-block:: bash
 
@@ -124,7 +93,7 @@ On older releases, install a newer Python from the deadsnakes PPA, and use
     (liu) $ pip install liualgotrader
 
 
-**STEP 5**: Run installation wizard
+**STEP 3**: Run installation wizard
 
     *make sre you have environment keys properly selected*
 

@@ -14,7 +14,7 @@ git clone https://github.com/amor71/LiuAlgoTrader.git
 cd LiuAlgoTrader
 pdm install -G dev             # create .venv with the locked dependencies and dev tools
 pdm run pre-commit install     # run mypy, bandit, black, isort and autoflake on each commit
-pdm run liu quickstart         # optional: local PostgreSQL in Docker plus environment variables
+pdm run liu quickstart         # optional: check credentials, create the database, download samples
 ```
 
 See [How to setup a development environment](https://liualgotrader-v2.readthedocs.io/en/latest/How%20to%20Contribute.html#how-to-setup-a-development-environment)

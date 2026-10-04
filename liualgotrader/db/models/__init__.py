@@ -1,8 +1,9 @@
 """Database models for runs, trades, portfolios and accounts.
 
-Each model class maps one table of database/schema.sql through the SQLAlchemy
-ORM and carries the queries for that table. Every model is available from
-this package.
+Each model class maps one database table through the SQLAlchemy ORM and
+carries the queries for that table. Together the models define the schema,
+which liualgotrader.db.session creates on first use. Every model is available
+from this package.
 
 Modules
 -------
@@ -11,7 +12,7 @@ accounts
 algo_run
     Persist and load strategy runs and their batches.
 base
-    Declarative base class shared by the models.
+    Declarative base, column types and SQL helpers shared by the models.
 gain_loss
     Persist and load the gain and trade analyses of strategy runs.
 keystore

@@ -9,10 +9,10 @@ TrendingTicker
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from sqlalchemy import DateTime, func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import Base, CurrentTimestamp, Timestamp
 from liualgotrader.db.session import session_scope
 
 
@@ -43,12 +43,14 @@ class TrendingTicker(Base):
     __tablename__ = "trending_tickers"
 
     trending_id: Mapped[int] = mapped_column(primary_key=True)
-    batch_id: Mapped[str]
+    batch_id: Mapped[str] = mapped_column(index=True)
     symbol: Mapped[str]
     create_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp(), index=True
     )
-    scanner_name: Mapped[str] = mapped_column(server_default="momentum")
+    scanner_name: Mapped[str] = mapped_column(
+        server_default="momentum", index=True
+    )
 
     @classmethod
     async def save_symbols(cls, batch_id: str, symbols: List[str]) -> None:

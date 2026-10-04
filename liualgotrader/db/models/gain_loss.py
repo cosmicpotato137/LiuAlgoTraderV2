@@ -14,12 +14,11 @@ from decimal import Decimal
 from typing import Optional
 
 from pandas import DataFrame
-from sqlalchemy import (DateTime, ForeignKey, Numeric, UniqueConstraint, func,
-                        select)
+from sqlalchemy import ForeignKey, Numeric, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from liualgotrader.db.models.algo_run import AlgoRun
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import Base, CurrentTimestamp, Timestamp
 from liualgotrader.db.session import fetch_as_dataframe, session_scope
 
 logger = logging.getLogger(__name__)
@@ -62,7 +61,7 @@ class GainLoss(Base):
     gain_percentage: Mapped[Decimal] = mapped_column(Numeric(5, 2))
     gain_value: Mapped[Decimal] = mapped_column(Numeric(8, 2))
     tstamp: Mapped[Optional[datetime]] = mapped_column(
-        server_default=func.current_timestamp()
+        server_default=CurrentTimestamp()
     )
 
     @classmethod
@@ -164,13 +163,13 @@ class TradeAnalysis(Base):
     algo_run_id: Mapped[int] = mapped_column(
         ForeignKey("algo_run.algo_run_id")
     )
-    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    start_time: Mapped[datetime] = mapped_column(Timestamp(timezone=True))
+    end_time: Mapped[datetime] = mapped_column(Timestamp(timezone=True))
     gain_percentage: Mapped[Decimal] = mapped_column(Numeric(5, 2))
     gain_value: Mapped[Decimal] = mapped_column(Numeric(8, 2))
     r_units: Mapped[Optional[Decimal]] = mapped_column(Numeric(4, 2))
     tstamp: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )
 
     @classmethod

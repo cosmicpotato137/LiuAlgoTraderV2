@@ -6,18 +6,9 @@ Prerequisite
 
 1. Python 3.12 or later,
 
-2. Paper, or a funded account with Alpaca_ Markets, 
+2. Paper, or a funded account with Alpaca_ Markets.
 
 .. _Alpaca: https://alpaca.markets/docs/about-us
-
-
-3. Installed Docker Engine_ and,
-
-.. _Engine: https://docs.docker.com/engine/install
-
-4. Docker Compose_
-
-.. _Compose: https://docs.docker.com/compose/install/
 
 
 Touch & Go
@@ -43,9 +34,8 @@ Having issues on installation? Check out the installation FAQ_
 
    liu quickstart
 
-Follow the installation wizard instructions. The wizard will walk you
-through the configuration of environment variables, setup of a locally
-dockerized PostgreSQL that is pre-populated with test data:
+Follow the installation wizard instructions. The wizard checks your Alpaca
+credentials, creates the database and downloads the samples:
 
 .. image:: /images/liu-wizard.png
     :width: 800
@@ -56,9 +46,14 @@ dockerized PostgreSQL that is pre-populated with test data:
 First time use
 --------------
 
-LiuAlgoTrader `quickstart` wizard installs samples allowing a first-time experience of the framework. Follow the post-installation instructions, and try to back-test a specific day.
+LiuAlgoTrader `quickstart` wizard installs samples allowing a first-time experience of the framework. Follow the post-installation instructions, and try to back-test a specific day
+from within the samples directory:
 
-if you follow the installation till the end, the wizard will walk you through how to run the back-test UI:
+.. code-block:: bash
+
+    backtester from 2026-09-01
+
+The backtester prints the batch-id of the session. Then run the back-test UI:
 
 .. code-block:: bash
 
@@ -72,18 +67,27 @@ Once executed, your screen should look like this:
     :alt: liu first time use
 
 
-Select the `Analyzer` app on the upper-right drop-down and enter
-'2398380c-5146-4b58-843a-a50c458c8071' as a pre-loaded batch-id.
+Select the `Analyzer` app on the upper-right drop-down and enter the batch-id
+of your back-test.
 
 `Voila!`
 ^^^^^^^^
-You should see a pre-loaded session from your local database.
+You should see your back-test session, loaded from your local database.
 You're all set now.
 
 **NOTE**
 
-Unlike back-testing a specific trading session, back-testing a whole day
-requires downloading data from Polygon.io into your local database. This is done once, per date, and may take minutes to an hour depending on your connection type.
+Back-testing a whole day requires downloading market data for that day, which
+may take minutes to an hour depending on your connection type.
+
+The Database
+------------
+
+LiuAlgoTrader keeps track of your trading in a SQLite database at
+`~/.liualgotrader/liu.db`, and creates its tables on first use. See
+`Database Setup`_ for using a PostgreSQL server instead.
+
+.. _Database Setup: https://liualgotrader-v2.readthedocs.io/en/latest/(Advanced)%20Setup.html#database-setup
 
 What's Next?
 ------------

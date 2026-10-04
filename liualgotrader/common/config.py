@@ -117,7 +117,12 @@ finnhub = FinnhubConfig(
 
 #
 # Execution details (env variable)
+# Database URL, such as postgresql://user:password@host/db; empty for the
+# SQLite database at default_db_path.
 dsn: str = os.getenv("DSN", "")
+default_db_path: str = os.path.join(
+    os.path.expanduser("~"), ".liualgotrader", "liu.db"
+)
 
 
 # Stop limit to default to

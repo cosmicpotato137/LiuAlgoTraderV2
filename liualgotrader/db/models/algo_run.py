@@ -11,11 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pandas import DataFrame
 from sqlalchemy import ForeignKey, func, select, update
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from liualgotrader.common import config
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import Base, CurrentTimestamp, JsonDict
 from liualgotrader.db.session import session_scope
 
 
@@ -70,13 +69,13 @@ class AlgoRun(Base):
     strategy_name: Mapped[str]
     env: Mapped[str]
     build_number: Mapped[str]
-    parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
     start_time: Mapped[Optional[datetime]] = mapped_column(
-        server_default=func.current_timestamp()
+        server_default=CurrentTimestamp(), index=True
     )
     end_time: Mapped[Optional[datetime]]
     end_reason: Mapped[Optional[str]]
-    batch_id: Mapped[str] = mapped_column(server_default="")
+    batch_id: Mapped[str] = mapped_column(server_default="", index=True)
     ref_algo_run_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("algo_run.algo_run_id")
     )
@@ -116,7 +115,7 @@ class AlgoRun(Base):
             self.end_time = await session.scalar(
                 update(AlgoRun)
                 .where(AlgoRun.algo_run_id == self.algo_run_id)
-                .values(end_time=func.now(), end_reason=end_reason)
+                .values(end_time=CurrentTimestamp(), end_reason=end_reason)
                 .returning(AlgoRun.end_time)
             )
         self.end_reason = end_reason
@@ -167,7 +166,7 @@ class AlgoRun(Base):
         Return a list, newest first, with one entry for each batch, strategy,
         environment and build.
         """
-        start = func.date_trunc("minute", func.min(cls.start_time))
+        start = func.min(cls.start_time)
         async with session_scope() as session:
             rows = await session.execute(
                 select(
@@ -186,7 +185,15 @@ class AlgoRun(Base):
                 .order_by(start.desc())
                 .limit(nax_batches)
             )
-            return [list(map(str, row)) for row in rows]
+            return [
+                [
+                    build,
+                    batch_id,
+                    strategy,
+                    str(start and start.replace(second=0, microsecond=0)),
+                ]
+                for build, batch_id, strategy, start in rows
+            ]
 
     @classmethod
     async def get_batch_list_by_date(

@@ -13,11 +13,12 @@ import logging
 from typing import Any, Dict, Optional
 
 import pandas as pd
-from sqlalchemy import DateTime, ForeignKey, delete, func, select, update
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import (CheckConstraint, ForeignKey, delete, false, select,
+                        update)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import Base
+from liualgotrader.db.models.base import (Base, CurrentTimestamp, JsonDict,
+                                          Timestamp)
 from liualgotrader.db.session import fetch_as_dataframe, session_scope
 
 logger = logging.getLogger(__name__)
@@ -26,8 +27,8 @@ logger = logging.getLogger(__name__)
 class Account(Base):
     """Account with a balance, stored in the accounts table.
 
-    The database adds the amount of every saved AccountTransaction to the
-    balance of its account.
+    add_transaction adds the amount of each transaction to the balance of its
+    account.
 
     Attributes
     ----------
@@ -65,17 +66,20 @@ class Account(Base):
     """
 
     __tablename__ = "accounts"
+    __table_args__ = (
+        CheckConstraint("credit_line > 0 OR NOT allow_negative"),
+    )
 
     account_id: Mapped[int] = mapped_column(primary_key=True)
     balance: Mapped[float] = mapped_column(server_default="0.0")
-    allow_negative: Mapped[bool] = mapped_column(server_default="false")
+    allow_negative: Mapped[bool] = mapped_column(server_default=false())
     credit_line: Mapped[float] = mapped_column(server_default="0.0")
-    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
     create_tstamp: Mapped[Optional[datetime.datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )
     modify_tstamp: Mapped[Optional[datetime.datetime]] = mapped_column(
-        DateTime(timezone=True)
+        Timestamp(timezone=True)
     )
 
     @classmethod
@@ -198,6 +202,14 @@ class Account(Base):
         try:
             async with session_scope() as session:
                 session.add(transaction)
+                await session.execute(
+                    update(cls)
+                    .where(cls.account_id == account_id)
+                    .values(
+                        balance=cls.balance + amount,
+                        modify_tstamp=CurrentTimestamp(),
+                    )
+                )
         except Exception as e:
             logger.error(
                 "add_transaction(%s, %s, %s ) failed with %s current balance=%s",
@@ -318,10 +330,10 @@ class AccountTransaction(Base):
     transaction_id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.account_id"))
     amount: Mapped[float]
-    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
     tstamp: Mapped[Optional[datetime.datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )
     create_tstamp: Mapped[Optional[datetime.datetime]] = mapped_column(
-        DateTime(timezone=True), server_default=func.current_timestamp()
+        Timestamp(timezone=True), server_default=CurrentTimestamp()
     )
