@@ -31,6 +31,7 @@ getitem
 import concurrent.futures
 import logging
 from datetime import date, datetime, timedelta
+from importlib.resources import files
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -46,9 +47,8 @@ logger = logging.getLogger(__name__)
 
 nyc = timezone("America/New_York")
 
-m_and_a_data = pd.read_csv(
-    "https://raw.githubusercontent.com/amor71/LiuAlgoTrader/master/database/market_m_a_data.csv"
-).set_index("date")
+with files("liualgotrader").joinpath("res", "market_m_a_data.csv").open() as f:
+    m_and_a_data = pd.read_csv(f).set_index("date")
 
 
 def _calc_data_to_fetch(s: slice, index: pd.Index) -> List[slice]:
