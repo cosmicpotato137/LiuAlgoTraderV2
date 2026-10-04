@@ -2,8 +2,8 @@
 
 Each model class maps one database table through the SQLAlchemy ORM and
 carries the queries for that table. Together the models define the schema,
-which liualgotrader.db.session creates on first use. Every model is available
-from this package.
+which the migrations in liualgotrader/db/migrations create and upgrade. Every
+model is available from this package.
 
 Modules
 -------

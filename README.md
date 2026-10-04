@@ -66,7 +66,7 @@ pip install 'liualgotrader[postgres]'
 export DSN=postgresql://user:password@host/db
 ```
 
-The database tables are created on first use.
+The database is created on first use, and upgraded on first use after an update.
  
 **Note** for [WINDOWS](https://liualgotrader-v2.readthedocs.io/en/latest/Troubleshooting.html#q-can-i-run-liu-on-windows) users
 ### Try the samples
