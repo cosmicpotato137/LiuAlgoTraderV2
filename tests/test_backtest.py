@@ -10,9 +10,11 @@ from liualgotrader.common.types import AssetType, TimeScale
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.enhanced_backtest import backtest_time_range
 from liualgotrader.scanners.base import Scanner
-from liualgotrader.strategies.base import Strategy
+from liualgotrader.strategy.base import Strategy
 
 logger = logging.getLogger(__name__)
+
+pytestmark = pytest.mark.requires_credentials("alpaca")
 
 
 @pytest.fixture(autouse=True)

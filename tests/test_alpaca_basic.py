@@ -11,6 +11,8 @@ from liualgotrader.vendors.alpaca.data import AlpacaData
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 
 @pytest.mark.devtest
 def test_alpaca_aapl_data_day() -> bool:

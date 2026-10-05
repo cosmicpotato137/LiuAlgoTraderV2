@@ -11,6 +11,8 @@ from liualgotrader.data.factory import data_loader_factory
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 
 def test_alpaca_num_trading_day():
     logger.info("test_alpaca_num_trading_days_positive")

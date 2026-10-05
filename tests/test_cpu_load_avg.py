@@ -1,8 +1,6 @@
 import logging
-import time
 
 import psutil
-import pytest
 
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import calc_num_consumer_processes
@@ -10,23 +8,12 @@ from liualgotrader.common.concurrency import calc_num_consumer_processes
 logger = logging.getLogger(__name__)
 
 
-def test_load_cpu_avg():
-    logger.info("test_load_cpu_avg")
-    cpu_load = psutil.cpu_percent(interval=5)
-    num_cpus = psutil.cpu_count()
-
-    logger.info("cpu_load = %s, num_cpus=%s", cpu_load, num_cpus)
-
-    if cpu_load <= 0 or num_cpus <= 0:
-        raise AssertionError("Unexpected result")
-
-
-def test_fix_num_consumer_processes():
+def test_fix_num_consumer_processes(monkeypatch):
     logger.info("test_fix_num_consumer_processes")
     possible_values = [5, 8, 500]
 
     for num_consumers in possible_values:
-        config.num_consumers = num_consumers
+        monkeypatch.setattr(config, "num_consumers", num_consumers)
         result = calc_num_consumer_processes()
         if result != num_consumers:
             raise AssertionError(
@@ -34,16 +21,30 @@ def test_fix_num_consumer_processes():
             )
 
 
-def test_calc_num_consumer_processes():
+def test_calc_num_consumer_processes(monkeypatch):
     logger.info("test_calc_num_consumer_processes")
+    monkeypatch.setattr(config, "num_consumers", 0)
+    monkeypatch.setattr(psutil, "cpu_count", lambda logical=True: 4)
 
-    for _ in range(20):
-        config.num_consumers = 0
+    # Five processes per idle core, rounded down.
+    for load_pct, expected in [(0.0, 20), (25.0, 15), (75.0, 5)]:
+        monkeypatch.setattr(
+            psutil, "cpu_percent", lambda interval=None: load_pct
+        )
         result = calc_num_consumer_processes()
-        logger.info("calc_num_consumer_processes() -> %s", result)
-        if result <= 0:
+        if result != expected:
             raise AssertionError(
-                f"calc_num_consumer_processes() - {result} unexpected"
+                f"calc_num_consumer_processes() - {result} returned at {load_pct}% load, while expected {expected}"
             )
 
-        time.sleep(10)
+
+def test_calc_num_consumer_processes_unknown_cpus(monkeypatch):
+    logger.info("test_calc_num_consumer_processes_unknown_cpus")
+    monkeypatch.setattr(config, "num_consumers", 0)
+    monkeypatch.setattr(psutil, "cpu_count", lambda logical=True: None)
+
+    result = calc_num_consumer_processes()
+    if result != 1:
+        raise AssertionError(
+            f"calc_num_consumer_processes() - {result} returned, while expected 1"
+        )

@@ -93,6 +93,17 @@ def _crypto_pair(symbol: str) -> str:
     return symbol.upper()
 
 
+def _request_time(value: Optional[str]) -> Optional[datetime]:
+    """Return an ISO 8601 string as a datetime for a data request.
+
+    Parameters
+    ----------
+    value: Optional[str]
+        The time, or None to leave the request bound unset.
+    """
+    return None if value is None else pd.Timestamp(value).to_pydatetime()
+
+
 def _integral(values: pd.Series) -> pd.Series:
     """Return a series as int64 if no value is missing or fractional.
 
@@ -394,7 +405,9 @@ class AlpacaData(DataAPI):
 
         return market_snapshots
 
-    def _localize_start_end(self, start: date, end: date) -> Tuple[str, str]:
+    def _localize_start_end(
+        self, start: date, end: date
+    ) -> Tuple[str, Optional[str]]:
         """Return a date range as ISO 8601 strings in New York time.
 
         Parameters
@@ -402,17 +415,21 @@ class AlpacaData(DataAPI):
         start: date
             The first date, converted to midnight.
         end: date
-            The last date, converted to midnight, or to the current time if it
-            is today or later.
+            The last date, converted to midnight, or to None if it is today or
+            later.
+
+        Returns
+        -------
+        Return the start and the end, where an end of None leaves the end of
+        a request unset, so that Alpaca returns data up to the latest time the
+        subscription permits.
         """
         return (
             nytz.localize(
                 datetime.combine(start, datetime.min.time())
             ).isoformat(),
             (
-                nytz.localize(
-                    datetime.now().replace(microsecond=0)
-                ).isoformat()
+                None
                 if end >= date.today()
                 else nytz.localize(
                     datetime.combine(end, datetime.min.time())
@@ -597,7 +614,7 @@ class AlpacaData(DataAPI):
         self,
         symbol: str,
         start: str,
-        end: str,
+        end: Optional[str],
         timeframe: TimeFrame,
     ) -> pd.DataFrame:
         """Return historical bars for a crypto pair.
@@ -608,8 +625,9 @@ class AlpacaData(DataAPI):
             The crypto pair, with or without a slash.
         start: str
             The start of the range, as an ISO 8601 string.
-        end: str
-            The end of the range, as an ISO 8601 string.
+        end: Optional[str]
+            The end of the range, as an ISO 8601 string, or None for the
+            latest data.
         timeframe: TimeFrame
             A one-day TimeFrame for daily bars, or any other value for minute
             bars.
@@ -633,7 +651,7 @@ class AlpacaData(DataAPI):
                         _DAY if str(timeframe) == str(_DAY) else _MINUTE
                     ),
                     start=pd.Timestamp(start).to_pydatetime(),
-                    end=pd.Timestamp(end).to_pydatetime(),
+                    end=_request_time(end),
                 )
             ),
         ).df
@@ -645,7 +663,11 @@ class AlpacaData(DataAPI):
         return df.sort_index(axis=1)
 
     def _get_stock_bars(
-        self, symbol: str, timeframe: TimeFrame, start: str, end: str
+        self,
+        symbol: str,
+        timeframe: TimeFrame,
+        start: str,
+        end: Optional[str],
     ) -> pd.DataFrame:
         """Return historical bars for an equity symbol.
 
@@ -657,8 +679,9 @@ class AlpacaData(DataAPI):
             The bar resolution.
         start: str
             The start of the range, as an ISO 8601 string.
-        end: str
-            The end of the range, as an ISO 8601 string.
+        end: Optional[str]
+            The end of the range, as an ISO 8601 string, or None for the
+            latest data.
 
         Returns
         -------
@@ -676,8 +699,7 @@ class AlpacaData(DataAPI):
                     symbol_or_symbols=symbol,
                     timeframe=timeframe,
                     start=pd.Timestamp(start).to_pydatetime(),
-                    end=pd.Timestamp(end).to_pydatetime(),
-                    limit=1000000,
+                    end=_request_time(end),
                     adjustment=Adjustment.ALL,
                 )
             ),
@@ -735,7 +757,7 @@ class AlpacaData(DataAPI):
                             _MINUTE if scale == TimeScale.minute else _DAY
                         ),
                         start=pd.Timestamp(_start).to_pydatetime(),
-                        end=pd.Timestamp(_end).to_pydatetime(),
+                        end=_request_time(_end),
                         limit=1000000000,
                         adjustment=Adjustment.ALL,
                     )
@@ -805,7 +827,7 @@ class AlpacaData(DataAPI):
                     symbol,
                     t,
                     _start,
-                    _end,
+                    _end or "now",
                 )
 
             data = (
@@ -823,17 +845,17 @@ class AlpacaData(DataAPI):
                 return self.get_symbol_data(symbol, start, end, scale)
             else:
                 raise ValueError(
-                    f"[EXCEPTION] {e} for {symbol} could not obtain data for {_start} to {_end} w {scale.name}"
+                    f"[EXCEPTION] {e} for {symbol} could not obtain data for {_start} to {_end or 'now'} w {scale.name}"
                 ) from e
 
         except Exception as e:
             raise ValueError(
-                f"[EXCEPTION] {e} for {symbol} has no data for {_start} to {_end} w {scale.name}"
+                f"[EXCEPTION] {e} for {symbol} has no data for {_start} to {_end or 'now'} w {scale.name}"
             ) from e
         else:
             if data.empty:
                 raise ValueError(
-                    f"[ERROR] {symbol} has no data for {_start} to {_end} w {scale.name}"
+                    f"[ERROR] {symbol} has no data for {_start} to {_end or 'now'} w {scale.name}"
                 )
 
         return _to_framework_bars(data)

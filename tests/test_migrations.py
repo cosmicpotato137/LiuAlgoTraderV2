@@ -1,3 +1,5 @@
+"""Tests of the database migrations in liualgotrader/db/migrations."""
+
 import pathlib
 
 import pytest
@@ -17,10 +19,17 @@ from liualgotrader.db.session import (create_db_connection, database_url,
 
 @pytest.fixture(autouse=True)
 async def db_connection():
+    """Connect each test to the test database, as configured by DSN."""
     await create_db_connection()
 
 
 def head_revision() -> str:
+    """Return the identifier of the latest migration.
+
+    Raises
+    ------
+    Raise AssertionError if there are no migrations.
+    """
     migrations = pathlib.Path(liualgotrader.db.__file__).parent / "migrations"
     head = ScriptDirectory(str(migrations)).get_current_head()
     if head is None:
@@ -30,6 +39,10 @@ def head_revision() -> str:
 
 @pytest.mark.asyncio
 async def test_migrations_match_models() -> bool:
+    """Check that the migrations create the schema that the models define.
+
+    Fails when a model changes without a migration for the change.
+    """
     async with session_scope() as session:
         connection = await session.connection()
         differences = await connection.run_sync(
@@ -47,6 +60,12 @@ async def test_migrations_match_models() -> bool:
 
 @pytest.mark.asyncio
 async def test_adopts_database_without_migrations(tmp_path) -> bool:
+    """Check that a database created before migrations gets upgraded.
+
+    The database has every table, created from the models without Alembic,
+    as the previous release did. Using it must record it as up to date and
+    keep it working.
+    """
     dsn = f"sqlite:///{tmp_path}/liu.db"
     engine = create_async_engine(database_url(dsn))
     async with engine.begin() as connection:

@@ -14,7 +14,7 @@ from liualgotrader.common.trading_data import (buy_indicators,
                                                last_used_strategy, open_orders,
                                                sell_indicators, stop_prices,
                                                target_prices)
-from liualgotrader.strategies.base import Strategy, StrategyType
+from liualgotrader.strategy.base import Strategy, StrategyType
 
 logger = logging.getLogger(__name__)
 

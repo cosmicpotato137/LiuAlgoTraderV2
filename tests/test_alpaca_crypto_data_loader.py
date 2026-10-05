@@ -14,6 +14,8 @@ from liualgotrader.vendors.alpaca.streaming import AlpacaStream
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 nyc = timezone("America/New_York")
 
 
@@ -67,6 +69,19 @@ def test_eth_data_loader_minute_offset() -> bool:
     return True
 
 
+def eth_minute_bars(start: pd.Timestamp, end: pd.Timestamp) -> int:
+    # Alpaca has no bar for a minute without trades, so the length a loader
+    # should return depends on the vendor data rather than on the range.
+    return len(
+        AlpacaData(config.alpaca)._crypto_get_symbol_data(
+            symbol="ETH/USD",
+            start=start.isoformat(),
+            end=end.isoformat(),
+            timeframe=TimeFrame.Minute,
+        )
+    )
+
+
 @pytest.mark.devtest
 def test_eth_data_loader_length() -> bool:
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
@@ -75,8 +90,9 @@ def test_eth_data_loader_length() -> bool:
     logger.info("end: %s", end)
     data = dl["ETH/USD"][end + timedelta(minutes=-1500) : end]  # type: ignore
 
-    if len(data) != 1499:
-        raise AssertionError(f"Data length {len(data)} is not 1500")
+    expected = eth_minute_bars(end + timedelta(minutes=-1500), end)
+    if len(data) != expected:
+        raise AssertionError(f"Data length {len(data)} is not {expected}")
 
     logger.info("%s %s", len(data), data)
     return True
@@ -93,8 +109,9 @@ def test_eth_data_loader_length2() -> bool:
 
     data = dl["ETH/USD"][end + timedelta(minutes=-1500) : end]  # type: ignore
 
-    if len(data) != 1499:
-        raise AssertionError(f"Data length {len(data)} is not 1500")
+    expected = eth_minute_bars(end + timedelta(minutes=-1500), end)
+    if len(data) != expected:
+        raise AssertionError(f"Data length {len(data)} is not {expected}")
 
     logger.info("%s %s", len(data), data)
     return True

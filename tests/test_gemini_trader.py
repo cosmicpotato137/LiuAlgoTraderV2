@@ -68,6 +68,7 @@ async def test_market_buy_order():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("gemini")
 async def test_limit_buy_order():
     logger.info("test_limit_buy_order")
     global gemini_trader
@@ -93,6 +94,7 @@ async def test_limit_buy_order():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("gemini")
 async def test_order_negative():
     logger.info("test_order_negative")
     global gemini_trader
@@ -112,6 +114,7 @@ async def test_order_negative():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("gemini")
 async def test_order_completed():
     logger.info("test_order_completed")
     global gemini_trader
@@ -136,6 +139,7 @@ async def test_order_completed():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("gemini")
 async def test_buy_websocket1():
     logger.info("test_order_completed")
     global gemini_trader
@@ -171,6 +175,7 @@ async def test_buy_websocket1():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("gemini")
 async def test_get_position():
     logger.info("test_get_position")
     global gemini_trader

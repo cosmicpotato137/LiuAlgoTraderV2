@@ -229,7 +229,7 @@ class AlgoRun(Base):
                     cls.start_time >= batch_date,
                     cls.start_time < batch_date + timedelta(days=1),
                 )
-                .order_by(cls.start_time.desc())
+                .order_by(cls.start_time.desc(), cls.algo_run_id.desc())
             )
             for row in rows:
                 runs.setdefault(row[0], []).append(list(row[1:]))
@@ -263,6 +263,6 @@ class AlgoRun(Base):
                     cls.parameters,
                 )
                 .where(cls.batch_id == batch_id)
-                .order_by(cls.start_time.desc())
+                .order_by(cls.start_time.desc(), cls.algo_run_id.desc())
             )
             return [tuple(row) for row in rows]  # type: ignore

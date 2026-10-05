@@ -16,7 +16,7 @@ from liualgotrader.common.trading_data import (buy_indicators, buy_time,
                                                sell_indicators, stop_prices,
                                                target_prices)
 from liualgotrader.fincalcs.support_resistance import find_stop
-from liualgotrader.strategies.base import Strategy, StrategyType
+from liualgotrader.strategy.base import Strategy, StrategyType
 
 logger = logging.getLogger(__name__)
 

@@ -86,6 +86,7 @@ async def test_get_trading_holidays():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("alpaca")
 async def test_get_trading_day():
     alpaca = AlpacaTrader(config.alpaca)
     today = date.today()
@@ -150,6 +151,7 @@ async def test_load_sp500_data_w_adjustments():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("alpaca")
 async def test_load_sp500_data():
 
     today = datetime.today()
@@ -183,6 +185,7 @@ async def test_load_sp500_data():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("alpaca")
 async def test_load_sp500_data_minute():
     today = datetime.today()
     sp500_symbols = await sp500_historical_constituents(today)

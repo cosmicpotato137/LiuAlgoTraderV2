@@ -18,6 +18,7 @@ async def db_connection():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("alpaca")
 async def test_returns() -> bool:
     td = await analysis.calc_batch_returns(
         "0664dc2c-f126-4c7f-a069-c5dc246e2df4"

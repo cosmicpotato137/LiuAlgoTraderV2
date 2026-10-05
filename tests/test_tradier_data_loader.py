@@ -19,6 +19,7 @@ def test_create_data_loader_default() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_latest_price() -> bool:
     logger.info("test_apple_stock_latest_price")
 
@@ -48,6 +49,7 @@ def test_apple_stock_latest_price() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_current_price() -> bool:
     logger.info("test_apple_stock_current_price")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
@@ -68,6 +70,7 @@ def test_apple_stock_current_price() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_current_price_range_int_minute() -> bool:
     logger.info("test_apple_stock_current_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
@@ -78,6 +81,7 @@ def test_apple_stock_current_price_range_int_minute() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_current_price_range_int_day() -> bool:
     logger.info("test_apple_stock_current_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
@@ -88,6 +92,7 @@ def test_apple_stock_current_price_range_int_day() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_day_num_data_points() -> bool:
     logger.info("test_day_num_data_points")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
@@ -102,6 +107,7 @@ def test_day_num_data_points() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_day_num_data_points_w_date() -> bool:
     logger.info("test_day_num_data_points")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
@@ -135,6 +141,7 @@ def no_test_apple_stock_daily_price() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_negative_current_price() -> bool:
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     try:
@@ -146,6 +153,7 @@ def test_negative_current_price() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_close_price_range_str_day() -> bool:
     logger.info("test_apple_stock_close_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
@@ -158,6 +166,7 @@ def test_apple_stock_close_price_range_str_day() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_price_range_int_minute() -> bool:
     logger.info("test_apple_stock_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
@@ -168,6 +177,7 @@ def test_apple_stock_price_range_int_minute() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_price_range_int_day() -> bool:
     logger.info("test_apple_stock_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
@@ -178,6 +188,7 @@ def test_apple_stock_price_range_int_day() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_price_range_date_day() -> bool:
     logger.info("test_apple_stock_price_range_date_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
@@ -188,6 +199,7 @@ def test_apple_stock_price_range_date_day() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_price_range_date_int_day() -> bool:
     logger.info("test_apple_stock_price_range_date_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
@@ -198,6 +210,7 @@ def test_apple_stock_price_range_date_int_day() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_price_range_date_min_open() -> bool:
     logger.info("test_apple_stock_price_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
@@ -210,6 +223,7 @@ def test_apple_stock_price_range_date_min_open() -> bool:
 
 
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 def test_apple_stock_price_open_range_date_min_open() -> bool:
     logger.info("test_apple_stock_price_open_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)

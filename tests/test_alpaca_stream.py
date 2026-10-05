@@ -12,6 +12,8 @@ from liualgotrader.vendors.alpaca.streaming import AlpacaStream
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 stop: bool = False
 
 

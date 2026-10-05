@@ -81,9 +81,32 @@ def database_url(dsn: str) -> URL:
 
 
 def _configure_sqlite(engine: AsyncEngine) -> None:
+    """Make a SQLite engine safe for several processes and for savepoints.
+
+    Each new connection enforces foreign keys and switches the database to
+    write-ahead logging, and each transaction starts by taking the write lock
+    of the database.
+
+    Parameters
+    ----------
+    engine: AsyncEngine
+        The engine of a SQLite database.
+    """
+
     @event.listens_for(engine.sync_engine, "connect")
     def on_connect(dbapi_connection, connection_record):
-        # Leave BEGIN to SQLAlchemy, so that savepoints work.
+        """Configure a new connection to the database.
+
+        Parameters
+        ----------
+        dbapi_connection
+            The new connection of the sqlite3 driver.
+        connection_record
+            The record of the connection in the pool, which is not used.
+        """
+        # Stop the sqlite3 driver from starting transactions itself, which it
+        # does only before writes and which breaks savepoints. on_begin
+        # starts them instead.
         dbapi_connection.isolation_level = None
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
@@ -100,13 +123,42 @@ def _configure_sqlite(engine: AsyncEngine) -> None:
 
     @event.listens_for(engine.sync_engine, "begin")
     def on_begin(connection):
-        # Take the write lock up front. Processes then wait for each other, up
-        # to the connection timeout, instead of failing when a transaction
-        # that has read starts to write.
+        """Start a transaction that holds the write lock of the database.
+
+        A process that starts a transaction while another one holds the lock
+        waits for it, up to the connection timeout. With a plain BEGIN, a
+        transaction that reads and then writes fails at once with "database
+        is locked" if another process wrote in between.
+
+        Parameters
+        ----------
+        connection: Connection
+            The connection that starts the transaction.
+        """
         connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 def _connect(dsn: str) -> async_sessionmaker[AsyncSession]:
+    """Create the shared database engine and session factory for a DSN.
+
+    Replace any existing engine, and mark the schema of the new one as not
+    yet upgraded. Create the folder of a SQLite database file if it is
+    missing. Connections are opened only when first used.
+
+    Parameters
+    ----------
+    dsn: str
+        The database DSN, as accepted by database_url.
+
+    Returns
+    -------
+    Return the new session factory.
+
+    Raises
+    ------
+    Raise ValueError if the DSN is not a SQLite or PostgreSQL URL, or
+    ModuleNotFoundError if the PostgreSQL driver is not installed.
+    """
     global _session_factory, _schema_upgraded
 
     url = database_url(dsn)
@@ -172,15 +224,28 @@ async def create_db_connection(dsn: Optional[str] = None) -> None:
 
 
 def _upgrade(connection: Connection) -> None:
-    # Make concurrent processes upgrade the schema one at a time. On SQLite,
-    # BEGIN IMMEDIATE already does.
+    """Upgrade the database schema to the latest migration.
+
+    The upgrade runs in the open transaction of the connection, and is
+    committed or rolled back with it. Processes that upgrade the same database
+    at the same time take turns.
+
+    Parameters
+    ----------
+    connection: Connection
+        A connection with an open transaction.
+    """
+    # On SQLite, the transaction already holds the write lock (see
+    # _configure_sqlite), which makes other processes wait.
     if connection.dialect.name == "postgresql":
         connection.execute(
             text("SELECT pg_advisory_xact_lock(:key)"), {"key": _SCHEMA_LOCK}
         )
     else:
-        # Let a migration copy a table that other tables reference: SQLite
-        # then checks foreign keys when the transaction commits.
+        # SQLite cannot change most columns in place, so a migration may
+        # rebuild a table: copy it, drop the original and rename the copy.
+        # Checking foreign keys only at commit lets rows in other tables keep
+        # referring to the table while the original is gone.
         connection.exec_driver_sql("PRAGMA defer_foreign_keys = ON")
 
     alembic_config = AlembicConfig()

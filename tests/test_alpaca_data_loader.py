@@ -11,6 +11,8 @@ from liualgotrader.common.types import DataConnectorType, TimeScale
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 nyc = timezone("America/New_York")
 
 
