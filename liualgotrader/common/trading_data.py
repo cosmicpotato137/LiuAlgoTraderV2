@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple
 
 from liualgotrader.common.types import Order
 from liualgotrader.db.models.ticker_snapshot import TickerSnapshot
-from liualgotrader.strategies.base import Strategy
+from liualgotrader.strategy.base import Strategy
 
 strategies: List[Strategy] = []
 open_orders: Dict[str, Order] = {}

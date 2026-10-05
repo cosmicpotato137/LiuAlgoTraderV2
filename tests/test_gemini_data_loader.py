@@ -23,7 +23,7 @@ def test_ethusd_stock_daily_price() -> bool:
 
     last_price_time = dl["ETHUSD"].close.index[-1]
     logger.info("%s %s", last_price, last_price_time)
-    before_price = dl["ETHUSD"].close[-10]
+    before_price = dl["ETHUSD"].close[-3]
 
     logger.info("%s", dl["ETHUSD"])
     logger.info(
@@ -80,8 +80,8 @@ def test_stock_close_price_range_str_day() -> bool:
     logger.info("test_stock_close_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.gemini)
     last_price_range = dl["BTCUSD"].close[
-        str(date.today() - timedelta(days=20)) : str(  # type:ignore
-            date.today() - timedelta(days=10)
+        str(date.today() - timedelta(days=4)) : str(  # type:ignore
+            date.today() - timedelta(days=2)
         )  # type:ignore
     ]
     logger.info("%s", last_price_range)
@@ -144,8 +144,8 @@ def test_stock_price_range_date_day() -> bool:
     logger.info("test_stock_price_range_date_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.gemini)
     last_price_range = dl["ETHUSD"][
-        str(date.today() - timedelta(days=20)) : str(  # type:ignore
-            date.today() - timedelta(days=10)  # type:ignore
+        str(date.today() - timedelta(days=4)) : str(  # type:ignore
+            date.today() - timedelta(days=2)  # type:ignore
         )
     ]
     logger.info("%s", last_price_range)
@@ -158,7 +158,7 @@ def test_stock_price_range_date_int_day() -> bool:
     logger.info("test_stock_price_range_date_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.gemini)
     last_price_range = dl["ETHUSD"][
-        str(date.today() - timedelta(days=10)) : -1  # type:ignore
+        str(date.today() - timedelta(days=3)) : -1  # type:ignore
     ]
     logger.info("%s", last_price_range)
 
@@ -183,7 +183,7 @@ def test_stock_price_range_date_int_min_open() -> bool:
     logger.info("test_stock_price_range_date_int_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.gemini)
     last_price_range = dl["BTCUSD"][
-        str(date.today() - timedelta(days=10)) :  # type:ignore
+        str(date.today() - timedelta(days=2)) :  # type:ignore
     ]
     logger.info("%s", last_price_range)
     return True
@@ -194,7 +194,7 @@ def test_stock_price_open_range_date_int_min_open() -> bool:
     logger.info("test_stock_price_close_range_date_int_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.gemini)
     last_price_range = dl["BTCUSD"].open[
-        str(date.today() - timedelta(days=10)) :  # type:ignore
+        str(date.today() - timedelta(days=2)) :  # type:ignore
     ]
     logger.info("%s", last_price_range)
     return True
@@ -242,9 +242,9 @@ def test_stock_price_range_date_min() -> bool:
 def test_stock_price_range_date_min_mixed() -> bool:
     logger.info("test_stock_price_range_date_min_mixed")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.gemini)
-    d1 = date.today() - timedelta(days=20)
+    d1 = date.today() - timedelta(days=4)
     last_price_range = dl["ETHUSD"][
-        d1 : str(date.today() - timedelta(days=10))  # type:ignore
+        d1 : str(date.today() - timedelta(days=2))  # type:ignore
     ].between_time(  # type:ignore
         "9:30", "16:00"  # type:ignore
     )  # type:ignore
@@ -258,7 +258,7 @@ def test_stock_price_range_date_day_mixed() -> bool:
     logger.info("test_stock_price_range_date_day_mixed")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.gemini)
 
-    d1 = date.today() - timedelta(days=20)
+    d1 = date.today() - timedelta(days=3)
     last_price_range = dl["BTCUSD"][
         d1 : date.today()  # type:ignore
     ]
@@ -271,10 +271,10 @@ def test_stock_price_range_date_day_mixed() -> bool:
 def test_stock_price_open_range_date_min_mixed() -> bool:
     logger.info("test_stock_price_range_date_min_mixed")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.gemini)
-    d1 = date.today() - timedelta(days=20)
+    d1 = date.today() - timedelta(days=4)
     last_price_range = (
         dl["ETHUSD"]
-        .open[d1 : str(date.today() - timedelta(days=10))]  # type:ignore
+        .open[d1 : str(date.today() - timedelta(days=2))]  # type:ignore
         .between_time("9:30", "16:00")  # type:ignore
     )
     logger.info("%s", last_price_range)

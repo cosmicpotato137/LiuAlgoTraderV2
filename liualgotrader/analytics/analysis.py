@@ -116,7 +116,7 @@ async def load_trades_for_period(
             NewTrade.expire_tstamp.is_(None),
             AlgoRun.env == env,
         )
-        .order_by(NewTrade.symbol, NewTrade.tstamp)
+        .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
     )
 
 
@@ -214,7 +214,7 @@ async def load_trades(day: date, end_date: date = None) -> pd.DataFrame:
             NewTrade.tstamp < (end_date or day + timedelta(days=1)),
             NewTrade.expire_tstamp.is_(None),
         )
-        .order_by(NewTrade.symbol, NewTrade.tstamp)
+        .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
     )
 
 
@@ -246,7 +246,7 @@ async def load_trades_by_batch_id(batch_id: str) -> pd.DataFrame:
             NewTrade.expire_tstamp.is_(None),
             NewTrade.price != 0.0,
         )
-        .order_by(NewTrade.symbol, NewTrade.tstamp)
+        .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
     )
     try:
         if not df.empty:
@@ -293,7 +293,7 @@ async def load_trades_by_portfolio(portfolio_id: str) -> pd.DataFrame:
             NewTrade.expire_tstamp.is_(None),
         )
         .distinct()
-        .order_by(NewTrade.symbol, NewTrade.tstamp)
+        .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
     )
     try:
         if not df.empty:
@@ -326,7 +326,7 @@ async def load_runs(day: date, end_date: date = None) -> pd.DataFrame:
             AlgoRun.start_time >= day,
             AlgoRun.start_time < (end_date or day + timedelta(days=1)),
         )
-        .order_by(AlgoRun.start_time)
+        .order_by(AlgoRun.start_time, AlgoRun.algo_run_id)
     )
     df.set_index("algo_run_id", inplace=True)
     return df

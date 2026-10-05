@@ -10,6 +10,8 @@ from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 
 @pytest.fixture(autouse=True)
 async def db_connection():

@@ -40,6 +40,17 @@ _RENAMED_COLUMNS = [
 
 
 def _adopt_existing_tables() -> Set[str]:
+    """Bring the tables of a database created before migrations up to date.
+
+    Rename the columns that the former database/schema.sql named
+    differently. On PostgreSQL, also drop its triggers, whose work
+    Account.add_transaction and the ORM now do. A new database has no tables,
+    so nothing changes.
+
+    Returns
+    -------
+    Return the names of the tables that the database already has.
+    """
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     existing = set(inspector.get_table_names())
@@ -70,6 +81,24 @@ def _adopt_existing_tables() -> Set[str]:
 def _create_table(
     existing: Set[str], name: str, *elements, indexes=()
 ) -> None:
+    """Create a table and its indexes, unless the database already has it.
+
+    For a table that exists, replace its indexes with the listed ones: drop
+    every other index, except one that a constraint uses, and create the
+    listed indexes it lacks.
+
+    Parameters
+    ----------
+    existing: Set[str]
+        The names of the tables that the database already has.
+    name: str
+        The table name.
+    *elements
+        The columns and constraints of the table, as op.create_table takes
+        them.
+    indexes, default ()
+        The columns that each have an index, named ix_<table>_<column>.
+    """
     wanted = {f"ix_{name}_{column}": column for column in indexes}
     present: Set[Optional[str]] = set()
     if name in existing:
@@ -89,7 +118,7 @@ def _create_table(
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """Create the schema, or update a database created before migrations."""
     existing = _adopt_existing_tables()
     _create_table(
         existing,
@@ -521,7 +550,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """Drop every table of the schema, and on PostgreSQL its enum types."""
     op.drop_table("trade_plan_execution_audit")
     op.drop_table("trade_plan")
     op.drop_table("portfolio_batch_ids")

@@ -8,6 +8,8 @@ from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 
 @pytest.mark.devtest
 def test_trader_calendar() -> bool:

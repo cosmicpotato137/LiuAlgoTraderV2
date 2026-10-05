@@ -18,7 +18,6 @@
 
 ## Possible bugs
 
-- Infinite loop: in common/market_data.py:146 (sp500_historical_constituents), the loop re-adds removed tickers only if they are already in the set. That re-add does nothing but still marks the pass as having changes, so the while True loop never ends when any removed ticker is present.
 - Tradier always fails: trade/trader_factory.py:26-27 stores the Tradier trader under "TRADIER" but returns traders["TradierTrader"], so every call raises KeyError.
 - Invalid SQL: models/algo_run.py's get_batch_list_by_date puts ORDER BY before WHERE, which Postgres rejects.
 - Broken queries: analytics/analysis.py:94,149 has literal \x1f control characters instead of newlines in the SQL f-strings of load_trades and load_runs, so those queries are likely broken.

@@ -192,7 +192,7 @@ class NewTrade(Base):
                     AlgoRun.strategy_name == strategy_name,
                     cls.symbol == symbol,
                 )
-                .order_by(cls.tstamp.desc())
+                .order_by(cls.tstamp.desc(), cls.trade_id.desc())
                 .limit(1)
             )
 
@@ -270,6 +270,6 @@ class NewTrade(Base):
             return await session.scalar(
                 select(cls.algo_run_id)
                 .where(cls.symbol == symbol)
-                .order_by(cls.tstamp.desc())
+                .order_by(cls.tstamp.desc(), cls.trade_id.desc())
                 .limit(1)
             )

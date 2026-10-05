@@ -33,6 +33,7 @@ async def test_load_trade_plan_from_db():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("alpaca")
 async def test_load_testplan_from_db():
 
     try:

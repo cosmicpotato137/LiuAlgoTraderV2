@@ -25,6 +25,7 @@ async def db_connection():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 async def test_get_symbols():
     logger.info("test_get_symbols")
     assets = await tradier_trader.get_tradeable_symbols()
@@ -35,6 +36,7 @@ async def test_get_symbols():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 async def test_get_shortable_symbols():
     logger.info("test_get_shortable_symbols")
     assets = await tradier_trader.get_shortable_symbols()
@@ -45,6 +47,7 @@ async def test_get_shortable_symbols():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 async def test_is_aapl_shortable():
     logger.info("test_is_aapl_shortable")
     shortable = await tradier_trader.is_shortable("AAPL")
@@ -124,6 +127,7 @@ async def test_get_trading_days():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 async def test_aapl_order_market_long():
     logger.info("test_aapl_order_market_long")
 
@@ -181,6 +185,7 @@ async def test_aapl_order_market_long():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 async def test_aapl_order_limit_long():
     logger.info("test_aapl_order_limit_long")
 
@@ -262,6 +267,7 @@ async def test_aapl_order_limit_long():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 async def test_tsla_order_market_short():
     logger.info("test_tsla_order_market_short")
 
@@ -332,6 +338,7 @@ async def test_tsla_order_market_short():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 async def test_tsla_cancel_order():
     logger.info("test_tsla_cancel_order")
 
@@ -355,6 +362,7 @@ async def test_tsla_cancel_order():
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
+@pytest.mark.requires_credentials("tradier")
 async def test_aapl_order_limit_long_websocket():
     logger.info("test_aapl_order_limit_long_websocket")
 

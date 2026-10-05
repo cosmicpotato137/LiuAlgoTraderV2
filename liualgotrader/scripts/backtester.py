@@ -43,7 +43,7 @@ from liualgotrader.db.session import create_db_connection
 from liualgotrader.fincalcs.vwap import add_daily_vwap
 from liualgotrader.scanners.base import Scanner
 from liualgotrader.scanners.momentum import Momentum
-from liualgotrader.strategies.base import Strategy, StrategyType
+from liualgotrader.strategy.base import Strategy, StrategyType
 
 logger = logging.getLogger(__name__)
 

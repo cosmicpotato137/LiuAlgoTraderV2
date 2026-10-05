@@ -8,6 +8,8 @@ from liualgotrader.vendors.alpaca.trader import AlpacaTrader
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 alpaca_trader: AlpacaTrader
 
 

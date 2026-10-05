@@ -8,6 +8,8 @@ from liualgotrader.vendors.alpaca.trader import AlpacaTrader
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 alpaca_trader: AlpacaTrader
 
 account_id: str = "f6c9596e-e7ce-4ecc-8ed8-fe6c9720e96a"

@@ -4,7 +4,7 @@ import uuid
 import pytest
 
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategies.base import Strategy
+from liualgotrader.strategy.base import Strategy
 
 logger = logging.getLogger(__name__)
 

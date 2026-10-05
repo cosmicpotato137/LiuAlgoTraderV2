@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 utctz = pytz.timezone("UTC")
 
+# Shared by all requests, so they reuse pooled connections rather than each
+# setting up its own TLS connection, which is CPU-bound and contends across
+# threads.
+_session = requests.Session()
+
 
 def requests_get(url):
     """Return the response to an unauthenticated GET request.
@@ -43,7 +48,7 @@ def requests_get(url):
     url
         The URL to request.
     """
-    r = requests.get(url)
+    r = _session.get(url)
 
     if r.status_code in (429, 502):
         logger.warning(
@@ -119,7 +124,7 @@ class GeminiData(DataAPI):
         """
         endpoint = "/v1/symbols"
         url = self.config.base_url + endpoint
-        response = requests.get(url)
+        response = _session.get(url)
         if response.status_code == 200:
             return response.json()
 
@@ -159,8 +164,10 @@ class GeminiData(DataAPI):
         return pd.date_range(
             start_t,
             end_t,
-            periods=minutes
-            / (self.datapoints_per_request / self.max_trades_per_minute),
+            periods=int(
+                minutes
+                / (self.datapoints_per_request / self.max_trades_per_minute)
+            ),
         )
 
     async def _consolidate_response(self, response, scale) -> pd.DataFrame:
@@ -198,7 +205,7 @@ class GeminiData(DataAPI):
         _df["price"] = pd.to_numeric(_df.price)
         _df = _df[["s", "price", "amount"]].set_index("s")
 
-        rule = "T" if scale == TimeScale.minute else "D"
+        rule = "min" if scale == TimeScale.minute else "D"
         _newdf = _df.resample(rule).first()
         _newdf["high"] = _df.resample(rule).max().price
         _newdf["low"] = _df.resample(rule).min().price

@@ -9,6 +9,8 @@ from liualgotrader.vendors.tradier.data import TradierData
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("tradier")
+
 
 @pytest.mark.devtest
 def test_tradier_aapl_data_day() -> bool:

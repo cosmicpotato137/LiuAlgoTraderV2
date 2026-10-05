@@ -12,6 +12,8 @@ from liualgotrader.vendors.gemini.streaming import GeminiStream
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("gemini")
+
 gemini_stream: GeminiStream
 queues: SymbolQueueMap
 stop: bool = False

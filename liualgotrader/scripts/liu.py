@@ -63,6 +63,13 @@ def show_usage():
 
 
 def _database_location() -> str:
+    """Return where the configured database is, to show to the user.
+
+    Returns
+    -------
+    Return the file path of a SQLite database, and the URL of any other
+    database, without its password.
+    """
     url = database_url(config.dsn)
     if url.get_backend_name() == "sqlite":
         return url.database or "an in-memory SQLite database"

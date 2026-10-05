@@ -8,6 +8,8 @@ from liualgotrader.vendors.alpaca.data import AlpacaData
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.requires_credentials("alpaca")
+
 
 def test_get_trading_day():
     alpaca_data = AlpacaData(config.alpaca)

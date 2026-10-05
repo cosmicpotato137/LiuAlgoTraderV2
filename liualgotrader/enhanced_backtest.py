@@ -49,7 +49,7 @@ from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.scanners.base import Scanner  # type: ignore
 from liualgotrader.scanners_runner import create_momentum_scanner
-from liualgotrader.strategies.base import Strategy
+from liualgotrader.strategy.base import Strategy
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.trade.factory import trader_factory
 from liualgotrader.vendors.alpaca.data import AlpacaData

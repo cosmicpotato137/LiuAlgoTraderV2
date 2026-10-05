@@ -90,7 +90,7 @@ from liualgotrader.db.models.portfolio import Portfolio
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.fincalcs.data_conditions import QUOTE_SKIP_CONDITIONS
-from liualgotrader.strategies.base import Strategy, StrategyType
+from liualgotrader.strategy.base import Strategy, StrategyType
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.trade.factory import (get_trader_by_name,
                                                 trader_factory)

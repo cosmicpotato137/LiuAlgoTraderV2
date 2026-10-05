@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from liualgotrader.analytics import analysis
 from liualgotrader.common import market_data
@@ -353,34 +353,43 @@ async def test_trade_plan_new_entries() -> bool:
             session_now = await session.scalar(select(func.localtimestamp()))
         else:
             session_now = datetime.now(timezone.utc).replace(tzinfo=None)
-        session.add(
-            TradePlan(
-                portfolio_id=portfolio_id,
-                start_date=date.today() - timedelta(days=1),
-                strategy_name=strategy,
-                parameters={"k": 1},
-            )
+        entry = TradePlan(
+            portfolio_id=portfolio_id,
+            start_date=date.today() - timedelta(days=1),
+            strategy_name=strategy,
+            parameters={"k": 1},
         )
+        session.add(entry)
 
     def names(entries):
         return {e.strategy_name: e.parameters for e in entries}
 
     minute = timedelta(minutes=1)
-    if names(await TradePlan.load()).get(strategy) != {"k": 1}:
-        raise AssertionError("active entry not loaded")
-    if strategy not in names(
-        await TradePlan.get_new_entries(session_now - minute)
-    ):
-        raise AssertionError("naive time before creation excluded")
-    if strategy in names(
-        await TradePlan.get_new_entries(session_now + minute)
-    ):
-        raise AssertionError("naive time after creation included")
-    utc_now = datetime.now(timezone.utc)
-    if strategy not in names(
-        await TradePlan.get_new_entries(utc_now - minute)
-    ):
-        raise AssertionError("aware time before creation excluded")
+    try:
+        if names(await TradePlan.load()).get(strategy) != {"k": 1}:
+            raise AssertionError("active entry not loaded")
+        if strategy not in names(
+            await TradePlan.get_new_entries(session_now - minute)
+        ):
+            raise AssertionError("naive time before creation excluded")
+        if strategy in names(
+            await TradePlan.get_new_entries(session_now + minute)
+        ):
+            raise AssertionError("naive time after creation included")
+        utc_now = datetime.now(timezone.utc)
+        if strategy not in names(
+            await TradePlan.get_new_entries(utc_now - minute)
+        ):
+            raise AssertionError("aware time before creation excluded")
+    finally:
+        # The entry has no strategy to run, so expire it before other tests
+        # create the strategies of the active trade plan.
+        async with session_scope() as session:
+            await session.execute(
+                update(TradePlan)
+                .where(TradePlan.trade_plan_id == entry.trade_plan_id)
+                .values(expire_tstamp=datetime.now(timezone.utc))
+            )
 
     return True
 
