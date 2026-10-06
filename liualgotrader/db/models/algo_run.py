@@ -10,7 +10,6 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-from pandas import DataFrame
 from sqlalchemy import ForeignKey, func, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -54,8 +53,6 @@ class AlgoRun(Base):
         Save the run as a new record.
     update_end_time
         Mark the run as ended.
-    get_batch_ids
-        Return the identifiers of batches started after a date.
     get_batches
         Return a summary of the most recent batches.
     get_batch_list_by_date
@@ -120,29 +117,6 @@ class AlgoRun(Base):
                 .returning(AlgoRun.end_time)
             )
         self.end_reason = end_reason
-
-    @classmethod
-    async def get_batch_ids(
-        cls, start_date: date = date(2019, 1, 1)
-    ) -> DataFrame:
-        """Return the distinct identifiers of batches with runs after a date.
-
-        Parameters
-        ----------
-        start_date: date, default date(2019, 1, 1)
-            The date after which runs are included.
-
-        Returns
-        -------
-        Return a DataFrame with a single batch_id column.
-        """
-        async with session_scope() as session:
-            batch_ids = await session.scalars(
-                select(cls.batch_id)
-                .where(cls.start_time > pd.Timestamp(start_date, tz=clock.NY))
-                .distinct()
-            )
-            return DataFrame(data=batch_ids.all(), columns=["batch_id"])
 
     @classmethod
     async def get_batches(

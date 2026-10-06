@@ -6,14 +6,13 @@
 
    <br />
 
-LiuAlgoTrader has three applications and a set of
+LiuAlgoTrader has two applications and a set of
 analysis notebooks.
 
 The applications are:
 
 - *trader*
 - *backtester*
-- *market_miner*
 
 
 This section describes the trader application,
@@ -62,16 +61,6 @@ positions. If they exist, the trades done at the earlier session will be
 relocated to the new session - this is done in order to
 simplify trade session analysis. See the Analysis section
 for more information.
-
-Off-hours
-*********
-Once the day-trading ends, and all processes (scanners, consumers and producer) are done, off-hour tasks will run.
-
-Currently supported tasks include:
-
-* `gain_loss` : Populating `gain_loss` and `trade_analysis` DB tables with aggregated results per symbol, per algo_run_id.
-
-
 
 Usage
 *****

@@ -1,21 +1,9 @@
-"""Market data, sector and industry membership, and trading calendar lookups.
+"""Market data and trading calendar lookups.
 
 Functions
 ---------
 get_symbol_data
     Return a symbol's market data between two dates.
-get_sector_tickers
-    Return the symbols that belong to a market sector.
-get_sectors_tickers
-    Return the symbols that belong to any of several sectors.
-get_industry_tickers
-    Return the symbols that belong to an industry.
-get_industries_tickers
-    Return the symbols in any of several industries.
-get_market_sectors
-    Return the distinct, non-empty sector names.
-get_market_industries
-    Return the distinct, non-empty industry names.
 sp500_historical_constituents
     Estimate the S&P 500 constituents as of a date.
 get_trading_holidays
@@ -34,14 +22,11 @@ import pandas as pd
 import pandas_market_calendars
 import requests
 from pandas import DataFrame as df
-from sqlalchemy import select
 
 from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.data_loader import m_and_a_data  # type: ignore
 from liualgotrader.common.types import TimeScale
-from liualgotrader.db.models.ticker_data import TickerData
-from liualgotrader.db.session import session_scope
 from liualgotrader.fincalcs.vwap import add_daily_vwap
 
 logger = logging.getLogger(__name__)
@@ -78,82 +63,6 @@ def get_symbol_data(
     start = pd.Timestamp(start_date, tz=clock.NY)
     end = pd.Timestamp(end_date, tz=clock.NY)
     return data_loader[symbol][start:end]  # type: ignore
-
-
-async def _select_ticker_column(statement) -> List[str]:
-    async with session_scope() as session:
-        values = await session.scalars(statement)
-        return [value for value in values if value]
-
-
-async def get_sector_tickers(sector: str) -> List[str]:
-    """Return the symbols that belong to the given market sector.
-
-    Omit empty symbols.
-
-    Parameters
-    ----------
-    sector: str
-        The sector name.
-    """
-    return await _select_ticker_column(
-        select(TickerData.symbol).where(TickerData.sector == sector)
-    )
-
-
-async def get_sectors_tickers(sectors: List[str]) -> List[str]:
-    """Return the symbols that belong to any of the given market sectors.
-
-    Omit empty symbols.
-
-    Parameters
-    ----------
-    sectors: List[str]
-        The sector names.
-    """
-    return await _select_ticker_column(
-        select(TickerData.symbol).where(TickerData.sector.in_(sectors))
-    )
-
-
-async def get_industry_tickers(industry: str) -> List[str]:
-    """Return the symbols that belong to the given industry.
-
-    Omit empty symbols.
-
-    Parameters
-    ----------
-    industry: str
-        The industry name.
-    """
-    return await _select_ticker_column(
-        select(TickerData.symbol).where(TickerData.industry == industry)
-    )
-
-
-async def get_industries_tickers(industries: List[str]) -> List[str]:
-    """Return the symbols that belong to any of the given industries.
-
-    Omit empty symbols.
-
-    Parameters
-    ----------
-    industries: List[str]
-        The industry names.
-    """
-    return await _select_ticker_column(
-        select(TickerData.symbol).where(TickerData.industry.in_(industries))
-    )
-
-
-async def get_market_sectors() -> List[str]:
-    """Return the distinct, non-empty sector names from the ticker table."""
-    return await _select_ticker_column(select(TickerData.sector).distinct())
-
-
-async def get_market_industries() -> List[str]:
-    """Return the distinct, non-empty industry names from the ticker table."""
-    return await _select_ticker_column(select(TickerData.industry).distinct())
 
 
 def _read_wikipedia_tables(page: str) -> List[pd.DataFrame]:

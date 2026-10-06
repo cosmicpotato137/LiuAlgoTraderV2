@@ -214,7 +214,6 @@ The browser-based UI supports two types of back-testing sessions:
 1. When selecting the "`back-test against the whole day`" option , **scanners** will be called with a `back-time` schedule (vs. real-time),
 2. Scanners are expected to support running in `back_time` mode (see scanners section).
 3. The built-in scanner supports back-time mode - if no data exists in the database for that specific date, the framework would download OHLC data for all traded stock on the select date, and the day before. Please note that this process may take between minutes to couple of hours (on-time) depending on your network connection & equipment.
-4. Instead of having the scanners trigger downloading of data, it is advised to use the `market_miner` tool to pre-load data in off-hours before running a back-test session on a day without any data.
 
 To see an example of the tool, refer back to `liu quickstart` guide.
 

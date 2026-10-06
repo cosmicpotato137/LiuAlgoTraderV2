@@ -19,7 +19,7 @@ Any example, or sample is provided for training purposes only.
 You may choose to use it, modify it or completely
 disregard it - `LiuAlgoTrader` and its authors bare
 no responsibility to any possible loses from using
-a scanner, strategy, miner, or any other part of `LiuAlgoTrader` (on the other hand, they also won't
+a scanner, strategy, or any other part of `LiuAlgoTrader` (on the other hand, they also won't
 share your profits, if there are any).
 
 
@@ -204,16 +204,9 @@ Data Persistence
 ****************
 `LiuAlgoTrader` framework stores successful
 operations. This data serves well the analysis tools provided by the
-framework.
+framework: Notebooks and Streamlit applications.
 
-Aside from an Notebooks and Streamlit applications for analysis,
-the framework automatically calculates gain & loss per per strategy,
-per buy-sell (or sell-buy) operations. Calculations are done in price change value,
-percentage and also `r units`. Once enough data is collected, the framework
-will feedback probability estimate, in real-time, for a strategy based
-on Machine-Learning models calculated by the framework.
-
-For this purpose, the strategy developer is ask to fill 4 **Global Variables**:
+To persist the reasoning behind each operation, the strategy developer is ask to fill 4 **Global Variables**:
 
 .. code-block:: python
 

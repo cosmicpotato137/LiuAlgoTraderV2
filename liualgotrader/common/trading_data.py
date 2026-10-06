@@ -28,8 +28,6 @@ voi_ask: Dict[str, Tuple[float, float, pd.Timestamp]] = {}
 voi_bid: Dict[str, Tuple[float, float, pd.Timestamp]] = {}
 
 
-industry_trend: Dict[str, float] = {}
-sector_trend: Dict[str, float] = {}
 snapshot: Dict[str, TickerSnapshot] = {}
 
 cool_down: Dict[str, Optional[pd.Timestamp]] = {}

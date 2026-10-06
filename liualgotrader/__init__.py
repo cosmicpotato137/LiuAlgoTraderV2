@@ -23,8 +23,6 @@ db
     Database access through the SQLAlchemy ORM.
 fincalcs
     Financial calculations for use by strategies.
-miners
-    Data miners that run outside trading hours.
 reprocess
     Recalculation of stored portfolio data.
 scanners

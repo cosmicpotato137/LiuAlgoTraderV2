@@ -74,7 +74,6 @@ codecov = "tools/pre-release.bash"
 [project.scripts]
 backtester = "liualgotrader.scripts.backtester:main_cli"
 liu = "liualgotrader.scripts.liu:main_cli"
-market_miner = "liualgotrader.scripts.market_miner:main_cli"
 optimizer = "liualgotrader.scripts.optimizer:main_cli"
 portfolio = "liualgotrader.scripts.portfolio:main_cli"
 trader = "liualgotrader.scripts.trader:main_cli"

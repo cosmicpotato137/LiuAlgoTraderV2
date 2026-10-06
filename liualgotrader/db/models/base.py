@@ -36,9 +36,6 @@ from liualgotrader.common.clock import NY
 JsonDict = JSON().with_variant(postgresql.JSONB(), "postgresql")
 """Column type for a JSON object, stored as JSONB on PostgreSQL."""
 
-TextList = JSON().with_variant(postgresql.ARRAY(Text), "postgresql")
-"""Column type for a list of strings, a text array on PostgreSQL."""
-
 
 class TzDateTime(TypeDecorator):
     """Time zone-aware date and time column type that holds pd.Timestamp values.

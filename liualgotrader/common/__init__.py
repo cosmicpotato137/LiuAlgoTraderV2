@@ -12,8 +12,6 @@ data_loader
     Market data containers that load bar data on demand.
 database
     Database connection pool and SQL results as pandas DataFrames.
-decorators
-    Decorators that instrument function execution.
 exceptions
     Exceptions raised by the framework.
 hyperparameter
@@ -21,7 +19,7 @@ hyperparameter
 list_utils
     Sequence utilities.
 market_data
-    Market data, industry membership and trading calendar lookups.
+    Market data and trading calendar lookups.
 log
     Logging set-up for the framework's processes.
 trading_data

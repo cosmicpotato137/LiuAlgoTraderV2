@@ -18,7 +18,7 @@ from sqlalchemy import select
 from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType
-from liualgotrader.db.models.ticker_data import StockOhlc
+from liualgotrader.db.models.stock_ohlc import StockOhlc
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import session_scope
 from liualgotrader.trade.base import TraderAPI

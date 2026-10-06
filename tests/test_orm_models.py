@@ -6,15 +6,14 @@ import pytest
 from sqlalchemy import select, update
 
 from liualgotrader.analytics import analysis
-from liualgotrader.common import clock, market_data
+from liualgotrader.common import clock
 from liualgotrader.common.types import AssetType
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
-from liualgotrader.db.models.gain_loss import GainLoss, TradeAnalysis
 from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.models.optimizer import OptimizerRun
 from liualgotrader.db.models.portfolio import Portfolio
-from liualgotrader.db.models.ticker_data import StockOhlc, TickerData
+from liualgotrader.db.models.stock_ohlc import StockOhlc
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import create_db_connection, session_scope
@@ -80,10 +79,6 @@ async def test_algo_run() -> bool:
     runs = [r[0] for r in by_date.get(batch_id, [])]
     if runs != [ref.algo_run_id, run.algo_run_id]:
         raise AssertionError(f"batch missing by date: {by_date.get(batch_id)}")
-
-    batch_ids = await AlgoRun.get_batch_ids(start_date=start_date)
-    if batch_id not in batch_ids.batch_id.values:
-        raise AssertionError("batch id missing")
 
     batches = await AlgoRun.get_batches(start_date=start_date)
     if not any(b[1] == batch_id and b[2] == strategy for b in batches):
@@ -156,51 +151,6 @@ async def test_trending_tickers() -> bool:
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
-async def test_ticker_data_and_market_data() -> bool:
-    symbol, sector, industry = unique("SYM"), unique("sec"), unique("ind")
-    ticker = TickerData(
-        name="name",
-        symbol=symbol,
-        description="first",
-        tags=["a"],
-        similar_tickers=["b"],
-        industry=industry,
-        sector=sector,
-        exchange="X",
-    )
-    if not await ticker.save():
-        raise AssertionError("insert failed")
-    ticker.description = "second"
-    if not await ticker.save():
-        raise AssertionError("update failed")
-
-    async with session_scope() as session:
-        record = await session.get_one(TickerData, symbol)
-    if record.description != "second" or record.modify_tstamp is None:
-        raise AssertionError("ticker not replaced")
-    if record.tags != ["a"] or record.similar_tickers != ["b"]:
-        raise AssertionError("array columns not stored")
-
-    if symbol not in await TickerData.load_symbols():
-        raise AssertionError("symbol missing")
-    for tickers in (
-        await market_data.get_sector_tickers(sector),
-        await market_data.get_sectors_tickers([sector, unique("sec")]),
-        await market_data.get_industry_tickers(industry),
-        await market_data.get_industries_tickers([industry]),
-    ):
-        if tickers != [symbol]:
-            raise AssertionError(f"unexpected tickers {tickers}")
-    if sector not in await market_data.get_market_sectors():
-        raise AssertionError("sector missing")
-    if industry not in await market_data.get_market_industries():
-        raise AssertionError("industry missing")
-
-    return True
-
-
-@pytest.mark.asyncio
-@pytest.mark.devtest
 async def test_stock_ohlc() -> bool:
     symbol = unique("SYM")
     day1, day2 = date(2026, 1, 5), date(2026, 1, 6)
@@ -225,10 +175,6 @@ async def test_stock_ohlc() -> bool:
         raise AssertionError("existing date not found")
     if await StockOhlc.check_stock_date_exists(symbol, date(2026, 1, 7)):
         raise AssertionError("missing date found")
-    if await StockOhlc.get_latest_date(symbol) != day2:
-        raise AssertionError("wrong latest date")
-    if await StockOhlc.get_latest_date(unique("SYM")) is not None:
-        raise AssertionError("unknown symbol should have no date")
 
     record = (await StockOhlc.load_by_date(day2))[symbol]
     if (record.close, record.volume, record.indicators) != (
@@ -253,56 +199,6 @@ async def test_account_transaction_updates_account() -> bool:
         account = await session.get_one(Account, account_id)
     if account.balance != 125.0 or account.modify_tstamp is None:
         raise AssertionError("balance trigger did not update the account")
-
-    return True
-
-
-@pytest.mark.asyncio
-@pytest.mark.devtest
-async def test_gain_loss_and_trade_analysis() -> bool:
-    strategy = unique("strategy")
-    run = await new_run(strategy, unique("batch"))
-    gains = pd.DataFrame(
-        [
-            ("AAA", run.algo_run_id, 1.5, 15.0),
-            ("AAA", run.algo_run_id, 2.5, 25.0),
-            ("BBB", run.algo_run_id, -1.0, -10.0),
-        ],
-        columns=["symbol", "algo_run_id", "gain_percentage", "gain_value"],
-    )
-    await GainLoss.save(gains)
-
-    start = pd.Timestamp("2026-01-05 10:00", tz=clock.NY)
-    analyses = pd.DataFrame(
-        [
-            ("AAA", run.algo_run_id, 1.5, 15.0, 0.5, start, start),
-            ("AAA", run.algo_run_id, 1.5, 15.0, 0.5, start, start),
-        ],
-        columns=[
-            "symbol",
-            "algo_run_id",
-            "gain_percentage",
-            "gain_value",
-            "r_units",
-            "start_time",
-            "end_time",
-        ],
-    )
-    await TradeAnalysis.save(analyses)
-
-    start_date = clock.today() - pd.Timedelta(days=2)
-    loaded = await GainLoss.load(start_date)
-    ours = loaded[loaded.strategy_name == strategy]
-    if (
-        list(ours.symbol) != ["AAA", "BBB"]
-        or float(ours.gain_value.iloc[0]) != 15
-    ):
-        raise AssertionError(f"duplicate gain not skipped: {ours}")
-
-    loaded = await TradeAnalysis.load(start_date)
-    ours = loaded[loaded.strategy_name == strategy]
-    if len(ours) != 1 or ours.start_time.iloc[0] != start:
-        raise AssertionError(f"unexpected trade analysis: {ours}")
 
     return True
 

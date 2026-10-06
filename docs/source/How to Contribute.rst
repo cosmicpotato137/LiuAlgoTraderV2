@@ -39,8 +39,8 @@ Prerequisites:
 
    PDM creates a virtual environment in ``.venv``, installs the locked
    dependencies into it, and installs LiuAlgoTrader in editable mode, along
-   with the ``liu``, ``trader``, ``backtester``, ``optimizer``,
-   ``market_miner`` and ``portfolio`` commands. To choose the Python
+   with the ``liu``, ``trader``, ``backtester``, ``optimizer`` and
+   ``portfolio`` commands. To choose the Python
    interpreter, run ``pdm use <path to python>`` before installing. Prefix
    commands with ``pdm run``, or activate the environment with
    ``source .venv/bin/activate``.

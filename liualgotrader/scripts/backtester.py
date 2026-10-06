@@ -33,7 +33,6 @@ from requests.exceptions import HTTPError
 
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import clock, config, market_data, trading_data
-from liualgotrader.common.decorators import timeit
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType, TimeScale
 from liualgotrader.db.models.algo_run import AlgoRun
