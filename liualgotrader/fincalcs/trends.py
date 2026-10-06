@@ -16,18 +16,14 @@ volatility
 """
 
 import math
-from datetime import datetime, timedelta
 from enum import Enum
 from typing import Tuple
 
 import numpy as np
 import pandas as pd
-import pytz
 from scipy.stats import linregress
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-
-est = pytz.timezone("US/Eastern")
 
 
 class SeriesTrendType(Enum):
@@ -89,7 +85,9 @@ def get_series_trend(series: pd.Series) -> Tuple[float, SeriesTrendType]:
     return slope, t
 
 
-def volatility(data_loader: DataLoader, symbol: str, now: datetime) -> float:
+def volatility(
+    data_loader: DataLoader, symbol: str, now: pd.Timestamp
+) -> float:
     """Return the recent volatility of a symbol's closing prices.
 
     Parameters
@@ -98,7 +96,7 @@ def volatility(data_loader: DataLoader, symbol: str, now: datetime) -> float:
         The loader to read prices from, which may fetch data.
     symbol: str
         The symbol to measure.
-    now: datetime
+    now: pd.Timestamp
         The end of the thirty-day look-back period.
 
     Returns
@@ -108,7 +106,7 @@ def volatility(data_loader: DataLoader, symbol: str, now: datetime) -> float:
     """
     return (
         data_loader[symbol]
-        .close[now - timedelta(days=30) : now]  # type: ignore
+        .close[now - pd.Timedelta(days=30) : now]  # type: ignore
         .pct_change()
         .rolling(20)
         .std()

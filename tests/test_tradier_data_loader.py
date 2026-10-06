@@ -2,15 +2,12 @@ import logging
 
 import pandas as pd
 import pytest
-from pytz import timezone
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, TimeScale
 
 logger = logging.getLogger(__name__)
-
-nyc = timezone("America/New_York")
 
 
 @pytest.mark.devtest
@@ -74,7 +71,7 @@ def test_apple_stock_current_price() -> bool:
 def test_apple_stock_current_price_range_int_minute() -> bool:
     logger.info("test_apple_stock_current_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
-    last_price_range = dl["AAPL"].close[-5:-1]  # type:ignore
+    last_price_range = dl["AAPL"].close[-5:-1]  # type: ignore
 
     logger.info("%s", last_price_range)
     return True
@@ -85,7 +82,7 @@ def test_apple_stock_current_price_range_int_minute() -> bool:
 def test_apple_stock_current_price_range_int_day() -> bool:
     logger.info("test_apple_stock_current_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
-    last_price_range = dl["AAPL"].close[-6:-1]  # type:ignore
+    last_price_range = dl["AAPL"].close[-6:-1]  # type: ignore
     logger.info("%s", last_price_range)
 
     return True
@@ -96,7 +93,7 @@ def test_apple_stock_current_price_range_int_day() -> bool:
 def test_day_num_data_points() -> bool:
     logger.info("test_day_num_data_points")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
-    data = dl["AAPL"].close[-90:]  # type:ignore
+    data = dl["AAPL"].close[-90:]  # type: ignore
 
     if len(data) != 90:
         raise AssertionError(
@@ -111,7 +108,9 @@ def test_day_num_data_points() -> bool:
 def test_day_num_data_points_w_date() -> bool:
     logger.info("test_day_num_data_points")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
-    data = dl["AAPL"].close[-90:"2021-09-10 09:30:00"]  # type:ignore
+    data = dl["AAPL"].close[
+        -90 : pd.Timestamp("2021-09-10 09:30", tz=clock.NY)
+    ]
 
     if len(data) != 90:
         raise AssertionError(
@@ -158,8 +157,10 @@ def test_apple_stock_close_price_range_str_day() -> bool:
     logger.info("test_apple_stock_close_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
     last_price_range = dl["AAPL"].close[
-        "2021-01-01":"2021-01-05"  # type:ignore
-    ]  # type:ignore
+        pd.Timestamp("2021-01-01", tz=clock.NY) : pd.Timestamp(
+            "2021-01-05", tz=clock.NY
+        )
+    ]
     logger.info("%s", last_price_range)
 
     return True
@@ -170,7 +171,7 @@ def test_apple_stock_close_price_range_str_day() -> bool:
 def test_apple_stock_price_range_int_minute() -> bool:
     logger.info("test_apple_stock_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
-    last_price_range = dl["AAPL"][-5:-1]  # type:ignore
+    last_price_range = dl["AAPL"][-5:-1]  # type: ignore
     logger.info("%s", last_price_range)
 
     return True
@@ -181,7 +182,7 @@ def test_apple_stock_price_range_int_minute() -> bool:
 def test_apple_stock_price_range_int_day() -> bool:
     logger.info("test_apple_stock_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
-    last_price_range = dl["AAPL"][-5:-1]  # type:ignore
+    last_price_range = dl["AAPL"][-5:-1]  # type: ignore
     logger.info("%s", last_price_range)
 
     return True
@@ -192,7 +193,11 @@ def test_apple_stock_price_range_int_day() -> bool:
 def test_apple_stock_price_range_date_day() -> bool:
     logger.info("test_apple_stock_price_range_date_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
-    last_price_range = dl["AAPL"]["2020-10-05":"2020-10-08"]  # type:ignore
+    last_price_range = dl["AAPL"][
+        pd.Timestamp("2020-10-05", tz=clock.NY) : pd.Timestamp(
+            "2020-10-08", tz=clock.NY
+        )
+    ]
     logger.info("%s", last_price_range)
 
     return True
@@ -203,7 +208,7 @@ def test_apple_stock_price_range_date_day() -> bool:
 def test_apple_stock_price_range_date_int_day() -> bool:
     logger.info("test_apple_stock_price_range_date_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.tradier)
-    last_price_range = dl["AAPL"]["2020-10-05":-1]  # type:ignore
+    last_price_range = dl["AAPL"][pd.Timestamp("2020-10-05", tz=clock.NY) : -1]
     logger.info("%s", last_price_range)
 
     return True
@@ -215,7 +220,7 @@ def test_apple_stock_price_range_date_min_open() -> bool:
     logger.info("test_apple_stock_price_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     try:
-        last_price_range = dl["AAPL"][:]  # type:ignore
+        last_price_range = dl["AAPL"][:]  # type: ignore
         logger.info("%s", last_price_range)
     except ValueError:
         return True
@@ -228,7 +233,7 @@ def test_apple_stock_price_open_range_date_min_open() -> bool:
     logger.info("test_apple_stock_price_open_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.tradier)
     try:
-        last_price_range = dl["AAPL"].open[:]  # type:ignore
+        last_price_range = dl["AAPL"].open[:]  # type: ignore
         logger.info("%s", last_price_range)
     except ValueError:
         return True

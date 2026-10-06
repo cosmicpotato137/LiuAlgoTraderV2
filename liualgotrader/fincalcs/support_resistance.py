@@ -19,19 +19,14 @@ get_local_maxima
     Return the local maxima of a series.
 """
 
-from datetime import datetime, timedelta
 from enum import Enum
 from typing import List, Optional
 
 import numpy as np
 import pandas as pd
-import pytz
 from pandas import DataFrame as df
-from pandas import Timestamp as ts
 
-from liualgotrader.common import config
-
-est = pytz.timezone("US/Eastern")
+from liualgotrader.common import clock, config
 
 
 class StopRangeType(Enum):
@@ -103,8 +98,7 @@ async def find_resistances(
     close during market hours over the last three days, or None if none reach
     current_value.
     """
-    est = pytz.timezone("America/New_York")
-    back_time = ts(datetime.now(est)).to_pydatetime() - timedelta(days=3)
+    back_time = clock.now() - pd.Timedelta(days=3)
     back_time_index = minute_history["close"].index.get_loc(
         back_time, method="nearest"
     )
@@ -136,7 +130,7 @@ async def find_resistances(
 def find_supports(
     current_value,
     minute_history,
-    now: datetime,
+    now: pd.Timestamp,
     range_type: StopRangeType = StopRangeType.LAST_100_MINUTES,
 ):
     """Return the local price minima that lie below the current value.
@@ -149,7 +143,7 @@ def find_supports(
         The current price.
     minute_history
         The minute bars of the symbol.
-    now: datetime
+    now: pd.Timestamp
         The current time, whose day limits the search.
     range_type: StopRangeType, default StopRangeType.LAST_100_MINUTES
         The look-back window.
@@ -165,25 +159,19 @@ def find_supports(
     # get low Series based on select time-range
     if range_type == StopRangeType.DAILY:
         series = (
-            minute_history["low"][
-                ts(
-                    now.replace(
-                        hour=9, minute=30, second=0, microsecond=0, tzinfo=est
-                    )
-                ) :
-            ]
+            minute_history["low"][clock.market_open(now.date()) :]
             .resample("5min")
             .min()
         )
     elif range_type == StopRangeType.LAST_100_MINUTES:
         series = minute_history["low"][-100:].dropna().resample("5min").min()
-        series = series[ts(now).floor("1D") :]
+        series = series[now.normalize() :]
     elif range_type == StopRangeType.LAST_2_HOURS:
         series = minute_history["low"][-120:].dropna().resample("5min").min()
-        series = series[ts(now).floor("1D") :]
+        series = series[now.normalize() :]
     elif range_type == StopRangeType.LAST_3_HOURS:
         series = minute_history["low"][-180:].dropna().resample("5min").min()
-        series = series[ts(now).floor("1D") :]
+        series = series[now.normalize() :]
     else:
         raise NotImplementedError(
             f"stop-range type {range_type} is not implemented"
@@ -202,7 +190,7 @@ def find_supports(
 def find_stop(
     current_value,
     minute_history,
-    now: datetime,
+    now: pd.Timestamp,
     range_type: StopRangeType = StopRangeType.LAST_100_MINUTES,
 ):
     """Return the most recent local price minimum as a stop level.
@@ -215,7 +203,7 @@ def find_stop(
         The current price; has no effect.
     minute_history
         The minute bars of the symbol.
-    now: datetime
+    now: pd.Timestamp
         The current time, whose day limits the search.
     range_type: StopRangeType, default StopRangeType.LAST_100_MINUTES
         The look-back window, where any window but the daily one means the last
@@ -236,20 +224,14 @@ def find_stop(
 
     if range_type == StopRangeType.DAILY:
         series = (
-            minute_history["low"][
-                ts(
-                    now.replace(
-                        hour=9, minute=30, second=0, microsecond=0, tzinfo=est
-                    )
-                ) :
-            ]
+            minute_history["low"][clock.market_open(now.date()) :]
             .dropna()
             .resample("5min")
             .min()
         )
     else:
         series = minute_history["low"][-100:].dropna().resample("5min").min()
-        series = series[ts(now).floor("1D") :]
+        series = series[now.normalize() :]
 
     diff = np.diff(series.values)
     low_index = np.where((diff[:-1] <= 0) & (diff[1:] > 0))[0] + 1

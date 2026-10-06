@@ -7,8 +7,8 @@ Classes
 -------
 Base
     Base class of every model mapped to a database table.
-Timestamp
-    Date and time column type that behaves the same on SQLite and PostgreSQL.
+TzDateTime
+    Time zone-aware date and time column type that holds pd.Timestamp values.
 CurrentTimestamp
     SQL function for the current date and time.
 RandomUuid
@@ -20,15 +20,18 @@ dialect_insert
     Return an INSERT statement that supports ON CONFLICT clauses.
 """
 
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Union
 
+import pandas as pd
 from sqlalchemy import JSON, DateTime, Text, TypeDecorator, Uuid
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql.functions import FunctionElement
+
+from liualgotrader.common.clock import NY
 
 JsonDict = JSON().with_variant(postgresql.JSONB(), "postgresql")
 """Column type for a JSON object, stored as JSONB on PostgreSQL."""
@@ -37,31 +40,25 @@ TextList = JSON().with_variant(postgresql.ARRAY(Text), "postgresql")
 """Column type for a list of strings, a text array on PostgreSQL."""
 
 
-class Timestamp(TypeDecorator):
-    """Date and time column type that behaves the same on SQLite and PostgreSQL.
+class TzDateTime(TypeDecorator):
+    """Time zone-aware date and time column type that holds pd.Timestamp values.
 
-    PostgreSQL stores time zone-aware values itself, while SQLite stores the
-    date and time as text without a time zone. On SQLite, a time zone-aware
-    value is therefore converted to UTC before it is stored, and a column
-    with timezone set returns its values as time zone-aware UTC times, as
-    PostgreSQL does. Naive values are stored unchanged on both databases.
-
-    Parameters
-    ----------
-    timezone: bool, default False
-        Whether the column holds time zone-aware values.
+    Values are stored in UTC: as timestamptz on PostgreSQL, and as text
+    without a time zone on SQLite, which has no time zone-aware type. Values
+    are read back as pd.Timestamp in New York time on both databases.
     """
 
     impl = DateTime
     cache_ok = True
 
-    def __init__(self, timezone: bool = False):
+    def __init__(self):
         """Create the column type, as described by the class."""
-        super().__init__(timezone=timezone)
-        # SQLAlchemy keys its cache of compiled statements by the type and by
-        # the attributes named after its __init__ arguments, so this keeps
-        # columns with and without time zones from sharing cached SQL.
-        self.timezone = timezone
+        super().__init__(timezone=True)
+
+    @property
+    def python_type(self) -> type:
+        """Return pd.Timestamp, the Python type of the column's values."""
+        return pd.Timestamp
 
     def process_bind_param(self, value, dialect):
         """Return the value to store in the database for a Python value.
@@ -69,21 +66,29 @@ class Timestamp(TypeDecorator):
         Parameters
         ----------
         value
-            The Python value, usually a datetime or a date, or None.
+            The Python value, a time zone-aware pd.Timestamp or None.
         dialect
             The dialect of the database.
 
         Returns
         -------
-        Return a time zone-aware datetime as a naive UTC datetime on SQLite,
-        and any other value unchanged.
+        Return value as a UTC datetime, without its time zone on SQLite, and
+        None as None.
+
+        Raises
+        ------
+        Raise TypeError if value is neither None nor a time zone-aware
+        pd.Timestamp.
         """
-        if (
-            dialect.name == "sqlite"
-            and isinstance(value, datetime)
-            and value.tzinfo is not None
-        ):
-            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        if value is None:
+            return None
+        if not isinstance(value, pd.Timestamp) or value.tzinfo is None:
+            raise TypeError(
+                f"expected a time zone-aware pd.Timestamp, got {value!r}"
+            )
+        value = value.tz_convert(timezone.utc).floor("us").to_pydatetime()
+        if dialect.name == "sqlite":
+            return value.replace(tzinfo=None)
         return value
 
     def process_result_value(self, value, dialect):
@@ -92,18 +97,19 @@ class Timestamp(TypeDecorator):
         Parameters
         ----------
         value
-            The value read, a naive datetime on SQLite, or None.
+            The value read: a datetime, naive and in UTC on SQLite, or None.
         dialect
             The dialect of the database.
 
         Returns
         -------
-        Return the value as a time zone-aware UTC datetime on SQLite if the
-        column has timezone set, and unchanged otherwise.
+        Return value as a pd.Timestamp in New York time, and None as None.
         """
-        if dialect.name == "sqlite" and self.timezone and value is not None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return pd.Timestamp(value).tz_convert(NY)
 
 
 class CurrentTimestamp(FunctionElement):
@@ -115,7 +121,7 @@ class CurrentTimestamp(FunctionElement):
     zone.
     """
 
-    type = Timestamp()
+    type = TzDateTime()
     inherit_cache = True
 
 
@@ -205,11 +211,11 @@ def _sqlite_random_uuid(element, compiler, **kw):
 class Base(DeclarativeBase):
     """Base class of every model mapped to a database table.
 
-    Attributes annotated as str map to text columns, and as datetime to
-    Timestamp columns.
+    Attributes annotated as str map to text columns, and as pd.Timestamp to
+    TzDateTime columns.
     """
 
-    type_annotation_map = {str: Text(), datetime: Timestamp()}
+    type_annotation_map = {str: Text(), pd.Timestamp: TzDateTime()}
 
 
 def dialect_insert(

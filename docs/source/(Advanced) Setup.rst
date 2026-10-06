@@ -76,8 +76,8 @@ Database Schema
 
 LiuAlgoTrader creates and upgrades the database schema itself: the first time a
 process uses a database, it applies the migrations that the database is missing.
-That includes PostgreSQL databases created by the `schema.sql` script of earlier
-versions. A PostgreSQL database and its user must already exist.
+Databases created by versions before migrations are not supported. A PostgreSQL
+database and its user must already exist.
 
 Data Providers
 --------------

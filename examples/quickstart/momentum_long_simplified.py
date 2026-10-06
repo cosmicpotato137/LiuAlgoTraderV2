@@ -1,13 +1,13 @@
 import logging
 import os
 import sys
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
+import pandas as pd
 from pandas import DataFrame as df
 from stockstats import StockDataFrame
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.trading_data import (buy_indicators, buy_time,
                                                cool_down, last_used_strategy,
@@ -48,7 +48,7 @@ class MomentumLongV3(Strategy):
         symbol: str,
         price: float,
         qty: float,
-        now: datetime = None,
+        now: Optional[pd.Timestamp] = None,
         trade_fee: float = 0.0,
     ) -> None:
         """Called by Framework, upon successful buy (could be partial)"""
@@ -59,7 +59,7 @@ class MomentumLongV3(Strategy):
         symbol: str,
         price: float,
         qty: float,
-        now: datetime = None,
+        now: Optional[pd.Timestamp] = None,
         trade_fee: float = 0.0,
     ) -> None:
         latest_scalp_basis[symbol] = price
@@ -69,7 +69,7 @@ class MomentumLongV3(Strategy):
         logger.info("strategy %s created", self.name)
         return True
 
-    async def should_cool_down(self, symbol: str, now: datetime):
+    async def should_cool_down(self, symbol: str, now: pd.Timestamp):
         if (
             symbol in cool_down
             and cool_down[symbol]
@@ -85,7 +85,7 @@ class MomentumLongV3(Strategy):
         symbol: str,
         shortable: bool,
         position: float,
-        now: datetime,
+        now: pd.Timestamp,
         minute_history: df,
         portfolio_value: float = None,
         debug: bool = False,
@@ -94,7 +94,7 @@ class MomentumLongV3(Strategy):
         data = minute_history.iloc[-1]
         prev_min = minute_history.iloc[-2]
 
-        market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        market_open = clock.market_open(now.date())
         morning_rush = (now - market_open).seconds // 60 < 30
 
         if (
@@ -105,7 +105,7 @@ class MomentumLongV3(Strategy):
         ):
             # Check for buy signals
             lbound = market_open
-            ubound = lbound + timedelta(minutes=15)
+            ubound = lbound + pd.Timedelta(minutes=15)
             try:
                 high_15m = minute_history[lbound:ubound]["high"].max()  # type: ignore
             except Exception:
@@ -198,11 +198,13 @@ class MomentumLongV3(Strategy):
                         )
                         cool_down[symbol] = now.replace(
                             second=0, microsecond=0
-                        ) + timedelta(minutes=5)
+                        ) + pd.Timedelta(minutes=5)
 
                         return False, {}
 
-                    stop_price = find_stop(data.vwap or data.close, minute_history, now)
+                    stop_price = find_stop(
+                        data.vwap or data.close, minute_history, now
+                    )
                     target_price = 3 * (data.close - stop_price) + data.close
                     target_prices[symbol] = target_price
                     stop_prices[symbol] = stop_price
@@ -237,16 +239,20 @@ class MomentumLongV3(Strategy):
                             "avg": data.average,
                         }
 
-                        return True, {
+                        return True, (
+                            {
                                 "side": "buy",
                                 "qty": str(shares_to_buy),
                                 "type": "market",
-                            } if morning_rush else {
+                            }
+                            if morning_rush
+                            else {
                                 "side": "buy",
                                 "qty": str(shares_to_buy),
                                 "type": "limit",
                                 "limit_price": str(buy_price),
                             }
+                        )
             elif debug:
                 logger.info(
                     "[%s][%s] %s < 15min high ", self.name, now, data.close
@@ -348,7 +354,7 @@ class MomentumLongV3(Strategy):
                 sell_reasons.append("rsi max, cool-down for 5 minutes")
                 cool_down[symbol] = now.replace(
                     second=0, microsecond=0
-                ) + timedelta(minutes=5)
+                ) + pd.Timedelta(minutes=5)
             elif bail_out:
                 to_sell = True
                 sell_reasons.append("bail")

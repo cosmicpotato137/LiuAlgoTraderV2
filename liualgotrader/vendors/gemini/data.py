@@ -15,21 +15,19 @@ import asyncio
 import concurrent.futures
 import logging
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date
 from threading import Thread
 from typing import Dict, List, Optional
 
 import pandas as pd
-import pytz
 import requests
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
 
 logger = logging.getLogger(__name__)
-
-utctz = pytz.timezone("UTC")
 
 # Shared by all requests, so they reuse pooled connections rather than each
 # setting up its own TLS connection, which is CPU-bound and contends across
@@ -64,8 +62,8 @@ class GeminiData(DataAPI):
     """DataAPI implementation for the Gemini cryptocurrency exchange.
 
     Bars are built from the public Gemini trade history, and every calendar day
-    counts as a trading day. Snapshots, batch loads and trading-day counts are
-    not supported.
+    in New York counts as a trading day. Snapshots, batch loads and
+    trading-day counts are not supported.
 
     Attributes
     ----------
@@ -87,9 +85,9 @@ class GeminiData(DataAPI):
     trading_days_slice
         Return a slice unchanged.
     get_last_trading
-        Return the current UTC time.
+        Return the current time.
     get_trading_day
-        Return midnight UTC a number of days from a date.
+        Return midnight a number of days from a time.
     get_symbol_data
         Return historical bars for a symbol.
     num_trading_minutes
@@ -142,23 +140,23 @@ class GeminiData(DataAPI):
         """
         raise NotImplementedError
 
-    def _get_ranges(self, start, end):
+    def _get_ranges(self, start: date, end: date) -> pd.DatetimeIndex:
         """Return the start times of the trade requests for a date range.
 
         Parameters
         ----------
-        start
+        start: date
             The first date.
-        end
-            The last date, covered through its final microsecond.
+        end: date
+            The last date, covered through its end.
 
         Returns
         -------
-        Return an evenly spaced DatetimeIndex in UTC whose entries are about
-        datapoints_per_request / max_trades_per_minute minutes apart.
+        Return an evenly spaced DatetimeIndex in New York time whose entries
+        are about datapoints_per_request / max_trades_per_minute minutes apart.
         """
-        start_t = datetime.combine(start, datetime.min.time(), tzinfo=utctz)
-        end_t = datetime.combine(end, datetime.max.time(), tzinfo=utctz)
+        start_t = pd.Timestamp(start, tz=clock.NY)
+        end_t = pd.Timestamp(end + pd.Timedelta(days=1), tz=clock.NY)
 
         minutes = (end_t - start_t).total_seconds() / 60
         return pd.date_range(
@@ -185,8 +183,9 @@ class GeminiData(DataAPI):
 
         Returns
         -------
-        Return a DataFrame indexed by UTC time with open, high, low, close,
-        count and volume columns, and with average and vwap set to zero.
+        Return a DataFrame indexed by New York time with open, high, low,
+        close, count and volume columns, and with average and vwap set to
+        zero. Daily bars span New York calendar days.
         """
         _df = pd.DataFrame(response.json())
 
@@ -195,12 +194,10 @@ class GeminiData(DataAPI):
 
         _df = _df.set_index(_df.timestamp).sort_index()
 
-        _df["s"] = pd.to_datetime(
-            (_df.index * 1e9).astype("int64"),
-            utc=True,
+        _df["s"] = pd.to_datetime(_df.index, unit="s", utc=True).tz_convert(
+            clock.NY
         )
 
-        # _df.timestamp.apply(lambda x: pd.Timestamp(x, tz=utctz, unit="ns"))
         _df["amount"] = pd.to_numeric(_df.amount)
         _df["price"] = pd.to_numeric(_df.price)
         _df = _df[["s", "price", "amount"]].set_index("s")
@@ -227,7 +224,7 @@ class GeminiData(DataAPI):
         self,
         symbol: str,
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
         """Asynchronously return historical bars for a symbol.
@@ -238,21 +235,22 @@ class GeminiData(DataAPI):
             The symbol, in any letter case.
         start: date
             The first date to load.
-        end: date, default date.today()
-            The last date to load.
+        end: Optional[date], default None
+            The last date to load, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             TimeScale.minute, or any other value for daily bars.
 
         Returns
         -------
-        Return a DataFrame of bars indexed by UTC time, or an empty DataFrame
-        if no trades were found.
+        Return a DataFrame of bars indexed by New York time, or an empty
+        DataFrame if no trades were found.
 
         Raises
         ------
         Raise ValueError if a request returns an HTTP error status.
         """
         symbol = symbol.lower()
+        end = end or clock.today()
         logger.info(
             "GEMINI start loading %s from %s to %s w scale %s",
             symbol,
@@ -305,7 +303,7 @@ class GeminiData(DataAPI):
         self,
         symbols: List[str],
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> Dict[str, pd.DataFrame]:
         """Raise NotImplementedError, as batch loading is unsupported.
@@ -316,8 +314,8 @@ class GeminiData(DataAPI):
             The symbols to load.
         start: date
             The first date to load.
-        end: date, default date.today()
-            The last date to load.
+        end: Optional[date], default None
+            The last date to load, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar size.
         """
@@ -337,43 +335,41 @@ class GeminiData(DataAPI):
         """
         return s
 
-    def get_last_trading(self, symbol: str) -> datetime:
-        """Return the current UTC time.
+    def get_last_trading(self, symbol: str) -> pd.Timestamp:
+        """Return the current time.
 
         Parameters
         ----------
         symbol: str
             Ignored.
         """
-        return datetime.now(timezone.utc)
+        return clock.now()
 
     def get_trading_day(
-        self, symbol: str, now: datetime, offset: int
-    ) -> datetime:
-        """Return midnight UTC on the day offset calendar days from now.
+        self, symbol: str, now: pd.Timestamp, offset: int
+    ) -> pd.Timestamp:
+        """Return midnight on the day offset calendar days from now.
 
-        Every calendar day counts as a trading day.
+        Every calendar day in New York counts as a trading day.
 
         Parameters
         ----------
         symbol: str
             Ignored.
-        now: datetime
-            The reference date or datetime.
+        now: pd.Timestamp
+            The reference time.
         offset: int
             The number of calendar days to add.
         """
-        return (
-            utctz.localize(datetime.combine(now, datetime.min.time()))
-            if isinstance(now, date)
-            else now
-        ) + timedelta(days=offset)
+        return pd.Timestamp(
+            now.date() + pd.Timedelta(days=offset), tz=clock.NY
+        )
 
     def get_symbol_data(
         self,
         symbol: str,
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
         """Return historical bars for a symbol.
@@ -386,8 +382,8 @@ class GeminiData(DataAPI):
             The symbol, in any letter case.
         start: date
             The first date to load.
-        end: date, default date.today()
-            The last date to load.
+        end: Optional[date], default None
+            The last date to load, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             TimeScale.minute, or any other value for daily bars.
 

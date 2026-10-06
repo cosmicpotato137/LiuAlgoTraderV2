@@ -6,7 +6,6 @@ import logging
 
 import matplotlib.pyplot as plt
 import pandas as pd
-import pytz
 import requests
 import streamlit as st
 import toml
@@ -30,7 +29,6 @@ st.markdown("## **Visual Analysis tools**")
 app = st.sidebar.selectbox("select app", ["analyzer"])
 
 new_bid: str = ""
-est = pytz.timezone("America/New_York")
 
 if app == "analyzer":
     st.text("Analyze a batch-id")
@@ -39,8 +37,6 @@ if app == "analyzer":
     bid = st.text_input("Enter batch-id", value=new_bid)
 
     if len(bid) > 0:
-        est = pytz.timezone("America/New_York")
-        utc = pytz.timezone("UTC")
         try:
             how_was_my_batch = pd.DataFrame()
             t = loop.run_until_complete(load_trades_by_batch_id(bid))
@@ -85,14 +81,10 @@ if app == "analyzer":
                     minute_history[symbol] = data_loader[symbol]
                     c += 1
         st.success(f"LOADED {c} symbols' data!")
-        est = pytz.timezone("US/Eastern")
         for symbol in minute_history:
             symbol_df = t.loc[t["symbol"] == symbol]
             start_date = symbol_df.client_time.min()
             end_date = symbol_df.client_time.max()
-            # .astype(
-            #    "datetime64[ns, US/Eastern]"
-            # ).min()
             start_date = start_date.replace(
                 hour=9, minute=30, second=0, microsecond=0
             )
@@ -147,7 +139,7 @@ if app == "analyzer":
                 )
                 profit += delta
                 ax.scatter(
-                    row.client_time,  # .to_pydatetime(),
+                    row.client_time,
                     row["price"],
                     c="g" if row["operation"] == "buy" else "r",
                     s=100,
@@ -155,7 +147,7 @@ if app == "analyzer":
                 deltas.append(round(delta, 2))
                 profits.append(round(profit, 2))
                 operations.append(row["operation"])
-                times.append(pd.to_datetime(row["client_time"]))
+                times.append(row["client_time"])
                 prices.append(row["price"])
                 qtys.append(row["qty"])
                 indicator = row.indicators

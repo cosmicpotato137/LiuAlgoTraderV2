@@ -3,44 +3,59 @@
 Classes
 -------
 GeminiStream
-    Streaming provider for Gemini trades.
+    Streaming provider for Gemini trades and minute bars.
 """
 
-import base64
-import hashlib
-import hmac
+import asyncio
 import json
 import logging
 import queue
 import ssl
-import time
-from datetime import datetime, timedelta, timezone
-from threading import Thread
+import threading
 from typing import Dict, List, Optional
 
+import numpy as np
 import pandas as pd
-import pytz
 import websocket
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
 
 logger = logging.getLogger(__name__)
 
-utctz = pytz.timezone("UTC")
+# The market data subscription that delivers each supported event type. The
+# l2 subscription also delivers order book changes, which are discarded.
+_SUBSCRIPTIONS = {
+    WSEventType.TRADE: "l2",
+    WSEventType.MIN_AGG: "candles_1m",
+}
+
+
+def _gemini_time(milliseconds: int) -> pd.Timestamp:
+    """Return a Gemini time in milliseconds as a timestamp in New York time.
+
+    Parameters
+    ----------
+    milliseconds: int
+        The Unix time in milliseconds.
+    """
+    return pd.Timestamp(milliseconds, unit="ms", tz="UTC").tz_convert(clock.NY)
 
 
 class GeminiStream(StreamingAPI):
-    """StreamingAPI implementation for Gemini trades.
+    """StreamingAPI implementation for Gemini market data.
 
-    Only btcusd trades are streamed, whatever the subscriptions.
+    A single connection to the version 2 market data API streams the trades
+    and minute bars of every subscribed symbol. Quotes and second bars are not
+    streamed.
 
     Attributes
     ----------
     config: GeminiConfig
         The connection settings.
-    running_task: Optional[Thread]
+    running_task: Optional[threading.Thread]
         The websocket thread, or None.
     ws
         The websocket connection, or None.
@@ -52,7 +67,7 @@ class GeminiStream(StreamingAPI):
     close
         Stop the websocket thread.
     subscribe
-        Return True without subscribing.
+        Subscribe to the trades or minute bars of symbols.
     """
 
     def __init__(self, queues: SymbolQueueMap, config: GeminiConfig):
@@ -66,66 +81,31 @@ class GeminiStream(StreamingAPI):
             The connection settings.
         """
         self.config = config
-        self.running_task: Optional[Thread] = None
+        self.running_task: Optional[threading.Thread] = None
         self.ws = None
+        self._connected = threading.Event()
         super().__init__(queues)
 
-    def _generate_ws_headers(self, payload: Dict) -> Dict:
-        """Return the Gemini authentication headers for a websocket request.
-
-        Parameters
-        ----------
-        payload: Dict
-            The request payload; a nonce is added to it in place.
-
-        Raises
-        ------
-        Raise AssertionError if the API key or secret is not set.
-        """
-        if not self.config.api_secret or not self.config.api_key:
-            raise AssertionError(
-                "both env variables GEMINI_API_KEY and GEMINI_API_SECRET must be set up"
-            )
-        t = datetime.now()
-        payload_nonce = str(int(time.mktime(t.timetuple()) * 1000))
-        payload["nonce"] = payload_nonce
-        encoded_payload = json.dumps(payload).encode()
-        b64 = base64.b64encode(encoded_payload)
-        signature = hmac.new(
-            self.config.api_secret.encode(), b64, hashlib.sha384
-        ).hexdigest()
-
-        return {
-            "X-GEMINI-APIKEY": self.config.api_key,
-            "X-GEMINI-PAYLOAD": b64.decode(),
-            "X-GEMINI-SIGNATURE": signature,
-        }
-
     async def run(self):
-        """Start the btcusd websocket on a background thread, if not started.
+        """Start the market data websocket on a background thread.
 
-        Connect without TLS certificate verification.
+        Do nothing if it is already started. Connect without TLS certificate
+        verification.
 
         Returns
         -------
         Return the thread.
-
-        Raises
-        ------
-        Raise AssertionError if the API key or secret is not set.
         """
         if not self.running_task:
-            endpoint = "/v1/marketdata/btcusd"  # TODO need support all symbols in an efficient way
-            payload = {"request": endpoint}
-            headers = self._generate_ws_headers(payload)
+            self._connected.clear()
             self.ws = websocket.WebSocketApp(
-                f"{self.config.base_websocket}{endpoint}?trades=true&heartbeat=true",
+                f"{self.config.base_websocket}/v2/marketdata",
+                on_open=self._on_open,
                 on_message=self._on_message,
                 on_error=self._on_error,
                 on_close=self._on_close,
-                header=headers,
             )
-            self.running_task = Thread(
+            self.running_task = threading.Thread(
                 target=self.ws.run_forever,
                 args=(None, {"cert_reqs": ssl.CERT_NONE}),
             )
@@ -143,34 +123,38 @@ class GeminiStream(StreamingAPI):
             self.ws = None
             self.running_task = None
 
-    @classmethod
-    def _on_message(cls, ws, msgs):
-        """Pass each trade event in a websocket message to _trades_handler.
-
-        Ignore messages that are not updates.
+    def _on_open(self, ws):
+        """Record that the websocket is connected.
 
         Parameters
         ----------
         ws
             The websocket; unused.
-        msgs
+        """
+        self._connected.set()
+
+    @classmethod
+    def _on_message(cls, ws, message):
+        """Enqueue the trade or minute bar in a websocket message.
+
+        Gemini sends the closed minute bars of the last day when a candle
+        subscription starts, newest first, and then each bar as its minute
+        closes, so only the newest bar of each candle message is enqueued.
+        Ignore order book changes, including the recent trades listed with
+        them, and heartbeats.
+
+        Parameters
+        ----------
+        ws
+            The websocket; unused.
+        message
             The JSON message text.
         """
-        msg = json.loads(msgs)
-
-        if msg["type"] != "update":
-            return
-
-        for event in msg["events"]:
-            if event["type"] == "trade":
-                cls._trades_handler(
-                    pd.Timestamp(
-                        datetime.fromtimestamp(msg["timestamp"]).astimezone(
-                            utctz
-                        )
-                    ),
-                    event,
-                )
+        msg = json.loads(message)
+        if msg["type"] == "trade":
+            cls._trade_handler(msg)
+        elif msg["type"] == "candles_1m_updates" and msg["changes"]:
+            cls._bar_handler(msg["symbol"], msg["changes"][0])
 
     @classmethod
     def _on_error(cls, ws, error):
@@ -205,61 +189,98 @@ class GeminiStream(StreamingAPI):
         )
 
     @classmethod
-    def _trades_handler(cls, timestamp: datetime, event: Dict):
-        """Put a Gemini trade on the btcusd queue as a normalized trade event.
+    def _trade_handler(cls, msg: Dict):
+        """Put a Gemini trade on the queue of its symbol as a trade event.
 
         Log trades received more than two seconds late.
 
         Parameters
         ----------
-        timestamp: datetime
-            The time of the trade, timezone-aware.
+        msg: Dict
+            The Gemini trade message.
+        """
+        timestamp = _gemini_time(msg["timestamp"])
+        if (time_diff := clock.now() - timestamp) > pd.Timedelta(seconds=2):
+            logger.info(
+                "received a trade for %s out of sync w %s",
+                msg["symbol"],
+                time_diff,
+            )
+
+        price = float(msg["price"])
+        cls._enqueue(
+            {
+                "symbol": msg["symbol"].lower(),
+                "price": price,
+                "open": price,
+                "close": price,
+                "high": price,
+                "low": price,
+                "timestamp": timestamp,
+                "volume": float(msg["quantity"]),
+                "exchange": "gemini",
+                "conditions": msg["side"],
+                "tape": "",
+                "average": np.nan,
+                "count": 1,
+                "vwap": np.nan,
+                "EV": "T",
+            }
+        )
+
+    @classmethod
+    def _bar_handler(cls, symbol: str, candle: List):
+        """Put a Gemini minute bar on the queue of its symbol as an "AM" event.
+
+        Parameters
+        ----------
+        symbol: str
+            The symbol of the bar.
+        candle: List
+            The bar: its start time in milliseconds, then its open, high, low
+            and close prices and its volume.
+        """
+        start, open_, high, low, close, volume = candle
+        cls._enqueue(
+            {
+                "symbol": symbol.lower(),
+                "open": open_,
+                "close": close,
+                "high": high,
+                "low": low,
+                "timestamp": _gemini_time(start),
+                "volume": volume,
+                "count": 0,
+                "vwap": np.nan,
+                "average": np.nan,
+                "totalvolume": None,
+                "EV": "AM",
+            }
+        )
+
+    @classmethod
+    def _enqueue(cls, event: Dict):
+        """Put an event on the queue of its symbol without blocking.
+
+        Parameters
+        ----------
         event: Dict
-            The Gemini trade event.
+            The event.
 
         Raises
         ------
-        Raise an exception if the queue is full; log and suppress any other
+        Raise queue.Full if the queue is full; log and suppress any other
         error.
         """
         try:
-            if (time_diff := (datetime.now(timezone.utc) - timestamp)) > timedelta(seconds=2):  # type: ignore
-                # if randint(1, 100) == 1:  # nosec
-                logger.info(
-                    "received a trade for btcusd out of sync w %s", time_diff
-                )
-
-            event = {
-                "symbol": "btcusd",
-                "price": float(event["price"]),
-                "open": float(event["price"]),
-                "close": float(event["price"]),
-                "high": float(event["price"]),
-                "low": float(event["price"]),
-                "timestamp": timestamp,
-                "volume": float(event["amount"]),
-                "exchange": "gemini",
-                "conditions": event["makerSide"],
-                "tape": "",
-                "average": None,
-                "count": 1,
-                "vwap": None,
-                "EV": "T",
-            }
-
-            cls.get_instance().queues["btcusd"].put(event, block=False)
-
+            cls.get_instance().queues[event["symbol"]].put(event, block=False)
         except queue.Full as f:
             logger.error(
                 "process_message(): queue for %s is FULL:%s",
-                event["sym"],
+                event["symbol"],
                 f,
             )
             raise
-        except AssertionError as e:
-            logger.error("GEMINI process_message(): %s", e)
-            time.sleep(1)
-            return
         except Exception as e:
             logger.error(
                 "process_message(): exception of type %s with args %s",
@@ -271,13 +292,45 @@ class GeminiStream(StreamingAPI):
     async def subscribe(
         self, symbols: List[str], events: List[WSEventType]
     ) -> bool:
-        """Return True without subscribing, as the stream is fixed to btcusd.
+        """Subscribe to event types for the given symbols.
+
+        Wait up to ten seconds for run to connect.
 
         Parameters
         ----------
         symbols: List[str]
-            Ignored.
+            The symbols to subscribe to, in any letter case.
         events: List[WSEventType]
-            Ignored.
+            The event types to receive; types other than trades and minute
+            bars are ignored.
+
+        Returns
+        -------
+        Return False if the websocket is not connected, and True otherwise.
         """
-        return True  # TODO Gemini - handle all symbols and event types
+        if not self.ws or not await asyncio.to_thread(
+            self._connected.wait, 10
+        ):
+            logger.error("GeminiStream.subscribe(): not connected")
+            return False
+
+        names = sorted(
+            {_SUBSCRIPTIONS[e] for e in events if e in _SUBSCRIPTIONS}
+        )
+        if symbols and names:
+            upper_symbols = [symbol.upper() for symbol in symbols]
+            self.ws.send(
+                json.dumps(
+                    {
+                        "type": "subscribe",
+                        "subscriptions": [
+                            {"name": name, "symbols": upper_symbols}
+                            for name in names
+                        ],
+                    }
+                )
+            )
+            logger.info(
+                "GeminiStream subscribed %s to %s", upper_symbols, names
+            )
+        return True

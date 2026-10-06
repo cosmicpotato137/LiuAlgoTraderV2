@@ -1,6 +1,8 @@
 """my_scanner.py: custom scanner implementing the Scanner class"""
-from datetime import datetime
-from typing import List
+
+from typing import List, Optional
+
+import pandas as pd
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.scanners.base import Scanner
@@ -15,5 +17,5 @@ class MyScanner(Scanner):
             target_strategy_name=kwargs.get("target_strategy_name"),
         )
 
-    async def run(self, back_time: datetime = None) -> List[str]:
+    async def run(self, back_time: Optional[pd.Timestamp] = None) -> List[str]:
         return ["AAPL"]

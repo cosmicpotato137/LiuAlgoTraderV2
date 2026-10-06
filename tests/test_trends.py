@@ -4,10 +4,10 @@ from datetime import datetime
 import hypothesis.strategies as st
 import pandas as pd
 import pytest
-import pytz
 from hypothesis import given, settings
 from hypothesis.extra.pandas import indexes, series
 
+from liualgotrader.common import clock
 from liualgotrader.fincalcs.trends import SeriesTrendType, get_series_trend
 
 logger = logging.getLogger(__name__)
@@ -18,8 +18,11 @@ logger = logging.getLogger(__name__)
     series(
         index=indexes(
             elements=st.datetimes(
-                min_value=datetime(2000, 1, 1), max_value=datetime(2040, 1, 1)
-            ),
+                min_value=datetime(2000, 1, 1),
+                max_value=datetime(2040, 1, 1),
+                timezones=st.just(clock.NY),
+                allow_imaginary=False,
+            ).map(pd.Timestamp),
             dtype=None,
         ),
         elements=st.floats(

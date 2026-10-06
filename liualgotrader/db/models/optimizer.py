@@ -6,13 +6,13 @@ OptimizerRun
     Batch run by an optimizer session, stored in the optimizer_run table.
 """
 
-from datetime import datetime
 from typing import List, Optional, Tuple
 
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import Base, CurrentTimestamp, Timestamp
+from liualgotrader.db.models.base import Base, CurrentTimestamp
 from liualgotrader.db.models.portfolio import PortfolioBatchId
 from liualgotrader.db.session import session_scope
 
@@ -28,7 +28,7 @@ class OptimizerRun(Base):
         The optimizer session identifier.
     batch_id: str
         The batch identifier.
-    tstamp: Optional[datetime]
+    tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the record is saved.
     parameters: str
         The parameters used for the batch.
@@ -46,8 +46,8 @@ class OptimizerRun(Base):
     optimizer_run_id: Mapped[int] = mapped_column(primary_key=True)
     optimizer_session_id: Mapped[str] = mapped_column(index=True)
     batch_id: Mapped[str]
-    tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )
     parameters: Mapped[str] = mapped_column(server_default="")
 

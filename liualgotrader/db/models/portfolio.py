@@ -8,17 +8,16 @@ PortfolioBatchId
     Batch run for a portfolio, stored in the portfolio_batch_ids table.
 """
 
-from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
+import pandas as pd
 from pandas import DataFrame
 from sqlalchemy import Enum, ForeignKey, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from liualgotrader.common.types import AssetType
 from liualgotrader.db.models.accounts import Account, AccountTransaction
-from liualgotrader.db.models.base import (Base, CurrentTimestamp, JsonDict,
-                                          Timestamp)
+from liualgotrader.db.models.base import Base, CurrentTimestamp, JsonDict
 from liualgotrader.db.session import session_scope
 
 
@@ -33,9 +32,9 @@ class Portfolio(Base):
         The portfolio size, which is also the opening account balance.
     parameters: Optional[Dict[str, Any]]
         The portfolio parameters, or None.
-    expire_tstamp: Optional[datetime]
+    expire_tstamp: Optional[pd.Timestamp]
         The time the portfolio expired, or None.
-    tstamp: Optional[datetime]
+    tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the portfolio is saved.
     account_id: Optional[int]
         The identifier of the associated account, or None.
@@ -73,11 +72,9 @@ class Portfolio(Base):
     portfolio_id: Mapped[str] = mapped_column(primary_key=True)
     portfolio_size: Mapped[int]
     parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
-    expire_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True)
-    )
-    tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    expire_tstamp: Mapped[Optional[pd.Timestamp]]
+    tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )
     account_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("accounts.account_id"), index=True

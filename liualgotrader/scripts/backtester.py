@@ -23,17 +23,16 @@ import getopt
 import logging
 import os
 import sys
-from datetime import date, datetime
+from datetime import date
 from typing import List, Optional
 
 import pandas as pd
 import parsedatetime.parsedatetime as pdt
-import pytz
 import toml
 from requests.exceptions import HTTPError
 
 from liualgotrader import enhanced_backtest
-from liualgotrader.common import config, market_data, trading_data
+from liualgotrader.common import clock, config, market_data, trading_data
 from liualgotrader.common.decorators import timeit
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType, TimeScale
@@ -89,14 +88,15 @@ def dateFromString(s: str) -> date:
     Parameters
     ----------
     s: str
-        The date string, either explicit or relative, such as "yesterday".
+        The date string, either explicit or relative to the current New York
+        time, such as "yesterday".
 
     Raises
     ------
     Raise ValueError if the string cannot be parsed as a date or a time.
     """
     c = pdt.Calendar()
-    result, what = c.parse(s)
+    result, what = c.parse(s, clock.now().timetuple())
     dt = None
 
     # what was returned (see http://code-bear.com/code/parsedatetime/docs/)
@@ -106,7 +106,7 @@ def dateFromString(s: str) -> date:
     # 3 = datetime
     if what in (1, 2):
         # result is struct_time
-        dt = datetime(*result[:6]).date()
+        dt = date(*result[:3])
     elif what == 3:
         # result is a datetime
         dt = result.date()
@@ -155,7 +155,7 @@ def main_cli() -> None:
         try:
             scanners: Optional[List] = None
             strategies: Optional[List] = None
-            to_date = datetime.now(tz=pytz.timezone("US/Eastern")).date()
+            to_date = clock.today()
             scale = TimeScale["day"]
             buy_fee_percentage = 0.0
             sell_fee_percentage = 0.0

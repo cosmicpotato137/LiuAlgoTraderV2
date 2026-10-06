@@ -9,8 +9,9 @@ Scanner
 import importlib
 import logging
 from abc import ABCMeta, abstractmethod
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+
+import pandas as pd
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 
@@ -26,7 +27,7 @@ class Scanner(metaclass=ABCMeta):
     ----------
     name: str
         The scanner name.
-    recurrence: Optional[timedelta]
+    recurrence: Optional[pd.Timedelta]
         The interval between runs, or None.
     target_strategy_name: Optional[str]
         The strategy that receives the results, or None.
@@ -49,7 +50,7 @@ class Scanner(metaclass=ABCMeta):
         self,
         name: str,
         data_loader: DataLoader,
-        recurrence: Optional[timedelta],
+        recurrence: Optional[pd.Timedelta],
         target_strategy_name: Optional[str],
         data_source: object = None,
     ):
@@ -61,7 +62,7 @@ class Scanner(metaclass=ABCMeta):
             The scanner name.
         data_loader: DataLoader
             The loader used to fetch market data.
-        recurrence: Optional[timedelta]
+        recurrence: Optional[pd.Timedelta]
             The interval between runs, or None.
         target_strategy_name: Optional[str]
             The strategy that receives the results, or None.
@@ -79,14 +80,14 @@ class Scanner(metaclass=ABCMeta):
         return self.name
 
     @abstractmethod
-    async def run(self, back_time: datetime = None) -> List[str]:
+    async def run(self, back_time: Optional[pd.Timestamp] = None) -> List[str]:
         """Return the symbols selected by the scanner.
 
         Subclasses must override this method.
 
         Parameters
         ----------
-        back_time: datetime, default None
+        back_time: Optional[pd.Timestamp], default None
             The moment to scan as of, when backtesting.
         """
         return []
@@ -149,7 +150,7 @@ class Scanner(metaclass=ABCMeta):
                 recurrence = scanner_details.pop("recurrence")
                 scanner_object = custom_scanner(
                     data_loader=data_loader,
-                    recurrence=timedelta(minutes=recurrence),
+                    recurrence=pd.Timedelta(minutes=recurrence),
                     **scanner_details,
                 )
         except FileNotFoundError as e:

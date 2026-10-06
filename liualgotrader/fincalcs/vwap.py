@@ -9,11 +9,10 @@ anchored_vwap
 """
 
 import logging
-from datetime import datetime
+from typing import Optional
 
 import pandas as pd
 from pandas import DataFrame as df
-from pandas import Timestamp as ts
 
 from liualgotrader.common import config
 
@@ -21,7 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def add_daily_vwap(
-    minute_data: df, debug=False, back_time=None, in_place=True
+    minute_data: df,
+    debug=False,
+    back_time: Optional[pd.Timestamp] = None,
+    in_place=True,
 ):
     """Compute the volume-weighted average price from an anchor time.
 
@@ -34,7 +36,7 @@ def add_daily_vwap(
         The price bars, with close, high, low and volume columns.
     debug, default False
         Log the input and any lookup error.
-    back_time, default None
+    back_time: Optional[pd.Timestamp], default None
         The anchor time, matched to the nearest row.
     in_place, default True
         Modify minute_data rather than a copy.
@@ -80,7 +82,7 @@ def add_daily_vwap(
 
 
 def anchored_vwap(
-    ohlc_data: df, start_time: datetime, debug=False
+    ohlc_data: df, start_time: pd.Timestamp, debug=False
 ) -> pd.Series:
     """Return the volume-weighted average price anchored at a start time.
 
@@ -88,7 +90,7 @@ def anchored_vwap(
     ----------
     ohlc_data: df
         The price bars, which are left unmodified.
-    start_time: datetime
+    start_time: pd.Timestamp
         The anchor time, matched to the nearest row.
     debug, default False
         Log the input and any lookup error.

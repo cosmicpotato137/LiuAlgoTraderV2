@@ -1,23 +1,19 @@
 """Initial schema.
 
-Create the tables of a new database. Make a database created before
-migrations the same as a new one: rename the columns that the former
-database/schema.sql named differently, drop its triggers, replace its indexes
-with those of the models, and create the tables it is missing.
+Create the tables of a new database.
 
 Revision ID: dbb5a7d40e55
 Revises:
 Create Date: 2026-10-04 00:09:07.723401
 """
 
-from typing import Optional, Sequence, Set, Union
+from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from liualgotrader.db.models.base import (CurrentTimestamp, RandomUuid,
-                                          Timestamp)
+from liualgotrader.db.models.base import CurrentTimestamp, RandomUuid
 
 # revision identifiers, used by Alembic.
 revision: str = "dbb5a7d40e55"
@@ -25,72 +21,12 @@ down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# Columns that the former database/schema.sql named differently.
-_RENAMED_COLUMNS = [
-    ("accounts", "modified_tstamp", "modify_tstamp"),
-    ("algo_run", "algo_name", "strategy_name"),
-    ("algo_run", "algo_env", "env"),
-    ("algo_run", "ref_algo_run", "ref_algo_run_id"),
-    ("portfolio", "size", "portfolio_size"),
-    ("portfolio", "assets", "asset_type"),
-    ("stock_ohlc", "symbol_id", "stock_ohlc_id"),
-    ("trade_analysis", "start_tstamp", "start_time"),
-    ("trade_analysis", "end_tstamp", "end_time"),
-]
 
-
-def _adopt_existing_tables() -> Set[str]:
-    """Bring the tables of a database created before migrations up to date.
-
-    Rename the columns that the former database/schema.sql named
-    differently. On PostgreSQL, also drop its triggers, whose work
-    Account.add_transaction and the ORM now do. A new database has no tables,
-    so nothing changes.
-
-    Returns
-    -------
-    Return the names of the tables that the database already has.
-    """
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing = set(inspector.get_table_names())
-    for table, old, new in _RENAMED_COLUMNS:
-        if table in existing and old in {
-            column["name"] for column in inspector.get_columns(table)
-        }:
-            op.alter_column(table, old, new_column_name=new)
-
-    if bind.dialect.name == "postgresql":
-        # Account.add_transaction updates the balances, and the ORM sets
-        # trade_plan.modify_tstamp.
-        if "account_transactions" in existing:
-            op.execute(
-                "DROP TRIGGER IF EXISTS balance_update "
-                "ON account_transactions"
-            )
-        if "trade_plan" in existing:
-            op.execute(
-                "DROP TRIGGER IF EXISTS update_trade_plan_modify_tstamp "
-                "ON trade_plan"
-            )
-        op.execute("DROP FUNCTION IF EXISTS update_balance()")
-        op.execute("DROP FUNCTION IF EXISTS update_modify_tstamp_action()")
-    return existing
-
-
-def _create_table(
-    existing: Set[str], name: str, *elements, indexes=()
-) -> None:
-    """Create a table and its indexes, unless the database already has it.
-
-    For a table that exists, replace its indexes with the listed ones: drop
-    every other index, except one that a constraint uses, and create the
-    listed indexes it lacks.
+def _create_table(name: str, *elements, indexes=()) -> None:
+    """Create a table and its indexes.
 
     Parameters
     ----------
-    existing: Set[str]
-        The names of the tables that the database already has.
     name: str
         The table name.
     *elements
@@ -99,29 +35,14 @@ def _create_table(
     indexes, default ()
         The columns that each have an index, named ix_<table>_<column>.
     """
-    wanted = {f"ix_{name}_{column}": column for column in indexes}
-    present: Set[Optional[str]] = set()
-    if name in existing:
-        # Keep the indexes of the models and of constraints, and drop the
-        # others, which the former schema.sql created under other names.
-        for index in sa.inspect(op.get_bind()).get_indexes(name):
-            index_name = index["name"]
-            if index_name in wanted or index.get("duplicates_constraint"):
-                present.add(index_name)
-            elif index_name:
-                op.drop_index(index_name, table_name=name)
-    else:
-        op.create_table(name, *elements)
-    for index_name, column in wanted.items():
-        if index_name not in present:
-            op.create_index(op.f(index_name), name, [column])
+    op.create_table(name, *elements)
+    for column in indexes:
+        op.create_index(op.f(f"ix_{name}_{column}"), name, [column])
 
 
 def upgrade() -> None:
-    """Create the schema, or update a database created before migrations."""
-    existing = _adopt_existing_tables()
+    """Create the schema."""
     _create_table(
-        existing,
         "accounts",
         sa.Column("account_id", sa.Integer(), nullable=False),
         sa.Column(
@@ -145,16 +66,15 @@ def upgrade() -> None:
         ),
         sa.Column(
             "create_tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
-        sa.Column("modify_tstamp", Timestamp(timezone=True), nullable=True),
+        sa.Column("modify_tstamp", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint("credit_line > 0 OR NOT allow_negative"),
         sa.PrimaryKeyConstraint("account_id"),
     )
     _create_table(
-        existing,
         "algo_run",
         sa.Column("algo_run_id", sa.Integer(), nullable=False),
         sa.Column("strategy_name", sa.Text(), nullable=False),
@@ -169,11 +89,11 @@ def upgrade() -> None:
         ),
         sa.Column(
             "start_time",
-            Timestamp(timezone=False),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
-        sa.Column("end_time", Timestamp(timezone=False), nullable=True),
+        sa.Column("end_time", sa.DateTime(timezone=True), nullable=True),
         sa.Column("end_reason", sa.Text(), nullable=True),
         sa.Column("batch_id", sa.Text(), server_default="", nullable=False),
         sa.Column("ref_algo_run_id", sa.Integer(), nullable=True),
@@ -185,27 +105,25 @@ def upgrade() -> None:
         indexes=["batch_id", "start_time"],
     )
     _create_table(
-        existing,
         "keystore",
         sa.Column("key", sa.Text(), nullable=False),
         sa.Column("value", sa.Text(), nullable=False),
         sa.Column(
             "tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
         sa.PrimaryKeyConstraint("key"),
     )
     _create_table(
-        existing,
         "optimizer_run",
         sa.Column("optimizer_run_id", sa.Integer(), nullable=False),
         sa.Column("optimizer_session_id", sa.Text(), nullable=False),
         sa.Column("batch_id", sa.Text(), nullable=False),
         sa.Column(
             "tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
@@ -214,7 +132,6 @@ def upgrade() -> None:
         indexes=["optimizer_session_id"],
     )
     _create_table(
-        existing,
         "stock_ohlc",
         sa.Column("stock_ohlc_id", sa.Integer(), nullable=False),
         sa.Column("symbol", sa.Text(), nullable=False),
@@ -231,10 +148,10 @@ def upgrade() -> None:
             ),
             nullable=True,
         ),
-        sa.Column("modify_tstamp", Timestamp(timezone=False), nullable=True),
+        sa.Column("modify_tstamp", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "create_tstamp",
-            Timestamp(timezone=False),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
@@ -243,7 +160,6 @@ def upgrade() -> None:
         indexes=["symbol", "symbol_date"],
     )
     _create_table(
-        existing,
         "ticker_data",
         sa.Column("symbol", sa.Text(), nullable=False),
         sa.Column("name", sa.Text(), nullable=False),
@@ -264,23 +180,22 @@ def upgrade() -> None:
         sa.Column("short_ratio", sa.Double(), nullable=True),
         sa.Column(
             "create_tstamp",
-            Timestamp(timezone=False),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
-        sa.Column("modify_tstamp", Timestamp(timezone=False), nullable=True),
+        sa.Column("modify_tstamp", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("symbol"),
         indexes=["industry", "sector"],
     )
     _create_table(
-        existing,
         "trending_tickers",
         sa.Column("trending_id", sa.Integer(), nullable=False),
         sa.Column("batch_id", sa.Text(), nullable=False),
         sa.Column("symbol", sa.Text(), nullable=False),
         sa.Column(
             "create_tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
@@ -294,7 +209,6 @@ def upgrade() -> None:
         indexes=["batch_id", "create_tstamp", "scanner_name"],
     )
     _create_table(
-        existing,
         "account_transactions",
         sa.Column("transaction_id", sa.Integer(), nullable=False),
         sa.Column("account_id", sa.Integer(), nullable=False),
@@ -308,13 +222,13 @@ def upgrade() -> None:
         ),
         sa.Column(
             "tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
         sa.Column(
             "create_tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
@@ -325,7 +239,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("transaction_id"),
     )
     _create_table(
-        existing,
         "gain_loss",
         sa.Column("gain_loss_id", sa.Integer(), nullable=False),
         sa.Column("symbol", sa.Text(), nullable=False),
@@ -338,7 +251,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "tstamp",
-            Timestamp(timezone=False),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
@@ -350,7 +263,6 @@ def upgrade() -> None:
         sa.UniqueConstraint("symbol", "algo_run_id"),
     )
     _create_table(
-        existing,
         "new_trades",
         sa.Column("trade_id", sa.Integer(), nullable=False),
         sa.Column("algo_run_id", sa.Integer(), nullable=False),
@@ -376,10 +288,10 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column("client_time", sa.Text(), nullable=True),
+        sa.Column("client_time", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "tstamp",
-            Timestamp(timezone=False),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
@@ -389,7 +301,7 @@ def upgrade() -> None:
         sa.Column(
             "target_price", sa.Numeric(precision=8, scale=2), nullable=True
         ),
-        sa.Column("expire_tstamp", Timestamp(timezone=False), nullable=True),
+        sa.Column("expire_tstamp", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "trade_fee",
             sa.Numeric(precision=9, scale=2),
@@ -404,7 +316,6 @@ def upgrade() -> None:
         indexes=["algo_run_id", "symbol", "tstamp"],
     )
     _create_table(
-        existing,
         "portfolio",
         sa.Column("portfolio_id", sa.Text(), nullable=False),
         sa.Column("portfolio_size", sa.Integer(), nullable=False),
@@ -415,10 +326,10 @@ def upgrade() -> None:
             ),
             nullable=True,
         ),
-        sa.Column("expire_tstamp", Timestamp(timezone=True), nullable=True),
+        sa.Column("expire_tstamp", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
@@ -444,13 +355,12 @@ def upgrade() -> None:
         indexes=["account_id"],
     )
     _create_table(
-        existing,
         "trade_analysis",
         sa.Column("trade_analysis_id", sa.Integer(), nullable=False),
         sa.Column("symbol", sa.Text(), nullable=False),
         sa.Column("algo_run_id", sa.Integer(), nullable=False),
-        sa.Column("start_time", Timestamp(timezone=True), nullable=False),
-        sa.Column("end_time", Timestamp(timezone=True), nullable=False),
+        sa.Column("start_time", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("end_time", sa.DateTime(timezone=True), nullable=False),
         sa.Column(
             "gain_percentage", sa.Numeric(precision=5, scale=2), nullable=False
         ),
@@ -460,7 +370,7 @@ def upgrade() -> None:
         sa.Column("r_units", sa.Numeric(precision=4, scale=2), nullable=True),
         sa.Column(
             "tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
@@ -472,7 +382,6 @@ def upgrade() -> None:
         sa.UniqueConstraint("symbol", "algo_run_id", "start_time"),
     )
     _create_table(
-        existing,
         "portfolio_batch_ids",
         sa.Column("assoc_id", sa.Integer(), nullable=False),
         sa.Column("portfolio_id", sa.Text(), nullable=False),
@@ -485,7 +394,6 @@ def upgrade() -> None:
         indexes=["batch_id", "portfolio_id"],
     )
     _create_table(
-        existing,
         "trade_plan",
         sa.Column(
             "trade_plan_id",
@@ -505,12 +413,12 @@ def upgrade() -> None:
         ),
         sa.Column(
             "create_tstamp",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
-        sa.Column("modify_tstamp", Timestamp(timezone=True), nullable=True),
-        sa.Column("expire_tstamp", Timestamp(timezone=True), nullable=True),
+        sa.Column("modify_tstamp", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("expire_tstamp", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(
             ["portfolio_id"],
             ["portfolio.portfolio_id"],
@@ -518,7 +426,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("trade_plan_id"),
     )
     _create_table(
-        existing,
         "trade_plan_execution_audit",
         sa.Column("execution_id", sa.Integer(), nullable=False),
         sa.Column("trade_plan_id", sa.Uuid(), nullable=True),
@@ -531,13 +438,13 @@ def upgrade() -> None:
         ),
         sa.Column(
             "started_on",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),
         sa.Column(
             "ended_on",
-            Timestamp(timezone=True),
+            sa.DateTime(timezone=True),
             server_default=CurrentTimestamp(),
             nullable=True,
         ),

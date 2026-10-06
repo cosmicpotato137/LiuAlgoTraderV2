@@ -5,7 +5,7 @@
 groups = ["default", "dev", "docs", "postgres"]
 strategy = []
 lock_version = "4.5.1"
-content_hash = "sha256:3b0d1c6813be37301d9b489640ea21f50b84847f569e0618e71156da2a4b37e3"
+content_hash = "sha256:760e13cf98c47daad947fc5b28b9f44f559208144e7cf03f566c705f03e52647"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -4009,16 +4009,6 @@ dependencies = [
 files = [
     {file = "tqdm-4.70.1-py3-none-any.whl", hash = "sha256:c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73"},
     {file = "tqdm-4.70.1.tar.gz", hash = "sha256:cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4"},
-]
-
-[[package]]
-name = "types-pytz"
-version = "2026.4.0.20260926"
-requires_python = ">=3.10"
-summary = "Typing stubs for pytz"
-files = [
-    {file = "types_pytz-2026.4.0.20260926-py3-none-any.whl", hash = "sha256:0d0357ffa7680a4416811fb0e56e7a5c0d6efec3f299390d146ea2675b66c774"},
-    {file = "types_pytz-2026.4.0.20260926.tar.gz", hash = "sha256:2ad5cde113cd6a58dd59c34f3c93f1bce2d126c769bfac15207ca7d7efd65390"},
 ]
 
 [[package]]

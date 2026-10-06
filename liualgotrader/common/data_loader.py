@@ -10,17 +10,17 @@ DataLoader
 
 Functions
 ---------
-convert_offset_to_datetime
+convert_offset_to_timestamp
     Return the timestamp that matches an offset.
 handle_slice_conversion
-    Return key with its bounds made timezone-aware.
+    Return key with its integer bounds converted to timestamps.
 load_item_by_offset
     Fetch data up to an offset and return the row there.
 get_item_by_offset
     Return the row at an offset, fetching data if needed.
 fetch_data_range
     Fetch a symbol's data over a range and merge it.
-fetch_data_datetime
+fetch_data_timestamp
     Fetch the data needed to cover a timestamp and merge it.
 getitem_slice
     Return the rows of a symbol's data selected by a slice.
@@ -30,13 +30,11 @@ getitem
 
 import concurrent.futures
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 from importlib.resources import files
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
-from dateutil.parser import parse as date_parser
-from pytz import timezone
 
 from liualgotrader.common import config
 from liualgotrader.common.types import DataConnectorType, TimeScale
@@ -45,10 +43,24 @@ from liualgotrader.data.factory import data_loader_factory
 
 logger = logging.getLogger(__name__)
 
-nyc = timezone("America/New_York")
-
 with files("liualgotrader").joinpath("res", "market_m_a_data.csv").open() as f:
-    m_and_a_data = pd.read_csv(f).set_index("date")
+    m_and_a_data = pd.read_csv(f, index_col="date", parse_dates=True)
+m_and_a_data.index = pd.Index(m_and_a_data.index.date, name="date")
+
+
+def _check_timestamp(key) -> None:
+    """Raise TypeError unless key is a time zone-aware pd.Timestamp.
+
+    Parameters
+    ----------
+    key
+        The key to check.
+    """
+    if not isinstance(key, pd.Timestamp) or key.tzinfo is None:
+        raise TypeError(
+            "expected an int offset or a time zone-aware pd.Timestamp, "
+            f"got {key!r}"
+        )
 
 
 def _calc_data_to_fetch(s: slice, index: pd.Index) -> List[slice]:
@@ -61,7 +73,7 @@ def _calc_data_to_fetch(s: slice, index: pd.Index) -> List[slice]:
     Parameters
     ----------
     s: slice
-        The requested range, with datetime bounds.
+        The requested range, with pd.Timestamp bounds.
     index: pd.Index
         The index of the data already loaded.
 
@@ -82,14 +94,14 @@ def _calc_data_to_fetch(s: slice, index: pd.Index) -> List[slice]:
     return slices
 
 
-def convert_offset_to_datetime(
+def convert_offset_to_timestamp(
     data_api: DataAPI,
     symbol: str,
     index: pd.Index,
     scale: TimeScale,
     offset: int,
-    start: Optional[datetime] = None,
-) -> datetime:
+    start: Optional[pd.Timestamp] = None,
+) -> pd.Timestamp:
     """Return the timestamp that corresponds to an integer offset.
 
     Parameters
@@ -104,7 +116,7 @@ def convert_offset_to_datetime(
         The time scale of the data.
     offset: int
         The position to convert.
-    start: Optional[datetime], default None
+    start: Optional[pd.Timestamp], default None
         The reference time for offsets beyond index, or None for the last
         trading time of symbol.
 
@@ -119,8 +131,8 @@ def convert_offset_to_datetime(
         last_trading_time = start or data_api.get_last_trading(symbol)
         if scale == TimeScale.minute:
             return last_trading_time.replace(
-                second=0, microsecond=0
-            ) + timedelta(minutes=1 + offset)
+                second=0, microsecond=0, nanosecond=0
+            ) + pd.Timedelta(minutes=1 + offset)
 
         return data_api.get_trading_day(symbol, last_trading_time, 1 + offset)
 
@@ -132,10 +144,9 @@ def handle_slice_conversion(
     scale: TimeScale,
     index: pd.Index,
 ) -> slice:
-    """Return key with its bounds converted to timezone-aware datetimes.
+    """Return key with its integer bounds converted to timestamps.
 
-    Interpret string, date and naive datetime bounds in New York time, and
-    integer bounds as offsets into index. Leave other bounds unchanged.
+    Integer bounds are offsets into index.
 
     Parameters
     ----------
@@ -144,50 +155,37 @@ def handle_slice_conversion(
     symbol: str
         The symbol whose trading calendar applies.
     key: slice
-        The slice to convert.
+        The slice to convert, bounded by integer offsets or time zone-aware
+        pd.Timestamp values.
     scale: TimeScale
         The time scale of the data.
     index: pd.Index
         The index of the data already loaded.
+
+    Raises
+    ------
+    Raise TypeError if a bound is neither an integer nor a time zone-aware
+    pd.Timestamp.
     """
-    # handle slice end
-    if type(key.stop) == str:
+    if isinstance(key.stop, int):
         key = slice(
             key.start,
-            nyc.localize(date_parser(key.stop)),
-        )
-    elif type(key.stop) == int:
-        key = slice(
-            key.start,
-            convert_offset_to_datetime(
+            convert_offset_to_timestamp(
                 data_api, symbol, index, scale, key.stop
             ),
         )
-    elif type(key.stop) == date:
-        key = slice(
-            key.start,
-            nyc.localize(datetime.combine(key.stop, datetime.min.time())),
-        )
-    elif type(key.stop) == datetime and key.stop.tzinfo is None:
-        key = slice(key.start, nyc.localize(key.stop))
+    else:
+        _check_timestamp(key.stop)
 
-    # handle slide start
-    if type(key.start) == str:
-        key = slice(nyc.localize(date_parser(key.start)), key.stop)
-    elif type(key.start) == int:
+    if isinstance(key.start, int):
         key = slice(
-            convert_offset_to_datetime(
+            convert_offset_to_timestamp(
                 data_api, symbol, index, scale, key.start, key.stop
             ),
             key.stop,
         )
-    elif type(key.start) == date:
-        key = slice(
-            nyc.localize(datetime.combine(key.start, datetime.min.time())),
-            key.stop,
-        )
-    elif type(key.start) == datetime and key.start.tzinfo is None:
-        key = slice(nyc.localize(key.start), key.stop)
+    else:
+        _check_timestamp(key.start)
 
     return key
 
@@ -225,14 +223,14 @@ def load_item_by_offset(
     ------
     Raise IndexError if the position is still out of range.
     """
-    i = convert_offset_to_datetime(
+    i = convert_offset_to_timestamp(
         data_api=data_api,
         symbol=symbol,
         index=symbol_data.index,
         scale=scale,
         offset=offset,
     )
-    symbol_data = fetch_data_datetime(
+    symbol_data = fetch_data_timestamp(
         data_api=data_api,
         symbol_data=symbol_data,
         symbol=symbol,
@@ -289,8 +287,8 @@ def _data_fetch_executor(
     data_api: DataAPI,
     symbol: str,
     scale: TimeScale,
-    start: datetime,
-    end: datetime,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
 ) -> pd.DataFrame:
     """Return the data of a symbol for a range of dates.
 
@@ -302,9 +300,9 @@ def _data_fetch_executor(
         The symbol to fetch.
     scale: TimeScale
         The time scale of the data.
-    start: datetime
+    start: pd.Timestamp
         The start of the range; only its date is used.
-    end: datetime
+    end: pd.Timestamp
         The end of the range, inclusive; only its date is used.
 
     Returns
@@ -313,9 +311,8 @@ def _data_fetch_executor(
     """
     df = data_api.get_symbol_data(
         symbol,
-        start=(start.date() if isinstance(start, datetime) else start),
-        end=(end.date() if isinstance(end, datetime) else end)
-        + timedelta(days=1),
+        start=start.date(),
+        end=end.date() + pd.Timedelta(days=1),
         scale=scale,
     )
 
@@ -338,8 +335,8 @@ def _concurrent_fetch_data(
     symbol_data: pd.DataFrame,
     symbol: str,
     scale: TimeScale,
-    start: datetime,
-    end: datetime,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
 ):
     """Fetch a range of data in parallel and merge it with existing data.
 
@@ -353,9 +350,9 @@ def _concurrent_fetch_data(
         The symbol to fetch.
     scale: TimeScale
         The time scale of the data.
-    start: datetime
+    start: pd.Timestamp
         The start of the range.
-    end: datetime
+    end: pd.Timestamp
         The end of the range.
 
     Returns
@@ -412,14 +409,13 @@ def _legacy_fetch_data_range(
     symbol_data: pd.DataFrame,
     symbol: str,
     scale: TimeScale,
-    start: datetime,
-    end: datetime,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
 ) -> pd.DataFrame:
     """Fetch a range of data sequentially and merge it with existing data.
 
     If symbol was renamed on or after end, also fetch and prefer the data of
-    its original symbol. Convert the index of the shared
-    mergers-and-acquisitions table to datetimes.
+    its original symbol.
 
     Parameters
     ----------
@@ -431,9 +427,9 @@ def _legacy_fetch_data_range(
         The symbol to fetch.
     scale: TimeScale
         The time scale of the data.
-    start: datetime
+    start: pd.Timestamp
         The start of the range.
-    end: datetime
+    end: pd.Timestamp
         The end of the range.
 
     Returns
@@ -442,15 +438,9 @@ def _legacy_fetch_data_range(
     fetched rows over existing ones.
     """
     adjusted_symbol = symbol
-    m_and_a_data.index = m_and_a_data.index.astype("datetime64[ns]", copy=True)
     while True:
         adjusted_data = m_and_a_data.loc[
-            (
-                end.replace(
-                    hour=0, minute=0, second=0, microsecond=0, tzinfo=None
-                )
-                <= m_and_a_data.index
-            )
+            (end.date() <= m_and_a_data.index)
             & (m_and_a_data.to_symbol == adjusted_symbol)
         ]
         if not adjusted_data.empty:
@@ -461,9 +451,8 @@ def _legacy_fetch_data_range(
     if adjusted_symbol != symbol:
         adjusted_df = data_api.get_symbol_data(
             adjusted_symbol,
-            start=(start.date() if isinstance(start, datetime) else start),
-            end=(end.date() if isinstance(end, datetime) else end)
-            + timedelta(days=1),
+            start=start.date(),
+            end=end.date() + pd.Timedelta(days=1),
             scale=scale,
         )
     else:
@@ -471,9 +460,8 @@ def _legacy_fetch_data_range(
 
     new_df = data_api.get_symbol_data(
         symbol,
-        start=(start.date() if isinstance(start, datetime) else start),
-        end=(end.date() if isinstance(end, datetime) else end)
-        + timedelta(days=1),
+        start=start.date(),
+        end=end.date() + pd.Timedelta(days=1),
         scale=scale,
     )
     symbol_data = pd.concat([adjusted_df, new_df, symbol_data], sort=True)
@@ -497,8 +485,8 @@ def fetch_data_range(
     symbol_data: pd.DataFrame,
     symbol: str,
     scale: TimeScale,
-    start: datetime,
-    end: datetime,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
     concurrency: int,
 ) -> pd.DataFrame:
     """Fetch data for a symbol over a range and merge it with existing data.
@@ -513,9 +501,9 @@ def fetch_data_range(
         The symbol to fetch.
     scale: TimeScale
         The time scale of the data.
-    start: datetime
+    start: pd.Timestamp
         The start of the range.
-    end: datetime
+    end: pd.Timestamp
         The end of the range.
     concurrency: int
         Nonzero to fetch in parallel, or zero to fetch sequentially and follow
@@ -545,12 +533,12 @@ def fetch_data_range(
         )
 
 
-def fetch_data_datetime(
+def fetch_data_timestamp(
     data_api: DataAPI,
     symbol_data: pd.DataFrame,
     symbol: str,
     scale: TimeScale,
-    d: datetime,
+    d: pd.Timestamp,
     concurrency: int,
 ) -> pd.DataFrame:
     """Fetch the data needed to cover a timestamp and merge it.
@@ -568,7 +556,7 @@ def fetch_data_datetime(
         The symbol to fetch.
     scale: TimeScale
         The time scale of the data.
-    d: datetime
+    d: pd.Timestamp
         The timestamp to cover.
     concurrency: int
         Nonzero to fetch in parallel.
@@ -583,16 +571,16 @@ def fetch_data_datetime(
     elif not symbol_data.empty and d > symbol_data.index.max():
         start = symbol_data.index.max()
         end = d + (
-            timedelta(days=1)
+            pd.Timedelta(days=1)
             if scale == TimeScale.day
-            else timedelta(minutes=1)
+            else pd.Timedelta(minutes=1)
         )
     else:
         start = d
         end = d + (
-            timedelta(days=1)
+            pd.Timedelta(days=1)
             if scale == TimeScale.day
-            else timedelta(minutes=1)
+            else pd.Timedelta(minutes=1)
         )
 
     return fetch_data_range(
@@ -631,18 +619,23 @@ def getitem_slice(
     scale: TimeScale
         The time scale of the data.
     key: slice
-        The slice, bounded by integer offsets or by timestamps given as
-        strings, dates or datetimes.
+        The slice, bounded by integer offsets or time zone-aware pd.Timestamp
+        values.
     concurrency: int
         Nonzero to fetch in parallel.
 
     Returns
     -------
     Return a tuple of the updated data frame and the rows.
+
+    Raises
+    ------
+    Raise TypeError if a bound is neither an integer nor a time zone-aware
+    pd.Timestamp.
     """
     key = slice(key.start or 0, key.stop or -1)
 
-    # ensure key represents datetime
+    # ensure key represents timestamps
     converted_key = handle_slice_conversion(
         data_api, symbol, key, scale, symbol_data.index
     )
@@ -694,8 +687,7 @@ def getitem(
 ):
     """Return the row of a symbol's data selected by a single key.
 
-    Fetch any missing data. A timestamp, in New York time if naive, selects the
-    last row at or before it.
+    Fetch any missing data. A timestamp selects the last row at or before it.
 
     Parameters
     ----------
@@ -708,7 +700,7 @@ def getitem(
     scale: TimeScale
         The time scale of the data.
     key
-        An integer offset, or a timestamp given as a string, date or datetime.
+        An integer offset or a time zone-aware pd.Timestamp.
     concurrency
         Nonzero to fetch in parallel.
 
@@ -718,11 +710,10 @@ def getitem(
 
     Raises
     ------
-    Raise ValueError if symbol has no data.
+    Raise TypeError if key is neither an integer nor a time zone-aware
+    pd.Timestamp, and ValueError if symbol has no data.
     """
-    if type(key) == str:
-        key = nyc.localize(date_parser(key))
-    elif type(key) == int:
+    if isinstance(key, int):
         symbol_data, rc = get_item_by_offset(
             data_api=data_api,
             symbol_data=symbol_data,
@@ -733,10 +724,7 @@ def getitem(
         )
         return symbol_data, rc
 
-    elif type(key) == date:
-        key = nyc.localize(datetime.combine(key, datetime.min.time()))
-    elif type(key) == datetime and key.tzinfo is None:
-        key = nyc.localize(key)
+    _check_timestamp(key)
 
     for s in _calc_data_to_fetch(slice(key, key), symbol_data.index):
         symbol_data = fetch_data_range(
@@ -832,7 +820,9 @@ class SymbolData:
             """Return the string representation of the column's loaded data."""
             return str(self.data.symbol_data[self.name])
 
-        def _get_index(self, index: datetime, method: str = "ffill") -> int:
+        def _get_index(
+            self, index: pd.Timestamp, method: str = "ffill"
+        ) -> int:
             """Return the position of a timestamp in the parent's data.
 
             If index is not found, fetch data around it into the parent and
@@ -840,7 +830,7 @@ class SymbolData:
 
             Parameters
             ----------
-            index: datetime
+            index: pd.Timestamp
                 The timestamp to locate.
             method: str, default "ffill"
                 The pandas lookup method.
@@ -850,7 +840,7 @@ class SymbolData:
                     index, method=method
                 )
             except KeyError:
-                self.data.symbol_data = fetch_data_datetime(
+                self.data.symbol_data = fetch_data_timestamp(
                     data_api=self.data_api,
                     symbol_data=self.data.symbol_data,
                     symbol=self.data.symbol,
@@ -981,7 +971,7 @@ class SymbolData:
             )
         return self.columns[attr]
 
-    def _get_index(self, index: datetime, method: str = "ffill") -> int:
+    def _get_index(self, index: pd.Timestamp, method: str = "ffill") -> int:
         """Return the position of a timestamp in the loaded data.
 
         If index is not found, fetch data around it and attempt a nearest-match
@@ -989,7 +979,7 @@ class SymbolData:
 
         Parameters
         ----------
-        index: datetime
+        index: pd.Timestamp
             The timestamp to locate.
         method: str, default "ffill"
             The pandas lookup method.
@@ -1000,7 +990,7 @@ class SymbolData:
             logger.error("ValueError %s,%s", index, self.symbol_data.index)
             raise
         except KeyError:
-            self.symbol_data = fetch_data_datetime(
+            self.symbol_data = fetch_data_timestamp(
                 data_api=self.data_api,
                 symbol_data=self.symbol_data,
                 symbol=self.symbol,

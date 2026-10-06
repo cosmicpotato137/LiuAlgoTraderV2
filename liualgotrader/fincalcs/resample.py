@@ -37,7 +37,7 @@ def resample(
     Parameters
     ----------
     ohlc: pd.DataFrame
-        The price bars, with a datetime index.
+        The price bars, indexed by time.
     resample_range: ResampleRangeType
         The target interval.
 

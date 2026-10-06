@@ -1,8 +1,9 @@
 """Global trading state shared within a process."""
 
 from asyncio import Queue
-from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
 
 from liualgotrader.common.types import Order
 from liualgotrader.db.models.ticker_snapshot import TickerSnapshot
@@ -23,17 +24,17 @@ partial_fills: Dict[str, float] = {}
 partial_fills_fee: Dict[str, float] = {}
 symbol_resistance: Dict[str, float] = {}
 voi: Dict[str, List[float]] = {}
-voi_ask: Dict[str, Tuple[float, float, datetime]] = {}
-voi_bid: Dict[str, Tuple[float, float, datetime]] = {}
+voi_ask: Dict[str, Tuple[float, float, pd.Timestamp]] = {}
+voi_bid: Dict[str, Tuple[float, float, pd.Timestamp]] = {}
 
 
 industry_trend: Dict[str, float] = {}
 sector_trend: Dict[str, float] = {}
 snapshot: Dict[str, TickerSnapshot] = {}
 
-cool_down: Dict[str, Optional[datetime]] = {}
+cool_down: Dict[str, Optional[pd.Timestamp]] = {}
 
 queues: Dict[str, Queue] = {}
-down_cross: Dict[str, datetime] = {}
+down_cross: Dict[str, pd.Timestamp] = {}
 
-buy_time: Dict[str, datetime] = {}
+buy_time: Dict[str, pd.Timestamp] = {}

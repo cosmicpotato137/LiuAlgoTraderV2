@@ -22,7 +22,6 @@ from multiprocessing import Queue
 from typing import List
 
 import toml
-from pytz import timezone
 
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import calc_num_consumer_processes

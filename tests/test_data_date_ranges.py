@@ -2,10 +2,12 @@ import logging
 import time
 from datetime import date
 
+import pandas as pd
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import DataConnectorType, TimeScale
 from liualgotrader.data.factory import data_loader_factory
 
@@ -19,7 +21,7 @@ def test_alpaca_num_trading_day():
     alpaca_dl = data_loader_factory(DataConnectorType.alpaca)
     if (
         alpaca_dl.num_trading_days(
-            symbol="AAPL", start="2022-01-06", end="2022-01-07"
+            symbol="AAPL", start=date(2022, 1, 6), end=date(2022, 1, 7)
         )
         != 2
     ):
@@ -27,7 +29,7 @@ def test_alpaca_num_trading_day():
 
     if (
         alpaca_dl.num_trading_days(
-            symbol="aapl", start="2022-01-06", end="2022-01-07"
+            symbol="aapl", start=date(2022, 1, 6), end=date(2022, 1, 7)
         )
         != 2
     ):
@@ -35,7 +37,7 @@ def test_alpaca_num_trading_day():
 
     if (
         alpaca_dl.num_trading_days(
-            symbol="AAPL", start="2022-01-01", end="2022-01-07"
+            symbol="AAPL", start=date(2022, 1, 1), end=date(2022, 1, 7)
         )
         != 5
     ):
@@ -43,7 +45,7 @@ def test_alpaca_num_trading_day():
 
     if (
         alpaca_dl.num_trading_days(
-            symbol="AAPL", start="2021-12-28", end="2022-01-07"
+            symbol="AAPL", start=date(2021, 12, 28), end=date(2022, 1, 7)
         )
         != 9
     ):
@@ -51,7 +53,7 @@ def test_alpaca_num_trading_day():
 
     if (
         alpaca_dl.num_trading_days(
-            symbol="AAPL", start="2021-07-01", end="2021-07-07"
+            symbol="AAPL", start=date(2021, 7, 1), end=date(2021, 7, 7)
         )
         != 4
     ):
@@ -59,7 +61,7 @@ def test_alpaca_num_trading_day():
 
     if (
         alpaca_dl.num_trading_days(
-            symbol="BTCUSD", start="2021-07-01", end="2021-07-07"
+            symbol="BTCUSD", start=date(2021, 7, 1), end=date(2021, 7, 7)
         )
         != 7
     ):
@@ -67,7 +69,7 @@ def test_alpaca_num_trading_day():
 
     if (
         alpaca_dl.num_trading_days(
-            symbol="AAPL", start="2022-08-06", end="2022-01-07"
+            symbol="AAPL", start=date(2022, 8, 6), end=date(2022, 1, 7)
         )
         != 0
     ):
@@ -85,8 +87,8 @@ def test_alpaca_concurrency_ranges_min():
         len(
             alpaca_dl.data_concurrency_ranges(
                 symbol="AAPL",
-                start="2021-11-10",
-                end="2022-01-07",
+                start=pd.Timestamp("2021-11-10", tz=clock.NY),
+                end=pd.Timestamp("2022-01-07", tz=clock.NY),
                 scale=TimeScale.minute,
             )
         )
@@ -100,8 +102,8 @@ def test_alpaca_concurrency_ranges_min():
         len(
             alpaca_dl.data_concurrency_ranges(
                 symbol="AAPL",
-                start="2022-01-01",
-                end="2022-01-07",
+                start=pd.Timestamp("2022-01-01", tz=clock.NY),
+                end=pd.Timestamp("2022-01-07", tz=clock.NY),
                 scale=TimeScale.minute,
             )
         )
@@ -123,8 +125,13 @@ def test_hpy_alpaca_concurrency_ranges_min(start: date, end: date):
 
     t = time.time()
     r = alpaca_dl.data_concurrency_ranges(
-        symbol="AAPL", start=start, end=end, scale=TimeScale.minute
+        symbol="AAPL",
+        start=pd.Timestamp(start, tz=clock.NY),
+        end=pd.Timestamp(end, tz=clock.NY),
+        scale=TimeScale.minute,
     )
+    if r.tz != clock.NY:
+        raise AssertionError(f"range time zone {r.tz} is not New York")
     duration = time.time() - t
 
     logger.info("duration=%s, len=%s -> %s", duration, len(r), r)

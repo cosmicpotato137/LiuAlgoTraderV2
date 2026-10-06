@@ -7,10 +7,12 @@ Gainloss
 """
 
 import logging
-from datetime import date, timedelta
 from typing import Dict
 
+import pandas as pd
+
 from liualgotrader.analytics import consolidate
+from liualgotrader.common import clock
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.miners.base import Miner
 
@@ -76,7 +78,7 @@ class Gainloss(Miner):
         Log and re-raise any consolidation error.
         """
         data = await AlgoRun.get_batch_ids(
-            start_date=date.today() - timedelta(days=self.days)
+            start_date=clock.today() - pd.Timedelta(days=self.days)
         )
         logger.info(
             "Miner %s will consolidate %s batches", self.name, len(data)

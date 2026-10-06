@@ -1,18 +1,16 @@
 import asyncio
 import logging
-from datetime import date, datetime, timedelta
 from typing import Dict
 
 import matplotlib.pyplot as plt
 import nest_asyncio
 import pandas as pd
-import pytz
 import requests
 import streamlit as st
 
 from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_runs, load_trades)
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.log import configure_logging
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.polygon.data import PolygonData
@@ -25,7 +23,7 @@ st.markdown(
     "#### View and analyze the performance of your day-trading session."
 )
 
-day_to_analyze = st.date_input("pick day to analyze", value=date.today())
+day_to_analyze = st.date_input("pick day to analyze", value=clock.today())
 env = st.sidebar.selectbox("Select environment", ("PAPER", "BACKTEST", "PROD"))
 
 loop = asyncio.new_event_loop()
@@ -82,14 +80,12 @@ for index, row in trades.iterrows():
 
 revenues: Dict = {}
 how_was_my_day = []
-est = pytz.timezone("America/New_York")
 
 try:
     for batch_id, count in batch.items():
         how_was_my_batch = pd.DataFrame()
         t = trades[trades["batch_id"] == batch_id]
-        start_time = algo_runs[algo_runs.batch_id == batch_id].start_time
-        start_time = pytz.utc.localize(start_time.min()).astimezone(est)
+        start_time = algo_runs[algo_runs.batch_id == batch_id].start_time.min()
         how_was_my_batch["symbol"] = t.symbol.unique()
         how_was_my_batch["revenues"] = how_was_my_batch["symbol"].apply(
             lambda x: calc_batch_revenue(x, trades, batch_id)
@@ -136,15 +132,15 @@ if st.sidebar.checkbox("Show details"):
                     if symbol not in minute_history:
                         minute_history[symbol] = polygon_data.get_symbol_data(
                             symbol,
-                            start=day_to_analyze - timedelta(days=7),
-                            end=day_to_analyze + timedelta(days=1),
-                        ).tz_convert("US/Eastern")
+                            start=day_to_analyze - pd.Timedelta(days=7),
+                            end=day_to_analyze + pd.Timedelta(days=1),
+                        )
                         c += 1
     st.success(f"LOADED {c} symbols' data!")
 
     for symbol in minute_history:
         symbol_df = trades.loc[trades["symbol"] == symbol]
-        start_date = symbol_df["tstamp"].min().to_pydatetime()
+        start_date = symbol_df["tstamp"].min()
         start_date = start_date.replace(hour=9, minute=30)
         end_date = start_date.replace(hour=16, minute=00)
         try:
@@ -195,7 +191,7 @@ if st.sidebar.checkbox("Show details"):
 
             profit += delta
             ax.scatter(
-                row["tstamp"].to_pydatetime(),
+                row["tstamp"],
                 row["price"],
                 c="g" if row["operation"] == "buy" else "r",
                 s=100,
@@ -203,11 +199,7 @@ if st.sidebar.checkbox("Show details"):
             deltas.append(round(delta, 2))
             profits.append(round(profit, 2))
             operations.append(row["operation"])
-            times.append(
-                pytz.utc.localize(pd.to_datetime(row["tstamp"])).astimezone(
-                    est
-                )
-            )
+            times.append(row["tstamp"])
             prices.append(row["price"])
             qtys.append(row["qty"])
             indicator = row.indicators

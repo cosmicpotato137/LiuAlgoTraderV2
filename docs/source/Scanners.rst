@@ -46,7 +46,7 @@ A Generic implementation for the `__init__()` function:
         self,
         name: str,
         data_loader: DataLoader,
-        recurrence: Optional[timedelta],
+        recurrence: Optional[pd.Timedelta],
         target_strategy_name: Optional[str],
         data_source: object = None,
     )
@@ -59,10 +59,12 @@ The `run()` method is at the heart of the Scanner. The skeleton implementation:
 
 .. code-block:: python
 
-    async def run(self, back_time: datetime = None) -> List[str]:
+    async def run(
+        self, back_time: Optional[pd.Timestamp] = None
+    ) -> List[str]:
 
 
-The run() function returns a list of stock symbols which the framework needs to track. back_time is used by the `backtester` to simulate past time-stamps, allowing developer to test various scenarios before deployment.
+The run() function returns a list of stock symbols which the framework needs to track. back_time is used by the `backtester` to simulate past time-stamps, allowing developer to test various scenarios before deployment. Like every time in the framework, it is a time zone-aware `pd.Timestamp` in New York time.
 
 .. code-block:: python
 

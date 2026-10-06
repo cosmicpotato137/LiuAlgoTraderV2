@@ -9,7 +9,7 @@ trades
 import logging
 
 import pandas as pd
-from pandas import DataFrame, Timestamp
+from pandas import DataFrame
 
 from liualgotrader.analytics.analysis import load_trades_by_batch_id
 from liualgotrader.common import config
@@ -94,7 +94,7 @@ async def trades(batch_id: str) -> None:
                                 "algo_run_id": row.algo_run_id,
                                 "gain_value": delta,
                                 "org_price": float(row.price * row.qty),
-                                "start_time": Timestamp(row.client_time),
+                                "start_time": row.client_time,
                                 "qty": float(row.qty),
                                 "r_units": (
                                     float(row.price - row.stop_price)
@@ -192,7 +192,7 @@ async def trades(batch_id: str) -> None:
                     & (trade_analysis.algo_run_id == row.algo_run_id)
                     & (trade_analysis.status == "open"),
                     "end_time",
-                ] = Timestamp(row.client_time)
+                ] = row.client_time
                 trade_analysis.loc[
                     (trade_analysis.symbol == row.symbol)
                     & (trade_analysis.algo_run_id == row.algo_run_id)

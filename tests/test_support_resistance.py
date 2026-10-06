@@ -4,15 +4,13 @@ from datetime import datetime
 import hypothesis.strategies as st
 import numpy as np
 import pandas as pd
-import pytz
 from hypothesis import given, settings
 from hypothesis.extra.pandas import columns, indexes, series
 
+from liualgotrader.common import clock
 from liualgotrader.fincalcs.support_resistance import get_local_maxima
 
 logger = logging.getLogger(__name__)
-
-est = pytz.timezone("US/Eastern")
 
 
 @settings(deadline=None, max_examples=100)
@@ -20,8 +18,11 @@ est = pytz.timezone("US/Eastern")
     series(
         index=indexes(
             elements=st.datetimes(
-                min_value=datetime(2000, 1, 1), max_value=datetime(2040, 1, 1)
-            ),
+                min_value=datetime(2000, 1, 1),
+                max_value=datetime(2040, 1, 1),
+                timezones=st.just(clock.NY),
+                allow_imaginary=False,
+            ).map(pd.Timestamp),
         ),
         elements=st.floats(),
         dtype=float,

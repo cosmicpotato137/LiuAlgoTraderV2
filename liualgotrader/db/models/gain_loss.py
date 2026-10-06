@@ -9,16 +9,18 @@ TradeAnalysis
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
+import pandas as pd
 from pandas import DataFrame
 from sqlalchemy import ForeignKey, Numeric, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column
 
+from liualgotrader.common import clock
 from liualgotrader.db.models.algo_run import AlgoRun
-from liualgotrader.db.models.base import Base, CurrentTimestamp, Timestamp
+from liualgotrader.db.models.base import Base, CurrentTimestamp
 from liualgotrader.db.session import fetch_as_dataframe, session_scope
 
 logger = logging.getLogger(__name__)
@@ -39,7 +41,7 @@ class GainLoss(Base):
         The gain as a percentage.
     gain_value: Decimal
         The gain as a value.
-    tstamp: Optional[datetime]
+    tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the record is saved.
 
     Methods
@@ -60,7 +62,7 @@ class GainLoss(Base):
     )
     gain_percentage: Mapped[Decimal] = mapped_column(Numeric(5, 2))
     gain_value: Mapped[Decimal] = mapped_column(Numeric(8, 2))
-    tstamp: Mapped[Optional[datetime]] = mapped_column(
+    tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
         server_default=CurrentTimestamp()
     )
 
@@ -118,7 +120,7 @@ class GainLoss(Base):
                 cls.gain_value,
             )
             .join_from(cls, AlgoRun, cls.algo_run_id == AlgoRun.algo_run_id)
-            .where(AlgoRun.start_time >= start_date)
+            .where(AlgoRun.start_time >= pd.Timestamp(start_date, tz=clock.NY))
             .order_by(cls.symbol, AlgoRun.strategy_name, AlgoRun.start_time)
         )
 
@@ -134,9 +136,9 @@ class TradeAnalysis(Base):
         The traded symbol.
     algo_run_id: int
         The identifier of the run.
-    start_time: datetime
+    start_time: pd.Timestamp
         The time the trade opened; unique per symbol and run.
-    end_time: datetime
+    end_time: pd.Timestamp
         The time the trade closed.
     gain_percentage: Decimal
         The gain as a percentage.
@@ -144,7 +146,7 @@ class TradeAnalysis(Base):
         The gain as a value.
     r_units: Optional[Decimal]
         The gain in R-units, or None.
-    tstamp: Optional[datetime]
+    tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the record is saved.
 
     Methods
@@ -163,13 +165,13 @@ class TradeAnalysis(Base):
     algo_run_id: Mapped[int] = mapped_column(
         ForeignKey("algo_run.algo_run_id")
     )
-    start_time: Mapped[datetime] = mapped_column(Timestamp(timezone=True))
-    end_time: Mapped[datetime] = mapped_column(Timestamp(timezone=True))
+    start_time: Mapped[pd.Timestamp]
+    end_time: Mapped[pd.Timestamp]
     gain_percentage: Mapped[Decimal] = mapped_column(Numeric(5, 2))
     gain_value: Mapped[Decimal] = mapped_column(Numeric(8, 2))
     r_units: Mapped[Optional[Decimal]] = mapped_column(Numeric(4, 2))
-    tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )
 
     @classmethod
@@ -195,8 +197,8 @@ class TradeAnalysis(Base):
                                 gain_percentage=row.gain_percentage,
                                 gain_value=row.gain_value,
                                 r_units=row.r_units,
-                                start_time=row.start_time.to_pydatetime(),
-                                end_time=row.end_time.to_pydatetime(),
+                                start_time=row.start_time,
+                                end_time=row.end_time,
                             )
                         )
                 except Exception as e:
@@ -231,6 +233,6 @@ class TradeAnalysis(Base):
                 cls.end_time,
             )
             .join_from(cls, AlgoRun, cls.algo_run_id == AlgoRun.algo_run_id)
-            .where(AlgoRun.start_time >= start_date)
+            .where(AlgoRun.start_time >= pd.Timestamp(start_date, tz=clock.NY))
             .order_by(cls.symbol, AlgoRun.strategy_name, AlgoRun.start_time)
         )

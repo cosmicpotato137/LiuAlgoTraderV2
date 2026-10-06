@@ -1,9 +1,10 @@
 import logging
-from datetime import date, timedelta
+from datetime import date
 
+import pandas as pd
 import pytest
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.types import TimeScale
 from liualgotrader.vendors.tradier.data import TradierData
 
@@ -34,8 +35,8 @@ def test_tradier_aapl_data_min() -> bool:
         "%s",
         tradier.get_symbol_data(
             "AAPL",
-            start=date.today() - timedelta(days=10),
-            end=date.today() - timedelta(days=1),
+            start=clock.today() - pd.Timedelta(days=10),
+            end=clock.today() - pd.Timedelta(days=1),
             scale=TimeScale.minute,
         ),
     )

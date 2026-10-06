@@ -6,14 +6,15 @@ AlgoRun
     Single strategy run within a batch, stored in the algo_run table.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
+import pandas as pd
 from pandas import DataFrame
 from sqlalchemy import ForeignKey, func, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.db.models.base import Base, CurrentTimestamp, JsonDict
 from liualgotrader.db.session import session_scope
 
@@ -36,9 +37,9 @@ class AlgoRun(Base):
         The build label of the framework.
     parameters: Optional[Dict[str, Any]]
         The run parameters, or None.
-    start_time: Optional[datetime]
+    start_time: Optional[pd.Timestamp]
         The start time, set by the database when the run is saved.
-    end_time: Optional[datetime]
+    end_time: Optional[pd.Timestamp]
         The end time, or None while the run is active.
     end_reason: Optional[str]
         The reason the run ended, or None.
@@ -70,10 +71,10 @@ class AlgoRun(Base):
     env: Mapped[str]
     build_number: Mapped[str]
     parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
-    start_time: Mapped[Optional[datetime]] = mapped_column(
+    start_time: Mapped[Optional[pd.Timestamp]] = mapped_column(
         server_default=CurrentTimestamp(), index=True
     )
-    end_time: Mapped[Optional[datetime]]
+    end_time: Mapped[Optional[pd.Timestamp]]
     end_reason: Mapped[Optional[str]]
     batch_id: Mapped[str] = mapped_column(server_default="", index=True)
     ref_algo_run_id: Mapped[Optional[int]] = mapped_column(
@@ -138,7 +139,7 @@ class AlgoRun(Base):
         async with session_scope() as session:
             batch_ids = await session.scalars(
                 select(cls.batch_id)
-                .where(cls.start_time > start_date)
+                .where(cls.start_time > pd.Timestamp(start_date, tz=clock.NY))
                 .distinct()
             )
             return DataFrame(data=batch_ids.all(), columns=["batch_id"])
@@ -175,7 +176,7 @@ class AlgoRun(Base):
                     cls.strategy_name,
                     start.label("start"),
                 )
-                .where(cls.start_time > start_date)
+                .where(cls.start_time > pd.Timestamp(start_date, tz=clock.NY))
                 .group_by(
                     cls.batch_id,
                     cls.strategy_name,
@@ -215,6 +216,8 @@ class AlgoRun(Base):
         newest first.
         """
         runs: Dict[str, List[Any]] = {}
+        day_start = pd.Timestamp(batch_date, tz=clock.NY)
+        day_end = pd.Timestamp(batch_date + pd.Timedelta(days=1), tz=clock.NY)
         async with session_scope() as session:
             rows = await session.execute(
                 select(
@@ -226,8 +229,8 @@ class AlgoRun(Base):
                     cls.start_time,
                 )
                 .where(
-                    cls.start_time >= batch_date,
-                    cls.start_time < batch_date + timedelta(days=1),
+                    cls.start_time >= day_start,
+                    cls.start_time < day_end,
                 )
                 .order_by(cls.start_time.desc(), cls.algo_run_id.desc())
             )
@@ -239,7 +242,9 @@ class AlgoRun(Base):
     @classmethod
     async def get_batch_details(
         cls, batch_id: str
-    ) -> List[Tuple[int, datetime, datetime, Optional[Dict[str, Any]]]]:
+    ) -> List[
+        Tuple[int, pd.Timestamp, pd.Timestamp, Optional[Dict[str, Any]]]
+    ]:
         """Return the runs of a batch, newest first.
 
         Each run is a tuple of its identifier, start time, end time and

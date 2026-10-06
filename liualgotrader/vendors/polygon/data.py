@@ -7,7 +7,7 @@ PolygonData
 """
 
 import json
-from datetime import date, datetime
+from datetime import date
 from typing import Callable, Dict, List, Optional
 
 import numpy as np
@@ -15,6 +15,7 @@ import pandas as pd
 from polygon import RESTClient
 from polygon.exceptions import AuthError
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.vendors.polygon.config import PolygonConfig
@@ -133,7 +134,7 @@ class PolygonData(DataAPI):
         self,
         symbol: str,
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
         """Return split-adjusted historical bars for a symbol.
@@ -144,8 +145,8 @@ class PolygonData(DataAPI):
             The ticker.
         start: date
             The first date to load.
-        end: date, default date.today()
-            The last date to load.
+        end: Optional[date], default None
+            The last date to load, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar size.
 
@@ -163,6 +164,7 @@ class PolygonData(DataAPI):
         if not self.polygon_rest_client:
             raise AssertionError("Must call w/ authenticated polygon client")
 
+        end = end or clock.today()
         # the client iterates over every page of the response
         aggs = list(
             self.polygon_rest_client.list_aggs(
@@ -175,7 +177,9 @@ class PolygonData(DataAPI):
             )
 
         d = {
-            pd.Timestamp(agg.timestamp, unit="ms", tz="America/New_York"): [
+            pd.Timestamp(agg.timestamp, unit="ms", tz="UTC").tz_convert(
+                clock.NY
+            ): [
                 agg.open,
                 agg.high,
                 agg.low,
@@ -208,7 +212,7 @@ class PolygonData(DataAPI):
         self,
         symbols: List[str],
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> Dict[str, pd.DataFrame]:
         """Raise NotImplementedError, as batch loading is unsupported.
@@ -219,15 +223,15 @@ class PolygonData(DataAPI):
             The symbols to load.
         start: date
             The first date to load.
-        end: date, default date.today()
-            The last date to load.
+        end: Optional[date], default None
+            The last date to load, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar size.
         """
         raise NotImplementedError("get_symbols_data")
 
-    def get_last_trading(self, symbol: str) -> datetime:
-        """Return the time of the last trade of a symbol, in New York time.
+    def get_last_trading(self, symbol: str) -> pd.Timestamp:
+        """Return the time of the last trade of a symbol.
 
         Parameters
         ----------
@@ -238,21 +242,19 @@ class PolygonData(DataAPI):
             "stocks", symbol
         )
         return pd.Timestamp(
-            snapshot.last_trade.sip_timestamp,
-            unit="ns",
-            tz="America/New_York",
-        )
+            snapshot.last_trade.sip_timestamp, unit="ns", tz="UTC"
+        ).tz_convert(clock.NY)
 
     def get_trading_day(
-        self, symbol: str, now: datetime, offset: int
-    ) -> datetime:
+        self, symbol: str, now: pd.Timestamp, offset: int
+    ) -> pd.Timestamp:
         """Raise NotImplementedError, as day offsets are unsupported.
 
         Parameters
         ----------
         symbol: str
             The symbol.
-        now: datetime
+        now: pd.Timestamp
             The reference time.
         offset: int
             The number of trading days to shift.
@@ -267,7 +269,7 @@ class PolygonData(DataAPI):
         symbol: str
             The symbol.
         slice
-            The datetime slice.
+            The timestamp slice.
         """
         raise NotImplementedError("trading_days_slice")
 

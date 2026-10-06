@@ -3,15 +3,13 @@ from datetime import datetime
 
 import hypothesis.strategies as st
 import pandas as pd
-import pytz
 from hypothesis import given, settings
 from hypothesis.extra.pandas import columns, data_frames, indexes
 
+from liualgotrader.common import clock
 from liualgotrader.fincalcs.resample import ResampleRangeType, resample
 
 logger = logging.getLogger(__name__)
-
-est = pytz.timezone("US/Eastern")
 
 
 @settings(deadline=None, max_examples=100)
@@ -19,8 +17,11 @@ est = pytz.timezone("US/Eastern")
     data_frames(
         index=indexes(
             elements=st.datetimes(
-                min_value=datetime(2000, 1, 1), max_value=datetime(2040, 1, 1)
-            ),
+                min_value=datetime(2000, 1, 1),
+                max_value=datetime(2040, 1, 1),
+                timezones=st.just(clock.NY),
+                allow_imaginary=False,
+            ).map(pd.Timestamp),
             dtype=None,
         ),
         columns=columns(
