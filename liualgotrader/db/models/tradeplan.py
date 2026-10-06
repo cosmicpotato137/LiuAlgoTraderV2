@@ -9,14 +9,16 @@ TradePlanExecutionAudit
 """
 
 import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import ForeignKey, Uuid, literal, select
+import pandas as pd
+from sqlalchemy import ForeignKey, Uuid, select
 from sqlalchemy.orm import Mapped, mapped_column
 
+from liualgotrader.common import clock
 from liualgotrader.db.models.base import (Base, CurrentTimestamp, JsonDict,
-                                          RandomUuid, Timestamp)
+                                          RandomUuid)
 from liualgotrader.db.session import session_scope
 
 
@@ -37,11 +39,11 @@ class TradePlan(Base):
         The name of the strategy.
     parameters: Optional[Dict[str, Any]]
         The strategy parameters, or None.
-    create_tstamp: Optional[datetime]
+    create_tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the entry is saved.
-    modify_tstamp: Optional[datetime]
+    modify_tstamp: Optional[pd.Timestamp]
         The time of the last update through the ORM, or None.
-    expire_tstamp: Optional[datetime]
+    expire_tstamp: Optional[pd.Timestamp]
         The time the entry expired, or None.
 
     Methods
@@ -66,15 +68,13 @@ class TradePlan(Base):
     start_date: Mapped[date]
     strategy_name: Mapped[str]
     parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
-    create_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    create_tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )
-    modify_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), onupdate=CurrentTimestamp()
+    modify_tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        onupdate=CurrentTimestamp()
     )
-    expire_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True)
-    )
+    expire_tstamp: Mapped[Optional[pd.Timestamp]]
 
     def __str__(self):
         """Return the strategy name and parameters, separated by a colon."""
@@ -86,21 +86,15 @@ class TradePlan(Base):
         return await cls._load_active()
 
     @classmethod
-    async def get_new_entries(cls, since: datetime) -> List["TradePlan"]:
+    async def get_new_entries(cls, since: pd.Timestamp) -> List["TradePlan"]:
         """Load the active trade plan entries created after a given time.
 
         Parameters
         ----------
-        since: datetime
-            The time after which entries are included; a naive time is in
-            the time zone of the database session.
+        since: pd.Timestamp
+            The time after which entries are included.
         """
-        # Bind a naive time without a time zone, so that the database reads
-        # it in its session time zone rather than the client's local one.
-        return await cls._load_active(
-            cls.create_tstamp
-            > literal(since, Timestamp(timezone=since.tzinfo is not None))
-        )
+        return await cls._load_active(cls.create_tstamp > since)
 
     @classmethod
     async def _load_active(cls, *criteria) -> List["TradePlan"]:
@@ -108,7 +102,7 @@ class TradePlan(Base):
             entries = await session.scalars(
                 select(cls).where(
                     cls.expire_tstamp.is_(None),
-                    cls.start_date <= CurrentTimestamp(),
+                    cls.start_date <= clock.today(),
                     *criteria,
                 )
             )
@@ -126,9 +120,9 @@ class TradePlanExecutionAudit(Base):
         The identifier of the executed trade plan entry, or None.
     details: Optional[Dict[str, Any]]
         Details of the execution, or None.
-    started_on: Optional[datetime]
+    started_on: Optional[pd.Timestamp]
         The start time, which defaults to the time the record is saved.
-    ended_on: Optional[datetime]
+    ended_on: Optional[pd.Timestamp]
         The end time, which defaults to the time the record is saved.
     """
 
@@ -139,9 +133,9 @@ class TradePlanExecutionAudit(Base):
         Uuid(), ForeignKey("trade_plan.trade_plan_id")
     )
     details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
-    started_on: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    started_on: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )
-    ended_on: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    ended_on: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )

@@ -6,14 +6,13 @@ KeyStore
     Persistent key-value store, one key per row of the keystore table.
 """
 
-from datetime import datetime
 from typing import Optional
 
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import (Base, CurrentTimestamp, Timestamp,
-                                          dialect_insert)
+from liualgotrader.db.models.base import Base, CurrentTimestamp, dialect_insert
 from liualgotrader.db.session import session_scope
 
 
@@ -26,7 +25,7 @@ class KeyStore(Base):
         The key.
     value: str
         The stored value.
-    tstamp: Optional[datetime]
+    tstamp: Optional[pd.Timestamp]
         The time the key was first stored, set by the database.
 
     Methods
@@ -41,8 +40,8 @@ class KeyStore(Base):
 
     key: Mapped[str] = mapped_column(primary_key=True)
     value: Mapped[str]
-    tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )
 
     @classmethod

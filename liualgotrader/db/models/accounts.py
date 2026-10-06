@@ -8,7 +8,6 @@ AccountTransaction
     Change to the balance of an account, stored in account_transactions.
 """
 
-import datetime
 import logging
 from typing import Any, Dict, Optional
 
@@ -17,8 +16,7 @@ from sqlalchemy import (CheckConstraint, ForeignKey, delete, false, select,
                         update)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import (Base, CurrentTimestamp, JsonDict,
-                                          Timestamp)
+from liualgotrader.db.models.base import Base, CurrentTimestamp, JsonDict
 from liualgotrader.db.session import fetch_as_dataframe, session_scope
 
 logger = logging.getLogger(__name__)
@@ -42,9 +40,9 @@ class Account(Base):
         The credit available below zero; must be positive if allow_negative.
     details: Optional[Dict[str, Any]]
         Extra account details, or None.
-    create_tstamp: Optional[datetime.datetime]
+    create_tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the account is saved.
-    modify_tstamp: Optional[datetime.datetime]
+    modify_tstamp: Optional[pd.Timestamp]
         The time of the last transaction, or None.
 
     Methods
@@ -75,12 +73,10 @@ class Account(Base):
     allow_negative: Mapped[bool] = mapped_column(server_default=false())
     credit_line: Mapped[float] = mapped_column(server_default="0.0")
     details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
-    create_tstamp: Mapped[Optional[datetime.datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    create_tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )
-    modify_tstamp: Mapped[Optional[datetime.datetime]] = mapped_column(
-        Timestamp(timezone=True)
-    )
+    modify_tstamp: Mapped[Optional[pd.Timestamp]]
 
     @classmethod
     async def create(
@@ -173,7 +169,7 @@ class Account(Base):
         cls,
         account_id: int,
         amount: float,
-        tstamp: Optional[datetime.datetime] = None,
+        tstamp: Optional[pd.Timestamp] = None,
         details: Dict = {},
     ) -> None:
         """Record a transaction against an account and update its balance.
@@ -184,7 +180,7 @@ class Account(Base):
             The account identifier.
         amount: float
             The amount added to the balance, negative for a withdrawal.
-        tstamp: Optional[datetime.datetime], default None
+        tstamp: Optional[pd.Timestamp], default None
             The transaction time, or None for the current time.
         details: Dict, default {}
             Extra transaction details, stored as JSON.
@@ -319,9 +315,9 @@ class AccountTransaction(Base):
         The amount added to the balance, negative for a withdrawal.
     details: Optional[Dict[str, Any]]
         Extra transaction details, or None.
-    tstamp: Optional[datetime.datetime]
+    tstamp: Optional[pd.Timestamp]
         The transaction time, which defaults to the time it is saved.
-    create_tstamp: Optional[datetime.datetime]
+    create_tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the transaction is saved.
     """
 
@@ -331,9 +327,9 @@ class AccountTransaction(Base):
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.account_id"))
     amount: Mapped[float]
     details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
-    tstamp: Mapped[Optional[datetime.datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )
-    create_tstamp: Mapped[Optional[datetime.datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp()
+    create_tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp()
     )

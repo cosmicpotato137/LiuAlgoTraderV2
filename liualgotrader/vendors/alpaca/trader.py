@@ -9,8 +9,7 @@ AlpacaTrader
 import asyncio
 import logging
 import queue
-import time
-from datetime import date, datetime, timedelta
+from datetime import date
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
@@ -28,16 +27,15 @@ from alpaca.trading.requests import (GetCalendarRequest, LimitOrderRequest,
                                      StopOrderRequest, TakeProfitRequest,
                                      TrailingStopOrderRequest)
 from alpaca.trading.stream import TradingStream
-from pytz import timezone
 from requests.auth import HTTPBasicAuth
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import Order, SymbolQueueMap, Trade
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
+from liualgotrader.vendors.alpaca.util import alpaca_time
 
 logger = logging.getLogger(__name__)
-
-nyc = timezone("America/New_York")
 
 
 def _enum_value(field: Union[Enum, str, None]) -> str:
@@ -57,6 +55,29 @@ def _enum_value(field: Union[Enum, str, None]) -> str:
     return field or ""
 
 
+# The Order.EventType of each Alpaca order status that is not other.
+_STATUS_EVENTS = {
+    "canceled": Order.EventType.canceled,
+    "expired": Order.EventType.canceled,
+    "replaced": Order.EventType.canceled,
+    "pending_cancel": Order.EventType.pending,
+    "pending_replace": Order.EventType.pending,
+    "filled": Order.EventType.fill,
+    "partially_filled": Order.EventType.partial_fill,
+}
+
+# The Order.EventType of each Alpaca trade update event that is not other.
+_TRADE_EVENTS = {
+    "canceled": Order.EventType.canceled,
+    "suspended": Order.EventType.canceled,
+    "expired": Order.EventType.canceled,
+    "cancel_rejected": Order.EventType.canceled,
+    "rejected": Order.EventType.rejected,
+    "fill": Order.EventType.fill,
+    "partial_fill": Order.EventType.partial_fill,
+}
+
+
 def _status_to_event(status: Union[Enum, str, None]) -> Order.EventType:
     """Return the Order.EventType that corresponds to an Alpaca order status.
 
@@ -67,18 +88,7 @@ def _status_to_event(status: Union[Enum, str, None]) -> Order.EventType:
     status: Union[Enum, str, None]
         The Alpaca order status.
     """
-    value = _enum_value(status)
-    return (
-        Order.EventType.canceled
-        if value in ["canceled", "expired", "replaced"]
-        else Order.EventType.pending
-        if value in ["pending_cancel", "pending_replace"]
-        else Order.EventType.fill
-        if value == "filled"
-        else Order.EventType.partial_fill
-        if value == "partially_filled"
-        else Order.EventType.other
-    )
+    return _STATUS_EVENTS.get(_enum_value(status), Order.EventType.other)
 
 
 def _is_paper(base_url: str) -> bool:
@@ -92,6 +102,18 @@ def _is_paper(base_url: str) -> bool:
     return "paper" in base_url
 
 
+def _seconds_until(epoch_seconds: str) -> float:
+    """Return the seconds from now until a Unix time, or zero if it passed.
+
+    Parameters
+    ----------
+    epoch_seconds: str
+        The Unix time in seconds, as sent in an Alpaca rate-limit header.
+    """
+    reset = pd.Timestamp(int(epoch_seconds), unit="s", tz="UTC")
+    return max((reset - clock.now()).total_seconds(), 0.0)
+
+
 class AlpacaTrader(TraderAPI):
     """Trader implementation for the Alpaca brokerage.
 
@@ -103,9 +125,9 @@ class AlpacaTrader(TraderAPI):
     ----------
     config: AlpacaConfig
         The connection settings.
-    market_open: Optional[datetime]
+    market_open: Optional[pd.Timestamp]
         Today's session opening time, or None.
-    market_close: Optional[datetime]
+    market_close: Optional[pd.Timestamp]
         Today's session closing time, or None.
     alpaca_rest_client: TradingClient
         The trading client for the configured account.
@@ -176,8 +198,8 @@ class AlpacaTrader(TraderAPI):
         and alpaca.common.exceptions.APIError if the calendar request fails.
         """
         self.config = config
-        self.market_open: Optional[datetime]
-        self.market_close: Optional[datetime]
+        self.market_open: Optional[pd.Timestamp]
+        self.market_close: Optional[pd.Timestamp]
 
         self.alpaca_rest_client: TradingClient = self._create_rest_client()
         self.alpaca_ws_client: Optional[TradingStream] = None
@@ -194,27 +216,23 @@ class AlpacaTrader(TraderAPI):
             )
         self.running_task: Optional[asyncio.Task] = None
 
-        now = datetime.now(nyc)
+        today = clock.today()
         calendars = cast(
             List[Calendar],
             self.alpaca_rest_client.get_calendar(
-                GetCalendarRequest(start=now.date(), end=now.date())
+                GetCalendarRequest(start=today, end=today)
             ),
         )
 
-        if calendars and now.date() >= calendars[0].date:
+        if calendars and today >= calendars[0].date:
+            # Calendar.open and Calendar.close are naive local times on
+            # Calendar.date
             calendar = calendars[0]
-            self.market_open = now.replace(
-                hour=calendar.open.hour,
-                minute=calendar.open.minute,
-                second=0,
-                microsecond=0,
+            self.market_open = pd.Timestamp(calendar.open).tz_localize(
+                clock.NY
             )
-            self.market_close = now.replace(
-                hour=calendar.close.hour,
-                minute=calendar.close.minute,
-                second=0,
-                microsecond=0,
+            self.market_close = pd.Timestamp(calendar.close).tz_localize(
+                clock.NY
             )
         else:
             self.market_open = self.market_close = None
@@ -323,19 +341,9 @@ class AlpacaTrader(TraderAPI):
         logger.info(
             "_is_brokerage_account_order_completed: response: %s", response
         )
-        event = (
-            Order.EventType.canceled
-            if response["status"] in ["canceled", "expired", "replaced"]
-            else Order.EventType.pending
-            if response["status"] in ["pending_cancel", "pending_replace"]
-            else Order.EventType.fill
-            if response["status"] == "filled"
-            else Order.EventType.partial_fill
-            if response["status"] == "partially_filled"
-            else Order.EventType.other
-        )
+
         return (
-            event,
+            _status_to_event(response["status"]),
             float(response.get("filled_avg_price") or 0.0),
             float(response.get("filled_qty") or 0.0),
             0.0,
@@ -369,12 +377,12 @@ class AlpacaTrader(TraderAPI):
 
     def get_market_schedule(
         self,
-    ) -> Tuple[Optional[datetime], Optional[datetime]]:
+    ) -> Tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
         """Return the session times recorded when the trader was created."""
         return self.market_open, self.market_close
 
     def get_trading_days(
-        self, start_date: date, end_date: date = date.today()
+        self, start_date: date, end_date: Optional[date] = None
     ) -> pd.DataFrame:
         """Return the Alpaca trading calendar between two dates.
 
@@ -382,24 +390,26 @@ class AlpacaTrader(TraderAPI):
         ----------
         start_date: date
             The first date of the range.
-        end_date: date, default date.today()
-            The last date of the range, inclusive.
+        end_date: Optional[date], default None
+            The last date of the range, inclusive, or None for today in New
+            York.
 
         Returns
         -------
-        Return a DataFrame of the calendar entries as sent by Alpaca, such as
-        the open and close times, indexed by date.
+        Return a DataFrame of the other fields of the calendar entries as
+        sent by Alpaca, such as the open and close times of day, indexed by
+        date.
         """
         # The Calendar model drops session_open, session_close and other
         # fields, so read the raw entries to keep every column.
         calendars = self.alpaca_rest_client.get(
             "/calendar",
             GetCalendarRequest(
-                start=start_date, end=end_date
+                start=start_date, end=end_date or clock.today()
             ).to_request_fields(),
         )
         _df = pd.DataFrame.from_dict(calendars)
-        _df["date"] = pd.to_datetime(_df.date)
+        _df["date"] = pd.to_datetime(_df.date).dt.date
         return _df.set_index("date")
 
     def get_position(self, symbol: str) -> float:
@@ -428,8 +438,8 @@ class AlpacaTrader(TraderAPI):
         """Convert an Alpaca order into an Order.
 
         The Order has the order identifier as a string, a lowercased symbol,
-        the limit price or zero as its price, the submission time as a UTC
-        Timestamp and a zero trade fee. Expired and replaced orders are
+        the limit price or zero as its price, the submission time in New York
+        time and a zero trade fee. Expired and replaced orders are
         reported as canceled.
 
         Parameters
@@ -446,12 +456,12 @@ class AlpacaTrader(TraderAPI):
             side=Order.FillSide[_enum_value(alpaca_order.side)],
             filled_qty=filled_qty,
             remaining_amount=float(alpaca_order.qty or 0.0) - filled_qty,
-            submitted_at=pd.Timestamp(alpaca_order.submitted_at).tz_convert(
-                "UTC"
+            submitted_at=alpaca_time(alpaca_order.submitted_at),
+            avg_execution_price=(
+                float(alpaca_order.filled_avg_price)
+                if alpaca_order.filled_avg_price is not None
+                else None
             ),
-            avg_execution_price=float(alpaca_order.filled_avg_price)
-            if alpaca_order.filled_avg_price is not None
-            else None,
             trade_fees=0.0,
         )
 
@@ -462,7 +472,7 @@ class AlpacaTrader(TraderAPI):
     ) -> Order:
         """Convert a Broker API order response into an Order.
 
-        Fill fields as in to_order, with the submission time in US/Eastern.
+        Fill fields as in to_order.
 
         Parameters
         ----------
@@ -471,32 +481,16 @@ class AlpacaTrader(TraderAPI):
         external_account_id: Optional[str], default None
             The account to record on the Order.
         """
-        event = (
-            Order.EventType.canceled
-            if brokerage_response["status"]
-            in ["canceled", "expired", "replaced"]
-            else Order.EventType.pending
-            if brokerage_response["status"]
-            in ["pending_cancel", "pending_replace"]
-            else Order.EventType.fill
-            if brokerage_response["status"] == "filled"
-            else Order.EventType.partial_fill
-            if brokerage_response["status"] == "partially_filled"
-            else Order.EventType.other
-        )
         return Order(
             order_id=brokerage_response["id"],
             symbol=brokerage_response["symbol"].lower(),
-            event=event,
+            event=_status_to_event(brokerage_response["status"]),
             price=float(brokerage_response["limit_price"] or 0.0),
             side=Order.FillSide[brokerage_response["side"]],
             filled_qty=float(brokerage_response["filled_qty"]),
             remaining_amount=float(brokerage_response["qty"])
             - float(brokerage_response["filled_qty"]),
-            submitted_at=pd.Timestamp(
-                ts_input=brokerage_response["submitted_at"],
-                tz="US/Eastern",
-            ),
+            submitted_at=alpaca_time(brokerage_response["submitted_at"]),
             avg_execution_price=brokerage_response["filled_avg_price"],
             trade_fees=0.0,
             external_account_id=external_account_id,
@@ -517,7 +511,7 @@ class AlpacaTrader(TraderAPI):
         """Return True if a session opening time was recorded for today."""
         return self.market_open is not None
 
-    def get_time_market_close(self) -> Optional[timedelta]:
+    def get_time_market_close(self) -> Optional[pd.Timedelta]:
         """Return the time remaining until today's market close.
 
         Returns
@@ -531,11 +525,7 @@ class AlpacaTrader(TraderAPI):
         if not self.is_market_open_today():
             raise AssertionError("Market closed today")
 
-        return (
-            self.market_close - datetime.now(nyc)
-            if self.market_close
-            else None
-        )
+        return self.market_close - clock.now() if self.market_close else None
 
     async def reconnect(self):
         """Replace the trading client with a new one.
@@ -767,9 +757,9 @@ class AlpacaTrader(TraderAPI):
             "client_order_id": client_order_id,
             "extended_hours": extended_hours,
             "order_class": order_class,
-            "take_profit": TakeProfitRequest(**take_profit)
-            if take_profit
-            else None,
+            "take_profit": (
+                TakeProfitRequest(**take_profit) if take_profit else None
+            ),
             "stop_loss": StopLossRequest(**stop_loss) if stop_loss else None,
         }
         request: OrderRequest
@@ -828,8 +818,7 @@ class AlpacaTrader(TraderAPI):
                     response.headers["x-ratelimit-reset"],
                 )
                 await asyncio.sleep(
-                    int(time.time())
-                    - int(response.headers["x-ratelimit-reset"])
+                    _seconds_until(response.headers["x-ratelimit-reset"])
                 )
                 logger.warning("ALPACA BROKERAGE going to retry")
             else:
@@ -879,8 +868,7 @@ class AlpacaTrader(TraderAPI):
                     response.headers["x-ratelimit-reset"],
                 )
                 await asyncio.sleep(
-                    int(time.time())
-                    - int(response.headers["x-ratelimit-reset"])
+                    _seconds_until(response.headers["x-ratelimit-reset"])
                 )
                 logger.warning("ALPACA BROKERAGE going to retry")
             else:
@@ -919,7 +907,6 @@ class AlpacaTrader(TraderAPI):
                 self.config.broker_api_key, self.config.broker_api_secret
             ),
         )
-        # TODO: create a decorator the the re-try / push-backs from server instead of copying.
         if response.status_code in (429, 504):
             if "x-ratelimit-reset" in response.headers:
                 logger.info(
@@ -927,8 +914,7 @@ class AlpacaTrader(TraderAPI):
                     response.headers["x-ratelimit-reset"],
                 )
                 await asyncio.sleep(
-                    int(time.time())
-                    - int(response.headers["x-ratelimit-reset"])
+                    _seconds_until(response.headers["x-ratelimit-reset"])
                 )
                 logger.warning("ALPACA BROKERAGE going to retry")
             else:
@@ -1142,9 +1128,9 @@ class AlpacaTrader(TraderAPI):
         """Convert an Alpaca trade update into a Trade.
 
         The Trade has the order identifier as a string, a lowercased symbol
-        without slashes and the order's update time in US/Eastern. It reports
-        suspended, expired and cancel_rejected events as canceled, and has a
-        zero quantity unless the event is a fill.
+        without slashes and the order's update time in New York time. It
+        reports suspended, expired and cancel_rejected events as canceled, and
+        has a zero quantity unless the event is a fill.
 
         Parameters
         ----------
@@ -1164,22 +1150,16 @@ class AlpacaTrader(TraderAPI):
         return Trade(
             order_id=str(order.id),
             symbol=symbol,
-            event=Order.EventType.canceled
-            if event in ["canceled", "suspended", "expired", "cancel_rejected"]
-            else Order.EventType.rejected
-            if event == "rejected"
-            else Order.EventType.fill
-            if event == "fill"
-            else Order.EventType.partial_fill
-            if event == "partial_fill"
-            else Order.EventType.other,
-            filled_qty=float(trade_dict.qty or 0.0)
-            if event in ["fill", "partial_fill"]
-            else 0.0,
+            event=_TRADE_EVENTS.get(event, Order.EventType.other),
+            filled_qty=(
+                float(trade_dict.qty or 0.0)
+                if event in ["fill", "partial_fill"]
+                else 0.0
+            ),
             trade_fee=0.0,
             filled_avg_price=float(order.filled_avg_price or 0.0),
             liquidity="",
-            updated_at=pd.Timestamp(order.updated_at).tz_convert("US/Eastern"),
+            updated_at=alpaca_time(order.updated_at),
             side=Order.FillSide[_enum_value(order.side)],
         )
 

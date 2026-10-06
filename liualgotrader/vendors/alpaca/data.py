@@ -10,41 +10,34 @@ import asyncio
 import concurrent.futures
 import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
 import pandas_market_calendars
-import pytz
 from alpaca.common.enums import BaseURL
 from alpaca.common.exceptions import APIError
 from alpaca.data.enums import Adjustment
-from alpaca.data.historical import (
-    CryptoHistoricalDataClient,
-    StockHistoricalDataClient,
-)
+from alpaca.data.historical import (CryptoHistoricalDataClient,
+                                    StockHistoricalDataClient)
 from alpaca.data.models import BarSet
-from alpaca.data.requests import (
-    CryptoBarsRequest,
-    StockBarsRequest,
-    StockSnapshotRequest,
-)
+from alpaca.data.requests import (CryptoBarsRequest, StockBarsRequest,
+                                  StockSnapshotRequest)
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.models import Asset, Calendar
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
-from dateutil.parser import parse as date_parser
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
+from liualgotrader.vendors.alpaca.util import (alpaca_time, crypto_pair,
+                                               is_crypto_symbol)
 
 logger = logging.getLogger(__name__)
-
-NY = "America/New_York"
-nytz = pytz.timezone(NY)
 
 _MINUTE = TimeFrame(1, TimeFrameUnit.Minute)
 _DAY = TimeFrame(1, TimeFrameUnit.Day)
@@ -67,41 +60,15 @@ _SNAPSHOT_FIELDS = {
 }
 
 
-def _is_crypto_symbol(symbol: str) -> bool:
-    """Return whether a symbol is a supported crypto pair.
-
-    Only the Bitcoin and Ethereum pairs quoted in US dollars are supported.
+def _request_time(value: Optional[pd.Timestamp]) -> Optional[datetime]:
+    """Return a timestamp as a datetime for an Alpaca data request.
 
     Parameters
     ----------
-    symbol: str
-        The symbol to check, with or without a slash, in any case.
-    """
-    return symbol.lower() in {"eth/usd", "btc/usd", "ethusd", "btcusd"}
-
-
-def _crypto_pair(symbol: str) -> str:
-    """Return a crypto pair in the upper-case, slash-separated Alpaca form.
-
-    Parameters
-    ----------
-    symbol: str
-        The crypto pair, with or without a slash, in any case.
-    """
-    if "/" not in symbol:
-        symbol = f"{symbol[:3]}/{symbol[3:]}"
-    return symbol.upper()
-
-
-def _request_time(value: Optional[str]) -> Optional[datetime]:
-    """Return an ISO 8601 string as a datetime for a data request.
-
-    Parameters
-    ----------
-    value: Optional[str]
+    value: Optional[pd.Timestamp]
         The time, or None to leave the request bound unset.
     """
-    return None if value is None else pd.Timestamp(value).to_pydatetime()
+    return None if value is None else value.to_pydatetime()
 
 
 def _integral(values: pd.Series) -> pd.Series:
@@ -131,13 +98,13 @@ def _symbol_bars(bars: pd.DataFrame) -> pd.DataFrame:
 
     Returns
     -------
-    Return a DataFrame indexed by UTC timestamp with the open, high, low,
+    Return a DataFrame indexed by New York time with the open, high, low,
     close, volume, trade_count and vwap columns, where missing columns are
     NaN, and volume and trade_count are integers when no value is missing or
     fractional.
     """
     bars = bars.reindex(columns=_BAR_COLUMNS)
-    bars.index = bars.index.tz_convert("UTC")
+    bars.index = bars.index.tz_convert(clock.NY)
     bars["volume"] = _integral(bars["volume"])
     bars["trade_count"] = _integral(bars["trade_count"])
     return bars
@@ -149,7 +116,7 @@ def _to_framework_bars(bars: pd.DataFrame) -> pd.DataFrame:
     Parameters
     ----------
     bars: pd.DataFrame
-        The bars, indexed by timestamp, with the columns of _symbol_bars.
+        The bars, with the index and columns of _symbol_bars.
 
     Returns
     -------
@@ -157,7 +124,7 @@ def _to_framework_bars(bars: pd.DataFrame) -> pd.DataFrame:
     volume, count, average and vwap columns, where average is the
     volume-weighted price and vwap is NaN.
     """
-    data = bars.tz_convert(NY)
+    data = bars.copy()
     data["average"] = data.vwap
     data["count"] = data.trade_count
     data["vwap"] = np.nan
@@ -196,8 +163,8 @@ class AlpacaData(DataAPI):
         The Alpaca client for the asset list and the market calendar.
     symbol_chunk_size
         The number of symbols per snapshot request.
-    datetime_cache: Dict[datetime, datetime]
-        The adjusted slice bounds, keyed by requested datetime.
+    datetime_cache: Dict[pd.Timestamp, pd.Timestamp]
+        The adjusted slice bounds, keyed by requested timestamp.
 
     Methods
     -------
@@ -208,7 +175,7 @@ class AlpacaData(DataAPI):
     get_last_trading
         Return the time of the most recent trade.
     get_trading_day
-        Return a datetime shifted by trading days.
+        Return a timestamp shifted by trading days.
     num_trading_minutes
         Return the trading minutes in one day.
     num_trading_days
@@ -216,7 +183,7 @@ class AlpacaData(DataAPI):
     get_max_data_points_per_load
         Return the data point limit per request.
     trading_days_slice
-        Adjust a datetime slice to trading sessions.
+        Adjust a timestamp slice to trading sessions.
     get_symbols_data
         Return historical bars for several symbols.
     get_symbol_data
@@ -268,7 +235,7 @@ class AlpacaData(DataAPI):
             )
         # for requesting market snapshots by chunk of symbols
         self.symbol_chunk_size = 1000
-        self.datetime_cache: Dict[datetime, datetime] = {}
+        self.datetime_cache: Dict[pd.Timestamp, pd.Timestamp] = {}
 
     def _trading_base_url(self) -> str:
         """Return the configured trading API base URL.
@@ -331,6 +298,7 @@ class AlpacaData(DataAPI):
             A predicate that selects the snapshots to keep, or None to keep
             all.
         """
+
         def _parse_ticker_snapshot(
             _ticker: str, _ticket_snapshot: Optional[Dict]
         ) -> Optional[Dict]:
@@ -407,16 +375,15 @@ class AlpacaData(DataAPI):
 
     def _localize_start_end(
         self, start: date, end: date
-    ) -> Tuple[str, Optional[str]]:
-        """Return a date range as ISO 8601 strings in New York time.
+    ) -> Tuple[pd.Timestamp, Optional[pd.Timestamp]]:
+        """Return a date range as timestamps at midnight in New York.
 
         Parameters
         ----------
         start: date
-            The first date, converted to midnight.
+            The first date.
         end: date
-            The last date, converted to midnight, or to None if it is today or
-            later.
+            The last date; a date of today or later gives an end of None.
 
         Returns
         -------
@@ -425,19 +392,11 @@ class AlpacaData(DataAPI):
         subscription permits.
         """
         return (
-            nytz.localize(
-                datetime.combine(start, datetime.min.time())
-            ).isoformat(),
-            (
-                None
-                if end >= date.today()
-                else nytz.localize(
-                    datetime.combine(end, datetime.min.time())
-                ).isoformat()
-            ),
+            pd.Timestamp(start, tz=clock.NY),
+            (None if end >= clock.today() else pd.Timestamp(end, tz=clock.NY)),
         )
 
-    def get_last_trading(self, symbol: str) -> datetime:
+    def get_last_trading(self, symbol: str) -> pd.Timestamp:
         """Return the time of the most recent trade for a symbol.
 
         Parameters
@@ -456,8 +415,8 @@ class AlpacaData(DataAPI):
         if not self.raw_stock_data_client:
             raise AssertionError("Must call w/ authenticated Alpaca client")
 
-        if _is_crypto_symbol(symbol):
-            return datetime.now(tz=nytz)
+        if is_crypto_symbol(symbol):
+            return clock.now()
         try:
             snapshots = cast(
                 Dict[str, Optional[Dict]],
@@ -473,7 +432,7 @@ class AlpacaData(DataAPI):
         if not min_bar:
             raise ValueError(f"Can't get snapshot for {symbol}")
 
-        return pd.Timestamp(min_bar["t"]).tz_convert(NY)
+        return alpaca_time(min_bar["t"])
 
     def _get_trading_holidays(self) -> List[str]:
         """Return the holiday dates of the NYSE calendar."""
@@ -481,8 +440,8 @@ class AlpacaData(DataAPI):
         return nyse.holidays().holidays
 
     def get_trading_day(
-        self, symbol: str, now: datetime, offset: int
-    ) -> datetime:
+        self, symbol: str, now: pd.Timestamp, offset: int
+    ) -> pd.Timestamp:
         """Return a reference time shifted by a number of trading days.
 
         Shift crypto pairs by offset calendar days and other symbols by offset
@@ -492,21 +451,15 @@ class AlpacaData(DataAPI):
         ----------
         symbol: str
             The symbol whose trading calendar applies.
-        now: datetime
-            The reference datetime, treated as New York time if naive.
+        now: pd.Timestamp
+            The reference time.
         offset: int
             The number of days to shift by.
         """
-        if _is_crypto_symbol(symbol):
-            cbd_offset = timedelta(days=offset)
-        else:
-            cbd_offset = pd.tseries.offsets.CustomBusinessDay(
-                n=offset - 1, holidays=self._get_trading_holidays()
-            )
-        return (
-            nytz.localize(now + cbd_offset)
-            if now.tzinfo is None
-            else now + cbd_offset
+        if is_crypto_symbol(symbol):
+            return now + pd.Timedelta(days=offset)
+        return now + pd.tseries.offsets.CustomBusinessDay(
+            n=offset - 1, holidays=self._get_trading_holidays()
         )
 
     def num_trading_minutes(self, symbol: str, start: date, end: date) -> int:
@@ -523,7 +476,7 @@ class AlpacaData(DataAPI):
         end: date
             Unused.
         """
-        return (24 if _is_crypto_symbol(symbol) else (20 - 4)) * 60
+        return (24 if is_crypto_symbol(symbol) else (20 - 4)) * 60
 
     def num_trading_days(self, symbol: str, start: date, end: date) -> int:
         """Return the number of trading days in a date range for a symbol.
@@ -536,18 +489,13 @@ class AlpacaData(DataAPI):
         symbol: str
             The symbol whose trading calendar applies.
         start: date
-            The first date of the range, as a date or a string.
+            The first date of the range.
         end: date
-            The last date of the range, as a date or a string.
+            The last date of the range.
         """
-        if type(start) == str:
-            start = date_parser(start)  # type: ignore
-        if type(end) == str:
-            end = date_parser(end)  # type: ignore
-
         return (
             (end - start).days + 1
-            if _is_crypto_symbol(symbol)
+            if is_crypto_symbol(symbol)
             else len(
                 pd.date_range(
                     start,
@@ -565,7 +513,7 @@ class AlpacaData(DataAPI):
         return 10000
 
     def trading_days_slice(self, symbol: str, s: slice) -> slice:
-        """Return a datetime slice adjusted to the trading sessions it spans.
+        """Return a timestamp slice adjusted to the trading sessions it spans.
 
         For other symbols, return a slice between the opening times of its
         first and last trading days, in New York time, and cache the new bounds
@@ -576,7 +524,7 @@ class AlpacaData(DataAPI):
         symbol: str
             The symbol whose trading calendar applies.
         s: slice
-            The slice to adjust, with datetime bounds.
+            The slice to adjust, with timestamp bounds.
 
         Returns
         -------
@@ -585,7 +533,7 @@ class AlpacaData(DataAPI):
         if not self.trading_client:
             raise AssertionError("Must call w/ authenticated Alpaca client")
 
-        if _is_crypto_symbol(symbol):
+        if is_crypto_symbol(symbol):
             return s
 
         if s.start in self.datetime_cache and s.stop in self.datetime_cache:
@@ -601,8 +549,8 @@ class AlpacaData(DataAPI):
         )
         # Calendar.open is the naive local opening time on Calendar.date
         new_slice = slice(
-            nytz.localize(trading_days[0].open),
-            nytz.localize(trading_days[-1].open),
+            pd.Timestamp(trading_days[0].open).tz_localize(clock.NY),
+            pd.Timestamp(trading_days[-1].open).tz_localize(clock.NY),
         )
 
         self.datetime_cache[s.start] = new_slice.start
@@ -613,8 +561,8 @@ class AlpacaData(DataAPI):
     def _crypto_get_symbol_data(
         self,
         symbol: str,
-        start: str,
-        end: Optional[str],
+        start: pd.Timestamp,
+        end: Optional[pd.Timestamp],
         timeframe: TimeFrame,
     ) -> pd.DataFrame:
         """Return historical bars for a crypto pair.
@@ -623,18 +571,17 @@ class AlpacaData(DataAPI):
         ----------
         symbol: str
             The crypto pair, with or without a slash.
-        start: str
-            The start of the range, as an ISO 8601 string.
-        end: Optional[str]
-            The end of the range, as an ISO 8601 string, or None for the
-            latest data.
+        start: pd.Timestamp
+            The start of the range.
+        end: Optional[pd.Timestamp]
+            The end of the range, or None for the latest data.
         timeframe: TimeFrame
             A one-day TimeFrame for daily bars, or any other value for minute
             bars.
 
         Returns
         -------
-        Return a DataFrame indexed by UTC timestamp, with the columns in
+        Return a DataFrame indexed by New York time, with the columns in
         alphabetical order, including a timestamp column. Return an empty
         DataFrame if there are no bars.
 
@@ -646,11 +593,11 @@ class AlpacaData(DataAPI):
             BarSet,
             self.crypto_data_client.get_crypto_bars(
                 CryptoBarsRequest(
-                    symbol_or_symbols=_crypto_pair(symbol),
+                    symbol_or_symbols=crypto_pair(symbol),
                     timeframe=(
                         _DAY if str(timeframe) == str(_DAY) else _MINUTE
                     ),
-                    start=pd.Timestamp(start).to_pydatetime(),
+                    start=start.to_pydatetime(),
                     end=_request_time(end),
                 )
             ),
@@ -666,8 +613,8 @@ class AlpacaData(DataAPI):
         self,
         symbol: str,
         timeframe: TimeFrame,
-        start: str,
-        end: Optional[str],
+        start: pd.Timestamp,
+        end: Optional[pd.Timestamp],
     ) -> pd.DataFrame:
         """Return historical bars for an equity symbol.
 
@@ -677,16 +624,15 @@ class AlpacaData(DataAPI):
             The symbol to load.
         timeframe: TimeFrame
             The bar resolution.
-        start: str
-            The start of the range, as an ISO 8601 string.
-        end: Optional[str]
-            The end of the range, as an ISO 8601 string, or None for the
-            latest data.
+        start: pd.Timestamp
+            The start of the range.
+        end: Optional[pd.Timestamp]
+            The end of the range, or None for the latest data.
 
         Returns
         -------
-        Return a DataFrame indexed by UTC timestamp with the columns of
-        _symbol_bars, or an empty DataFrame if there are no bars.
+        Return a DataFrame with the index and columns of _symbol_bars, or an
+        empty DataFrame if there are no bars.
 
         Raises
         ------
@@ -698,7 +644,7 @@ class AlpacaData(DataAPI):
                 StockBarsRequest(
                     symbol_or_symbols=symbol,
                     timeframe=timeframe,
-                    start=pd.Timestamp(start).to_pydatetime(),
+                    start=start.to_pydatetime(),
                     end=_request_time(end),
                     adjustment=Adjustment.ALL,
                 )
@@ -710,7 +656,7 @@ class AlpacaData(DataAPI):
         self,
         symbols: List[str],
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> Dict[str, pd.DataFrame]:
         """Return historical bars for several symbols.
@@ -723,8 +669,8 @@ class AlpacaData(DataAPI):
             The list of symbols to load.
         start: date
             The start of the date range.
-        end: date, default date.today()
-            The end of the date range.
+        end: Optional[date], default None
+            The end of the date range, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar resolution.
 
@@ -743,9 +689,10 @@ class AlpacaData(DataAPI):
         if not isinstance(symbols, list):
             raise AssertionError(f"{symbols} must be a list")
 
+        end = end or clock.today()
         _start, _end = self._localize_start_end(
             start,
-            end + timedelta(days=1) if scale == TimeScale.minute else end,
+            end + pd.Timedelta(days=1) if scale == TimeScale.minute else end,
         )
         try:
             data = cast(
@@ -756,7 +703,7 @@ class AlpacaData(DataAPI):
                         timeframe=(
                             _MINUTE if scale == TimeScale.minute else _DAY
                         ),
-                        start=pd.Timestamp(_start).to_pydatetime(),
+                        start=_start.to_pydatetime(),
                         end=_request_time(_end),
                         limit=1000000000,
                         adjustment=Adjustment.ALL,
@@ -785,7 +732,7 @@ class AlpacaData(DataAPI):
         self,
         symbol: str,
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
         """Return historical bars for an equity symbol or crypto pair.
@@ -798,8 +745,8 @@ class AlpacaData(DataAPI):
             The symbol to load.
         start: date
             The start of the date range.
-        end: date, default date.today()
-            The end of the date range.
+        end: Optional[date], default None
+            The end of the date range, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar resolution.
 
@@ -813,7 +760,7 @@ class AlpacaData(DataAPI):
         ------
         Raise ValueError if the data cannot be loaded or is empty.
         """
-        _start, _end = self._localize_start_end(start, end)
+        _start, _end = self._localize_start_end(start, end or clock.today())
 
         if not self.stock_data_client:
             raise AssertionError("Must call w/ authenticated Alpaca client")
@@ -834,7 +781,7 @@ class AlpacaData(DataAPI):
                 self._crypto_get_symbol_data(
                     symbol=symbol, start=_start, end=_end, timeframe=t
                 )
-                if _is_crypto_symbol(symbol)
+                if is_crypto_symbol(symbol)
                 else self._get_stock_bars(symbol, t, _start, _end)
             )
         except APIError as e:

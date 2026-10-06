@@ -34,14 +34,13 @@ import asyncio
 import inspect
 import logging
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, time
 from typing import Dict, List, Optional
 
 import pandas as pd
 from alpaca.trading.requests import GetCalendarRequest
-from pytz import timezone
 
-from liualgotrader.common import config, trading_data
+from liualgotrader.common import clock, config, trading_data
 from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType, TimeScale
@@ -56,7 +55,7 @@ from liualgotrader.vendors.alpaca.data import AlpacaData
 
 logger = logging.getLogger(__name__)
 
-run_scanners: Dict[Scanner, datetime] = {}
+run_scanners: Dict[Scanner, pd.Timestamp] = {}
 symbol_data: Dict[str, pd.DataFrame] = {}
 portfolio_value: float = 100000
 
@@ -152,7 +151,7 @@ async def create_strategies(
 
 
 async def do_scanners(
-    now: datetime, scanners: List[Scanner], symbols: Dict
+    now: pd.Timestamp, scanners: List[Scanner], symbols: Dict
 ) -> Dict:
     """Run the scanners that are due at a given time and record their results.
 
@@ -161,7 +160,7 @@ async def do_scanners(
 
     Parameters
     ----------
-    now: datetime
+    now: pd.Timestamp
         The simulated current time.
     scanners: List[Scanner]
         The scanners to consider.
@@ -197,7 +196,7 @@ async def do_scanners(
 
 
 async def calculate_execution_price(
-    symbol: str, data_loader: DataLoader, what: Dict, now: datetime
+    symbol: str, data_loader: DataLoader, what: Dict, now: pd.Timestamp
 ) -> float:
     """Return the simulated execution price of an order at a given time.
 
@@ -213,7 +212,7 @@ async def calculate_execution_price(
     what: Dict
         The order, with a "type" and, unless it is "market", a "side" and a
         "limit_price".
-    now: datetime
+    now: pd.Timestamp
         The time of execution.
 
     Raises
@@ -244,7 +243,7 @@ async def do_strategy_result(
     data_loader: DataLoader,
     strategy: Strategy,
     symbol: str,
-    now: datetime,
+    now: pd.Timestamp,
     what: Dict,
     buy_fee_percentage: float = 0.0,
     sell_fee_percentage: float = 0.0,
@@ -262,7 +261,7 @@ async def do_strategy_result(
         The strategy that placed the order.
     symbol: str
         The symbol of the order.
-    now: datetime
+    now: pd.Timestamp
         The time of execution.
     what: Dict
         The order, with a "qty", a "side" and the fields required by
@@ -328,7 +327,9 @@ async def do_strategy_result(
     except KeyError:
         trading_data.positions[symbol] = sign * qty
 
-    trading_data.buy_time[symbol] = now.replace(second=0, microsecond=0)
+    trading_data.buy_time[symbol] = now.replace(
+        second=0, microsecond=0, nanosecond=0
+    )
     trading_data.last_used_strategy[symbol] = strategy
 
     db_trade = NewTrade(
@@ -341,7 +342,7 @@ async def do_strategy_result(
     )
 
     await db_trade.save(
-        str(now),
+        now,
         (
             trading_data.stop_prices[symbol]
             if symbol in trading_data.stop_prices
@@ -398,7 +399,7 @@ async def do_strategy_all(
             "symbols_position": dict(
                 {symbol: 0 for symbol in symbols}, **trading_data.positions
             ),
-            "now": now.to_pydatetime(),
+            "now": now,
             "portfolio_value": portfolio_value,
             "backtesting": True,
             "data_loader": data_loader,
@@ -456,7 +457,7 @@ async def do_strategy_by_symbol(
     global portfolio_value
     for symbol in symbols:
         try:
-            _ = data_loader[symbol][now - timedelta(days=1) : now]  # type: ignore
+            _ = data_loader[symbol][now - pd.Timedelta(days=1) : now]
             do, what = await strategy.run(
                 symbol=symbol,
                 shortable=True,
@@ -475,7 +476,7 @@ async def do_strategy_by_symbol(
             logger.info(
                 "symbol %s for now have data in the range %s-%s",
                 symbol,
-                now - timedelta(days=1),
+                now - pd.Timedelta(days=1),
                 now,
             )
         except Exception as e:
@@ -536,7 +537,7 @@ def get_day_start_end(asset_type, day):
     """Return the start and end timestamps of a trading day.
 
     A US equities day spans market hours and a crypto day spans the whole date,
-    both in the America/New_York time zone.
+    both in New York time.
 
     Parameters
     ----------
@@ -550,25 +551,12 @@ def get_day_start_end(asset_type, day):
     Raise AssertionError for any other asset type.
     """
     if asset_type == AssetType.US_EQUITIES:
-        day_start = pd.Timestamp(day.date).replace(
-            hour=day.open.hour,
-            minute=day.open.minute,
-            tzinfo=timezone("America/New_York"),
-        )
-        day_end = pd.Timestamp(day.date).replace(
-            hour=day.close.hour,
-            minute=day.close.minute,
-            tzinfo=timezone("America/New_York"),
-        )
+        # Calendar.open and Calendar.close are naive New York times
+        day_start = pd.Timestamp(day.open).tz_localize(clock.NY)
+        day_end = pd.Timestamp(day.close).tz_localize(clock.NY)
     elif asset_type == AssetType.CRYPTO:
-        day_start = pd.Timestamp(
-            datetime.combine(day, datetime.min.time()),
-            tzinfo=timezone("America/New_York"),
-        )
-        day_end = pd.Timestamp(
-            datetime.combine(day, datetime.max.time()),
-            tzinfo=timezone("America/New_York"),
-        )
+        day_start = pd.Timestamp(day, tz=clock.NY)
+        day_end = pd.Timestamp.combine(day, time.max).tz_localize(clock.NY)
     else:
         raise AssertionError(
             f"get_day_start_end(): asset type {asset_type} not yet supported"
@@ -680,7 +668,7 @@ async def backtest_day(
                 sell_fee_percentage,
             )
 
-        current_time += timedelta(seconds=scale.value)
+        current_time += pd.Timedelta(seconds=scale.value)
 
 
 async def backtest_time_range(

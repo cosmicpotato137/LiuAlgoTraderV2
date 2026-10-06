@@ -8,10 +8,10 @@ NewTrade
 
 import json
 import logging
-from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
+import pandas as pd
 from sqlalchemy import Enum, ForeignKey, Numeric, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,15 +45,15 @@ class NewTrade(Base):
         The trade price.
     indicators: Dict[str, Any]
         The indicators at the time of the trade.
-    client_time: Optional[str]
+    client_time: Optional[pd.Timestamp]
         The client-side time of the trade, or None.
-    tstamp: Optional[datetime]
+    tstamp: Optional[pd.Timestamp]
         The time the trade was recorded, set by the database when saved.
     stop_price: Optional[Decimal]
         The stop price, or None.
     target_price: Optional[Decimal]
         The target price, or None.
-    expire_tstamp: Optional[datetime]
+    expire_tstamp: Optional[pd.Timestamp]
         The time the trade expired, or None.
     trade_fee: Decimal
         The fee paid for the trade.
@@ -94,20 +94,20 @@ class NewTrade(Base):
     qty: Mapped[Decimal] = mapped_column(Numeric(24, 10))
     price: Mapped[Decimal] = mapped_column(Numeric(8, 2))
     indicators: Mapped[Dict[str, Any]] = mapped_column(JsonDict)
-    client_time: Mapped[Optional[str]]
-    tstamp: Mapped[Optional[datetime]] = mapped_column(
+    client_time: Mapped[Optional[pd.Timestamp]]
+    tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
         server_default=CurrentTimestamp(), index=True
     )
     stop_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
     target_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
-    expire_tstamp: Mapped[Optional[datetime]]
+    expire_tstamp: Mapped[Optional[pd.Timestamp]]
     trade_fee: Mapped[Decimal] = mapped_column(
         Numeric(9, 2), server_default="0.0"
     )
 
     async def save(
         self,
-        client_time: str,
+        client_time: pd.Timestamp,
         stop_price=None,
         target_price=None,
         trade_fee=0.0,
@@ -119,7 +119,7 @@ class NewTrade(Base):
 
         Parameters
         ----------
-        client_time: str
+        client_time: pd.Timestamp
             The client-side time of the trade.
         stop_price, default None
             The stop price, or None.
@@ -160,7 +160,9 @@ class NewTrade(Base):
     @classmethod
     async def load_latest(
         cls, symbol: str, strategy_name: str
-    ) -> Tuple[int, float, float, float, Dict[str, Any], Optional[datetime]]:
+    ) -> Tuple[
+        int, float, float, float, Dict[str, Any], Optional[pd.Timestamp]
+    ]:
         """Return the latest trade of a symbol made by a strategy.
 
         Missing prices are returned as 0.0 and missing indicators as an empty

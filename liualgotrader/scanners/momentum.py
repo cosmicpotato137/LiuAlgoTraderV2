@@ -8,14 +8,14 @@ Momentum
 
 import asyncio
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Callable, List, Optional, Tuple
 
+import pandas as pd
 import requests
-from pytz import timezone
 from sqlalchemy import select
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType
 from liualgotrader.db.models.ticker_data import StockOhlc
@@ -80,7 +80,7 @@ class Momentum(Scanner):
 
     def __init__(
         self,
-        recurrence: Optional[timedelta],
+        recurrence: Optional[pd.Timedelta],
         target_strategy_name: Optional[str],
         data_loader: DataLoader,
         trading_api: TraderAPI,
@@ -97,7 +97,7 @@ class Momentum(Scanner):
 
         Parameters
         ----------
-        recurrence: Optional[timedelta]
+        recurrence: Optional[pd.Timedelta]
             The interval between runs, or None.
         target_strategy_name: Optional[str]
             The strategy that receives the results, or None.
@@ -192,9 +192,9 @@ class Momentum(Scanner):
         when: date
             The date to save data for.
         """
-        _minute_data = self.data_loader[symbol][
-            when : when + timedelta(days=1)  # type: ignore
-        ]
+        start = pd.Timestamp(when, tz=clock.NY)
+        end = pd.Timestamp(when + pd.Timedelta(days=1), tz=clock.NY)
+        _minute_data = self.data_loader[symbol][start:end]
 
         await asyncio.sleep(0)
         if _minute_data[symbol].empty:
@@ -213,7 +213,7 @@ class Momentum(Scanner):
             for index, row in _minute_data[symbol].iterrows():
                 daily_bar = StockOhlc(
                     symbol=symbol,
-                    symbol_date=index,
+                    symbol_date=index.date(),
                     open=row["open"],
                     high=row["high"],
                     low=row["low"],
@@ -224,7 +224,7 @@ class Momentum(Scanner):
                 await daily_bar.save()
                 logger.debug("saved data for %s @ %s", symbol, index)
 
-    async def load_from_db(self, back_time: datetime) -> List[str]:
+    async def load_from_db(self, back_time: pd.Timestamp) -> List[str]:
         """Return the symbols recorded for this scanner around a given time.
 
         For midnight, return the symbols recorded from back_time to one day
@@ -233,19 +233,17 @@ class Momentum(Scanner):
 
         Parameters
         ----------
-        back_time: datetime
+        back_time: pd.Timestamp
             The moment to load symbols for; midnight selects a whole day.
         """
         daily_scale = back_time.hour == 0
         start = (
-            back_time
-            if daily_scale
-            else back_time.replace(hour=9, minute=30, second=0, microsecond=0)
+            back_time if daily_scale else clock.market_open(back_time.date())
         )
         end = (
-            back_time + timedelta(days=1)
+            pd.Timestamp(back_time.date() + pd.Timedelta(days=1), tz=clock.NY)
             if daily_scale
-            else back_time + timedelta(minutes=1)
+            else back_time + pd.Timedelta(minutes=1)
         )
         async with session_scope() as session:
             symbols = list(
@@ -376,7 +374,7 @@ class Momentum(Scanner):
             today_volume,
         )
 
-    async def run(self, back_time: datetime = None) -> List[str]:
+    async def run(self, back_time: Optional[pd.Timestamp] = None) -> List[str]:
         """Return the symbols selected by the momentum scanner.
 
         Without back_time, refresh trade_able_symbols and filter the live
@@ -384,7 +382,7 @@ class Momentum(Scanner):
 
         Parameters
         ----------
-        back_time: datetime, default None
+        back_time: Optional[pd.Timestamp], default None
             The moment to scan as of, when backtesting.
         """
         if not back_time:

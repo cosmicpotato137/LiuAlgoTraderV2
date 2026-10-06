@@ -295,8 +295,8 @@ Parameters include:
 |open_order_strategy   | dictionary, with `symbol` as index and holding reference |
 |                      | to the Strategy w/ an open order.                        |
 +----------------------+----------------------------------------------------------+
-| buy_time             | dictionary, with `symbol` as index and datetime object   |
-|                      | of order request time in EST.                            |
+| buy_time             | dictionary, with `symbol` as index and pd.Timestamp of   |
+|                      | order request time in New York time.                     |
 +----------------------+----------------------------------------------------------+
 | minute_history       | dictionary, with `symbol` as index and DataFrame with    |
 |                      | OHLC, Volume, vwap and average, per minute.              |

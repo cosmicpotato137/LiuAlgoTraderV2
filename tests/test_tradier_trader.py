@@ -1,11 +1,11 @@
 import asyncio
 import logging
 import time
-from datetime import date, timedelta
 
+import pandas as pd
 import pytest
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, Order, TimeScale
 from liualgotrader.db.session import create_db_connection
@@ -107,19 +107,21 @@ async def test_get_time_market_close():
 async def test_get_trading_days():
     logger.info("test_get_trading_days")
     td = tradier_trader.get_trading_days(
-        start_date=date.today(), end_date=date.today()
+        start_date=clock.today(), end_date=clock.today()
     )
     logger.info("trading days %s", td)
 
     logger.info("test_get_trading_days")
     td = tradier_trader.get_trading_days(
-        start_date=date.today() - timedelta(days=5), end_date=date.today()
+        start_date=clock.today() - pd.Timedelta(days=5),
+        end_date=clock.today(),
     )
     logger.info("trading days %s", td)
 
     logger.info("test_get_trading_days")
     td = tradier_trader.get_trading_days(
-        start_date=date.today() - timedelta(days=65), end_date=date.today()
+        start_date=clock.today() - pd.Timedelta(days=65),
+        end_date=clock.today(),
     )
     logger.info("trading days %s", td)
     return True

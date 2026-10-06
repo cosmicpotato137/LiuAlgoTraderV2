@@ -11,24 +11,33 @@ import json
 import logging
 import queue
 import time as time_action
-from datetime import date, datetime, time, timedelta
+from datetime import date, time
 from threading import Thread
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
-import pytz
 import requests
 import websocket
 
+from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
-from liualgotrader.common.types import Order, SymbolQueueMap, ThreadFlags, Trade
+from liualgotrader.common.types import (Order, SymbolQueueMap, ThreadFlags,
+                                        Trade)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.tradier.config import TradierConfig
 
 logger = logging.getLogger(__name__)
 
-NY = "America/New_York"
-nytz = pytz.timezone(NY)
+# The Order.EventType of each Tradier order status that is not other.
+_STATUS_EVENTS = {
+    "filled": Order.EventType.fill,
+    "partially_filled": Order.EventType.partial_fill,
+    "canceled": Order.EventType.canceled,
+    "rejected": Order.EventType.rejected,
+    "pending": Order.EventType.pending,
+    "error": Order.EventType.error,
+    "open": Order.EventType.open,
+}
 
 
 class TradierTrader(TraderAPI):
@@ -65,7 +74,7 @@ class TradierTrader(TraderAPI):
     is_market_open_today
         Report whether the market opens today (overrides Trader).
     get_time_market_close
-        Return today's closing time (overrides Trader).
+        Return the time left until today's close (overrides Trader).
     get_tradeable_symbols
         Return the easy-to-borrow stocks (overrides Trader).
     get_shortable_symbols
@@ -269,15 +278,15 @@ class TradierTrader(TraderAPI):
 
     def get_market_schedule(
         self,
-    ) -> Tuple[Optional[datetime], Optional[datetime]]:
-        """Return today's trading window in New York time.
+    ) -> Tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
+        """Return today's trading window.
 
         The window runs from 07:00 to 19:55:59.999999.
 
         Returns
         -------
-        Return two None values if the Tradier market clock reports a different
-        date.
+        Return two None values if the Tradier market clock reports a date
+        other than today in New York.
 
         Raises
         ------
@@ -289,50 +298,41 @@ class TradierTrader(TraderAPI):
         )
         data = response.json()
 
-        last_open_date = datetime.strptime(
-            data["clock"]["date"], "%Y-%m-%d"
-        ).date()
-        if last_open_date == date.today():
-            start: Optional[datetime] = nytz.localize(
-                datetime.combine(
-                    date=last_open_date,
-                    time=time(hour=7, minute=0, second=0, microsecond=0),
-                )
-            )
+        last_open_date = date.fromisoformat(data["clock"]["date"])
+        if last_open_date != clock.today():
+            return None, None
 
-            end: Optional[datetime] = nytz.localize(
-                datetime.combine(
-                    date=last_open_date,
-                    time=time(
-                        hour=19, minute=55, second=59, microsecond=999999
-                    ),
-                )
-            )
-        else:
-            start = end = None
-
-        return start, end
+        return (
+            pd.Timestamp.combine(last_open_date, time(hour=7)).tz_localize(
+                clock.NY
+            ),
+            pd.Timestamp.combine(
+                last_open_date,
+                time(hour=19, minute=55, second=59, microsecond=999999),
+            ).tz_localize(clock.NY),
+        )
 
     def get_trading_days(
-        self, start_date: date, end_date: date = date.today()
+        self, start_date: date, end_date: Optional[date] = None
     ) -> pd.DataFrame:
         """Return the open trading days in a date range with their hours.
 
-        The DataFrame is indexed by date, with the premarket start in the open
-        column and the postmarket end, or the regular close, in the close
-        column.
+        The DataFrame is indexed by date, in an index named date, with the
+        premarket start in the open column and the postmarket end, or the
+        regular close, in the close column.
 
         Parameters
         ----------
         start_date: date
             The first day of the range.
-        end_date: date, default date.today()
-            The last day of the range.
+        end_date: Optional[date], default None
+            The last day of the range, or None for today in New York.
 
         Raises
         ------
         Raise ValueError if a request fails.
         """
+        end_date = end_date or clock.today()
         url = f"{self.config.base_url}markets/calendar"
         d = start_date
         df = pd.DataFrame()
@@ -342,31 +342,41 @@ class TradierTrader(TraderAPI):
                 url, params={"month": d.month, "year": d.year}
             )
 
-            data = response.json()["calendar"]["days"]["day"]
-            dict_data: Dict = {
-                element["date"]: element
-                for element in data
-                if element["status"] == "open"
-            }
-            df1 = pd.DataFrame.from_dict(dict_data, orient="index")
-            df1["close"] = df1.apply(
-                lambda x: x.get("postmarket", x["open"])["end"], axis=1
-            )
-            df1["open"] = df1.apply(lambda x: x["premarket"]["start"], axis=1)
-
-            df1.index = pd.to_datetime(df1.index)
-            df1 = df1[["open", "close"]].loc[
-                (datetime.combine(start_date, time.min) <= df1.index)
-                & (df1.index <= datetime.combine(end_date, time.min))
+            # Tradier lists the session hours as New York times of the day
+            open_days = [
+                day
+                for day in response.json()["calendar"]["days"]["day"]
+                if day["status"] == "open"
+                and start_date <= date.fromisoformat(day["date"]) <= end_date
             ]
+            df1 = pd.DataFrame(
+                {
+                    "open": [
+                        pd.Timestamp(
+                            f"{day['date']} {day['premarket']['start']}",
+                            tz=clock.NY,
+                        )
+                        for day in open_days
+                    ],
+                    "close": [
+                        pd.Timestamp(
+                            f"{day['date']} "
+                            f"{day.get('postmarket', day['open'])['end']}",
+                            tz=clock.NY,
+                        )
+                        for day in open_days
+                    ],
+                },
+                index=pd.Index(
+                    [date.fromisoformat(day["date"]) for day in open_days],
+                    name="date",
+                ),
+            )
             df = pd.concat([df, df1])
             if d.month == end_date.month and d.year == end_date.year:
                 break
 
-            try:
-                d = date(month=d.month + 1, day=d.day, year=d.year)
-            except ValueError:
-                d = date(month=d.month + 1, day=d.day - 1, year=d.year)
+            d = date(d.year + d.month // 12, d.month % 12 + 1, 1)
 
         return df
 
@@ -420,23 +430,7 @@ class TradierTrader(TraderAPI):
         -------
         Return the other event type for an unrecognized status.
         """
-        return (
-            Order.EventType.fill
-            if order_event == "filled"
-            else Order.EventType.partial_fill
-            if order_event == "partially_filled"
-            else Order.EventType.canceled
-            if order_event == "canceled"
-            else Order.EventType.rejected
-            if order_event == "rejected"
-            else Order.EventType.pending
-            if order_event == "pending"
-            else Order.EventType.error
-            if order_event == "error"
-            else Order.EventType.open
-            if order_event == "open"
-            else Order.EventType.other
-        )
+        return _STATUS_EVENTS.get(order_event, Order.EventType.other)
 
     async def get_order(
         self, order_id: str, client_order_id: Optional[str] = None
@@ -466,16 +460,18 @@ class TradierTrader(TraderAPI):
             order_id=data["order"]["id"],
             symbol=data["order"]["symbol"],
             event=self._get_event(data["order"]["status"]),
-            submitted_at=data["order"]["create_date"],
+            submitted_at=pd.to_datetime(
+                data["order"]["create_date"], utc=True
+            ).tz_convert(clock.NY),
             price=data["order"]["last_fill_price"],
             trade_fees=0.0,
             filled_qty=data["order"]["exec_quantity"],
             side=self._get_event_side(data["order"]["side"]),
             remaining_amount=data["order"]["remaining_quantity"],
             avg_execution_price=data["order"]["avg_fill_price"],
-            external_account_id=data["order"]["tag"]
-            if "tag" in data["order"]
-            else None,
+            external_account_id=(
+                data["order"]["tag"] if "tag" in data["order"] else None
+            ),
         )
 
     def is_market_open_today(self) -> bool:
@@ -492,7 +488,7 @@ class TradierTrader(TraderAPI):
             url,
         )
         data = response.json()
-        today = str(datetime.now(nytz).date())
+        today = str(clock.today())
         return next(
             (
                 day["status"] == "open"
@@ -502,11 +498,11 @@ class TradierTrader(TraderAPI):
             False,
         )
 
-    def get_time_market_close(self) -> Optional[timedelta]:
-        """Return today's closing time as listed in the Tradier calendar.
+    def get_time_market_close(self) -> Optional[pd.Timedelta]:
+        """Return the time left until today's close in the Tradier calendar.
 
-        The closing time is the end of the postmarket session, or of the
-        regular session when none is listed, in the calendar's format.
+        The close is the end of the postmarket session, or of the regular
+        session when none is listed.
 
         Returns
         -------
@@ -521,14 +517,20 @@ class TradierTrader(TraderAPI):
             url,
         )
         data = response.json()
-        today = str(datetime.now(nytz).date())
-        return next(
+        now = clock.now()
+        today = str(now.date())
+        close = next(
             (
                 day.get("postmarket", day["open"])["end"]
                 for day in data["calendar"]["days"]["day"]
                 if day["date"] == today and "open" in day
             ),
             None,
+        )
+        return (
+            None
+            if close is None
+            else pd.Timestamp(f"{today} {close}", tz=clock.NY) - now
         )
 
     async def get_tradeable_symbols(self) -> List[str]:
@@ -728,7 +730,7 @@ class TradierTrader(TraderAPI):
             order_id=data["order"]["id"],
             event=Order.EventType.pending,
             side=event_side,
-            submitted_at=datetime.now(nytz),
+            submitted_at=clock.now(),
             remaining_amount=qty,
         )
 
@@ -830,7 +832,9 @@ class TradierTrader(TraderAPI):
             trade_fee=0.0,
             filled_avg_price=float(trade_dict.get("last_fill_price", 0.0)),
             liquidity="",
-            updated_at=trade_dict["create_date"],
+            updated_at=pd.to_datetime(
+                trade_dict["create_date"], utc=True
+            ).tz_convert(clock.NY),
         )
 
     @classmethod

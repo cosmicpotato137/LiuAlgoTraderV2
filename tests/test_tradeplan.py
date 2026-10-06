@@ -1,10 +1,10 @@
 import logging
 import uuid
-from datetime import datetime, timedelta
 
+import pandas as pd
 import pytest
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.consumer import create_strategies_from_db
 from liualgotrader.db.models.tradeplan import TradePlan
@@ -55,7 +55,7 @@ async def test_load_testplan_from_db():
 @pytest.mark.devtest
 async def test_get_new_entries():
     trade_plan = await TradePlan.get_new_entries(
-        since=datetime.utcnow() - timedelta(days=5)
+        since=clock.now() - pd.Timedelta(days=5)
     )
 
     for plan in trade_plan:

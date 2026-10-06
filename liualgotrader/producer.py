@@ -30,12 +30,13 @@ import json
 import logging
 import os
 import random
-from datetime import datetime
 from multiprocessing import Queue
 from queue import Empty
 from typing import Dict, List
 
-from liualgotrader.common import config
+import pandas as pd
+
+from liualgotrader.common import clock, config
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.db.models.tradeplan import TradePlan
@@ -47,7 +48,7 @@ from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
 
-last_msg_tstamp: datetime = datetime.now()
+last_msg_tstamp: pd.Timestamp = clock.now()
 symbols: List[str] = []
 queue_id_hash: Dict[str, int] = {}
 symbol_strategy: Dict = {}
@@ -258,7 +259,7 @@ async def tradeplan_scanner(
     """
     logger.info("tradeplan_scanner() task starting ")
 
-    last_scan: datetime = datetime.utcnow()
+    last_scan = clock.now()
     while True:
         await asyncio.sleep(5 * 60)
 
@@ -270,7 +271,7 @@ async def tradeplan_scanner(
             new_tradeplan_entries = await TradePlan.get_new_entries(
                 since=last_scan
             )
-            last_scan = datetime.utcnow()
+            last_scan = clock.now()
 
             if new_tradeplan_entries:
                 logger.info(
@@ -343,7 +344,6 @@ async def producer_async_main(
     qm = SymbolQueueMap(queue_list=queues)
     await run(queues=queues, qm=qm)
 
-    # TODO: Support multiple brokers
     at = trader_factory(qm)
     trade_updates_task = await at.run()
 

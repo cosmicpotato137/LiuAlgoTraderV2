@@ -12,10 +12,12 @@ import logging
 import queue
 from typing import Dict, List, Optional, Union
 
+import pandas as pd
 from polygon import WebSocketClient
 from polygon.exceptions import AuthError
 from polygon.websocket.models import Feed, Market
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.polygon.config import PolygonConfig
@@ -205,7 +207,8 @@ class PolygonStream(StreamingAPI):
         ----------
         event: Dict
             The Polygon event; descriptive field names such as open and symbol
-            are added to it in place.
+            are added to it in place, and timestamp holds the start time of
+            an aggregate, or the time of a trade or quote.
 
         Raises
         ------
@@ -215,8 +218,13 @@ class PolygonStream(StreamingAPI):
         logger.debug("event: %s", event)
         try:
             event["EV"] = event["ev"]
-            if "s" in event:
-                event["start"] = event["s"]
+            # aggregates start at s, while trades and quotes happen at t;
+            # both are Unix milliseconds, and a trade's s is its size
+            event["timestamp"] = pd.Timestamp(
+                event["s"] if event["ev"] in ("A", "AM") else event["t"],
+                unit="ms",
+                tz="UTC",
+            ).tz_convert(clock.NY)
             if "o" in event:
                 event["open"] = event["o"]
             if "h" in event:

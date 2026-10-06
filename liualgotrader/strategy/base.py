@@ -10,10 +10,10 @@ Strategy
 
 import importlib
 import logging
-from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
+import pandas as pd
 from pandas import DataFrame as df
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
@@ -189,7 +189,7 @@ class Strategy(object):
         self,
         symbols_position: Dict[str, float],
         data_loader: DataLoader,
-        now: datetime,
+        now: pd.Timestamp,
         portfolio_value: float = None,
         trader: TraderAPI = None,
         debug: bool = False,
@@ -209,7 +209,7 @@ class Strategy(object):
         data_loader: DataLoader
             The loader, passed by the framework and used like a DataFrame to
             access symbol data.
-        now: datetime
+        now: pd.Timestamp
             The current time, which is in the past when backtesting.
         portfolio_value: float, default None
             The portfolio value; to be deprecated.
@@ -237,7 +237,7 @@ class Strategy(object):
         symbol: str,
         shortable: bool,
         position: float,
-        now: datetime,
+        now: pd.Timestamp,
         minute_history: df,
         portfolio_value: float = None,
         debug: bool = False,
@@ -256,7 +256,7 @@ class Strategy(object):
             Whether the symbol may be shorted; to be deprecated.
         position: float
             The current position, which may be 0.
-        now: datetime
+        now: pd.Timestamp
             The current time with its time zone, which is in the past when
             backtesting.
         minute_history: df
@@ -276,26 +276,26 @@ class Strategy(object):
         """
         return False, {}
 
-    async def is_sell_time(self, now: datetime):
+    async def is_sell_time(self, now: pd.Timestamp):
         """Return whether the strategy may sell at the given time.
 
         The base implementation always returns True.
 
         Parameters
         ----------
-        now: datetime
+        now: pd.Timestamp
             The time to check.
         """
         return True
 
-    async def is_buy_time(self, now: datetime):
+    async def is_buy_time(self, now: pd.Timestamp):
         """Return whether the strategy may buy at the given time.
 
         The base implementation always returns True.
 
         Parameters
         ----------
-        now: datetime
+        now: pd.Timestamp
             The time to check.
         """
         return True
@@ -305,7 +305,7 @@ class Strategy(object):
         symbol: str,
         price: float,
         qty: float,
-        now: datetime = None,
+        now: Optional[pd.Timestamp] = None,
         trade_fee: float = 0.0,
     ) -> None:
         """Handle a successful, possibly partial, buy.
@@ -321,7 +321,7 @@ class Strategy(object):
             The execution price.
         qty: float
             The quantity bought.
-        now: datetime, default None
+        now: Optional[pd.Timestamp], default None
             The time of the buy.
         trade_fee: float, default 0.0
             The fee charged for the trade.
@@ -332,7 +332,7 @@ class Strategy(object):
         symbol: str,
         price: float,
         qty: float,
-        now: datetime = None,
+        now: Optional[pd.Timestamp] = None,
         trade_fee: float = 0.0,
     ) -> None:
         """Handle a successful, possibly partial, sell.
@@ -348,7 +348,7 @@ class Strategy(object):
             The execution price.
         qty: float
             The quantity sold.
-        now: datetime, default None
+        now: Optional[pd.Timestamp], default None
             The time of the sell.
         trade_fee: float, default 0.0
             The fee charged for the trade.

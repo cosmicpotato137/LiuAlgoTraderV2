@@ -17,4 +17,6 @@ def test_trader_calendar() -> bool:
 
     td = trader.get_trading_days(start_date=date(year=2021, month=1, day=1))
     logger.info("%s", td)
+    if td.empty or not all(type(day) is date for day in td.index):
+        raise AssertionError("expected trading days indexed by date")
     return True

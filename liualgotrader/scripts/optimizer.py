@@ -34,13 +34,13 @@ import multiprocessing as mp
 import os
 import sys
 import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Dict, List
 
 import parsedatetime.parsedatetime as pdt
 
 from liualgotrader.backtesting.optimizer import backtest_iteration
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.hyperparameter import Hyperparameters, Parameter
 from liualgotrader.common.log import configure_logging
 
@@ -116,14 +116,15 @@ def dateFromString(s: str) -> date:
     Parameters
     ----------
     s: str
-        The date string, either explicit or relative, such as "yesterday".
+        The date string, either explicit or relative to the current New York
+        time, such as "yesterday".
 
     Raises
     ------
     Raise ValueError if the string cannot be parsed as a date or a time.
     """
     c = pdt.Calendar()
-    result, what = c.parse(s)
+    result, what = c.parse(s, clock.now().timetuple())
 
     dt = None
 
@@ -134,7 +135,7 @@ def dateFromString(s: str) -> date:
     # 3 = datetime
     if what in (1, 2):
         # result is struct_time
-        dt = datetime(*result[:6]).date()
+        dt = date(*result[:3])
     elif what == 3:
         # result is a datetime
         dt = result.date()

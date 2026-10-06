@@ -21,10 +21,9 @@ import json
 import logging
 import multiprocessing as mp
 import os
-from datetime import timedelta
 from typing import Dict, List
 
-from pytz import timezone
+import pandas as pd
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
@@ -37,8 +36,6 @@ from liualgotrader.trade.base import TraderAPI
 from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
-
-nyc = timezone("America/New_York")
 
 
 async def scanner_runner(scanner: Scanner, queue: mp.Queue) -> None:
@@ -125,7 +122,9 @@ async def create_momentum_scanner(
             min_volume=scanner_details["min_volume"],
             from_market_open=scanner_details["from_market_open"],
             today_change_percent=scanner_details["today_change_percent"],
-            recurrence=timedelta(minutes=recurrence) if recurrence else None,
+            recurrence=(
+                pd.Timedelta(minutes=recurrence) if recurrence else None
+            ),
             target_strategy_name=target_strategy_name,
             max_symbols=scanner_details.get(
                 "max_symbols", config.total_tickers

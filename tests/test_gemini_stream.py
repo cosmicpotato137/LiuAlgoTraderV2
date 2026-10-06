@@ -1,73 +1,52 @@
 import asyncio
 import logging
-import time
 from multiprocessing import Queue
-from threading import Thread
+from queue import Empty
 
+import pandas as pd
 import pytest
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.vendors.gemini.streaming import GeminiStream
 
 logger = logging.getLogger(__name__)
 
-pytestmark = pytest.mark.requires_credentials("gemini")
-
-gemini_stream: GeminiStream
-queues: SymbolQueueMap
-stop: bool = False
-
-
-@pytest.fixture(autouse=True)
-async def stream_setup():
-    global gemini_stream
-    global queues
-    queues = SymbolQueueMap()
-    gemini_stream = GeminiStream(queues, config.gemini)
-
-
-def listener(q: Queue):
-    logger.info("start listen %s", q)
-    while not stop:
-        try:
-            d = q.get(timeout=2)
-            logger.info("got in q: %s", d)
-        except Exception as e:
-            logger.info("%s timeout...", e)
-            time.sleep(1)
-
-    logger.info("end listen")
+# The (symbol, EV) pairs of the events the test waits for.
+EXPECTED = {("btcusd", "AM"), ("ethusd", "AM"), ("btcusd", "T")}
 
 
 @pytest.mark.asyncio
 @pytest.mark.devtest
-async def test_apple_sec_agg():
-    global gemini_stream
-    global stop
+async def test_trades_and_minute_bars():
+    queues = SymbolQueueMap()
+    btc, eth = Queue(), Queue()
+    queues["btcusd"] = btc
+    queues["ethusd"] = eth
+    gemini_stream = GeminiStream(queues, config.gemini)
     await gemini_stream.run()
-    logger.info("going to subscribe")
-    q = Queue()
-    queues["BTCUSD"] = q
-    running_task = Thread(
-        target=listener,
-        args=(q,),
-    )
-    logger.info("start thread")
-    running_task.start()
-    logger.info("started")
-    await asyncio.sleep(2)
+    try:
+        if not await gemini_stream.subscribe(
+            ["BTCUSD", "ethusd"], [WSEventType.MIN_AGG, WSEventType.TRADE]
+        ):
+            raise AssertionError("subscribe failed")
 
-    status = await gemini_stream.subscribe(
-        ["BTCUSD"], [WSEventType.MIN_AGG, WSEventType.TRADE]
-    )
-    logger.info("subscribe result: %s", status)
-    if not status:
-        raise AssertionError(f"Failed in gemini_stream.subscribe w/ {status}")
-    await asyncio.sleep(1 * 60)
-    await gemini_stream.close()
+        # A minute bar arrives as each minute closes, so wait past one.
+        seen = set()
+        deadline = clock.now() + pd.Timedelta(seconds=90)
+        while clock.now() < deadline and not EXPECTED <= seen:
+            for q in (btc, eth):
+                try:
+                    event = q.get_nowait()
+                except Empty:
+                    continue
+                logger.info("got %s", event)
+                if event["timestamp"].tz != clock.NY:
+                    raise AssertionError(f"not in New York time: {event}")
+                seen.add((event["symbol"], event["EV"]))
+            await asyncio.sleep(0.1)
+    finally:
+        await gemini_stream.close()
 
-    stop = True
-    running_task.join()
-
-    return True
+    if missing := EXPECTED - seen:
+        raise AssertionError(f"no events of kind (symbol, EV) {missing}")

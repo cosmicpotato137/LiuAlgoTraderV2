@@ -8,22 +8,19 @@ TradierData
 
 import logging
 import time as time_action
-from datetime import date, datetime, time
+from datetime import date, time
 from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 import pandas_market_calendars
-import pytz
 import requests
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.vendors.tradier.config import TradierConfig
 
 logger = logging.getLogger(__name__)
-
-NY = "America/New_York"
-nytz = pytz.timezone(NY)
 
 
 class TradierData(DataAPI):
@@ -110,7 +107,7 @@ class TradierData(DataAPI):
         self,
         symbol: str,
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
         """Return historical daily or minute bars for a symbol.
@@ -121,35 +118,34 @@ class TradierData(DataAPI):
             The ticker.
         start: date
             The first date to load.
-        end: date, default date.today()
-            The last date to load.
+        end: Optional[date], default None
+            The last date to load, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             TimeScale.day or TimeScale.minute.
 
         Returns
         -------
-        Return a DataFrame of bars indexed by EST time, with minute bars
-        limited to 04:00 through 19:59; it is empty if no minute data exists.
+        Return a DataFrame of bars indexed by New York time, with daily bars at
+        midnight and minute bars limited to 04:00 through 19:59; it is empty
+        if no minute data exists.
 
         Raises
         ------
         Raise NotImplementedError for any other scale, and ValueError on an
         HTTP error status or malformed minute data.
         """
+        end = end or clock.today()
         if scale == TimeScale.day:
             url = f"{self.config.base_url}markets/history"
             interval = "daily"
             s = str(start)
             e = str(end)
         elif scale == TimeScale.minute:
+            # Tradier reads the times of a request in New York time
             url = f"{self.config.base_url}markets/timesales"
             interval = "1min"
-            s = datetime.combine(start, datetime.min.time()).strftime(
-                "%Y-%m-%d %H:%M"
-            )
-            e = datetime.combine(end, datetime.max.time()).strftime(
-                "%Y-%m-%d %H:%M"
-            )
+            s = f"{start} 00:00"
+            e = f"{end} 23:59"
         else:
             raise NotImplementedError(f"scale {scale} not implemented yet")
 
@@ -173,7 +169,7 @@ class TradierData(DataAPI):
             data = response.json()["history"]["day"]
             df = pd.DataFrame(data=data)
 
-            df.date = pd.to_datetime(df.date).dt.tz_localize("EST")
+            df.date = pd.to_datetime(df.date).dt.tz_localize(clock.NY)
             df.set_index(
                 "date", drop=True, inplace=True, verify_integrity=True
             )
@@ -187,7 +183,9 @@ class TradierData(DataAPI):
                 if data and data["series"]:
                     data = data["series"]["data"]
                     df = pd.DataFrame.from_records(data)
-                    df.time = pd.to_datetime(df.time).dt.tz_localize("EST")
+                    df.time = pd.to_datetime(
+                        df.timestamp, unit="s", utc=True
+                    ).dt.tz_convert(clock.NY)
                     df.set_index(
                         "time", drop=True, inplace=True, verify_integrity=True
                     )
@@ -221,7 +219,7 @@ class TradierData(DataAPI):
         self,
         symbols: List[str],
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> Dict[str, pd.DataFrame]:
         """Return None, as loading several symbols at once is unimplemented.
@@ -232,8 +230,8 @@ class TradierData(DataAPI):
             The symbols to load.
         start: date
             The first date to load.
-        end: date, default date.today()
-            The last date to load.
+        end: Optional[date], default None
+            The last date to load, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar size.
         """
@@ -241,7 +239,7 @@ class TradierData(DataAPI):
 
     def _get_previous_month_last_trading(
         self, month: int, year: int
-    ) -> datetime:
+    ) -> pd.Timestamp:
         """Return the latest trading time before a month's last listed day.
 
         Request the calendars of earlier months if needed.
@@ -266,7 +264,7 @@ class TradierData(DataAPI):
 
     def _get_previous_last_trading(
         self, data: Dict, index: int, month: int, year: int
-    ) -> datetime:
+    ) -> pd.Timestamp:
         """Return the latest trading time before a day in a monthly calendar.
 
         Request the calendars of earlier months if needed.
@@ -288,9 +286,12 @@ class TradierData(DataAPI):
         """
         if index > 0:
             if data["calendar"]["days"]["day"][index - 1]["status"] == "open":
-                date_str = data["calendar"]["days"]["day"][index - 1]["date"]
-                day = datetime.strptime(date_str, "%Y-%m-%d").date()
-                return nytz.localize(datetime.combine(day, time(hour=20)))
+                day = date.fromisoformat(
+                    data["calendar"]["days"]["day"][index - 1]["date"]
+                )
+                return pd.Timestamp.combine(day, time(hour=20)).tz_localize(
+                    clock.NY
+                )
             return self._get_previous_last_trading(
                 data, index - 1, month, year
             )
@@ -300,7 +301,7 @@ class TradierData(DataAPI):
             else self._get_previous_month_last_trading(month=12, year=year - 1)
         )
 
-    def get_last_trading(self, symbol: str) -> datetime:
+    def get_last_trading(self, symbol: str) -> pd.Timestamp:
         """Return the most recent time at which the market was open.
 
         Parameters
@@ -322,11 +323,12 @@ class TradierData(DataAPI):
             url,
         )
         data = response.json()
-        today = datetime.now(nytz).date()
+        now = clock.now()
+        today = now.date()
         for i, day in enumerate(data["calendar"]["days"]["day"]):
             if day["date"] == str(today):
                 if day["status"] == "open":
-                    return datetime.now(tz=nytz)
+                    return now
 
                 return self._get_previous_last_trading(
                     data, i, today.month, today.year
@@ -343,16 +345,16 @@ class TradierData(DataAPI):
         return nyse.holidays().holidays
 
     def get_trading_day(
-        self, symbol: str, now: datetime, offset: int
-    ) -> datetime:
+        self, symbol: str, now: pd.Timestamp, offset: int
+    ) -> pd.Timestamp:
         """Return now shifted by offset NYSE business days.
 
         Parameters
         ----------
         symbol: str
             Ignored.
-        now: datetime
-            The reference time; a naive value is taken as New York time.
+        now: pd.Timestamp
+            The reference time.
         offset: int
             The number of business days to add.
         """
@@ -360,11 +362,7 @@ class TradierData(DataAPI):
             n=offset, holidays=self._get_trading_holidays()
         )
 
-        return (
-            nytz.localize(now + cbd_offset)
-            if now.tzinfo is None
-            else now + cbd_offset
-        )
+        return now + cbd_offset
 
     def trading_days_slice(self, symbol: str, time_slice) -> slice:
         """Raise NotImplementedError, as slicing by days is unsupported.
@@ -374,7 +372,7 @@ class TradierData(DataAPI):
         symbol: str
             The symbol.
         time_slice
-            The datetime slice.
+            The timestamp slice.
         """
         raise NotImplementedError("trading_days_slice")
 

@@ -1,6 +1,5 @@
 import logging
-from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -54,20 +53,18 @@ class MyStrategy(Strategy):
         symbol: str,
         price: float,
         qty: float,
-        now: datetime = None,
+        now: Optional[pd.Timestamp] = None,
         trade_fee: float = 0.0,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     async def sell_callback(
         self,
         symbol: str,
         price: float,
         qty: float,
-        now: datetime = None,
+        now: Optional[pd.Timestamp] = None,
         trade_fee: float = 0.0,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     async def create(self) -> bool:
         """
@@ -88,7 +85,7 @@ class MyStrategy(Strategy):
         symbol: str,
         shortable: bool,
         position: float,
-        now: datetime,
+        now: pd.Timestamp,
         minute_history: pd.DataFrame,
         portfolio_value: float = None,
         debug: bool = False,
@@ -147,9 +144,11 @@ class MyStrategy(Strategy):
 
             # Check for liquidation signals
             sell_indicators[symbol] = {
-                "my_indicator": "reached target"
-                if current_second_data.close >= target_prices[symbol]
-                else "reached stop"
+                "my_indicator": (
+                    "reached target"
+                    if current_second_data.close >= target_prices[symbol]
+                    else "reached stop"
+                )
             }
 
             logger.info(

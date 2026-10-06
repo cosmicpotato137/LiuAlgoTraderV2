@@ -1,12 +1,12 @@
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 import pandas as pd
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 
 from liualgotrader.analytics import analysis
-from liualgotrader.common import market_data
+from liualgotrader.common import clock, market_data
 from liualgotrader.common.types import AssetType
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
@@ -57,6 +57,8 @@ async def test_algo_run() -> bool:
     await run.update_end_time("done")
     if run.end_time is None or run.end_reason != "done":
         raise AssertionError("end time not set on the run")
+    if run.start_time.tz != clock.NY or run.end_time.tz != clock.NY:
+        raise AssertionError("run times not read back in New York time")
 
     details = await AlgoRun.get_batch_details(batch_id)
     if [d[0] for d in details] != [ref.algo_run_id, run.algo_run_id]:
@@ -98,9 +100,11 @@ async def test_new_trade() -> bool:
     other = await new_run(strategy, unique("batch"))
 
     buy = new_trade(run, symbol, "buy", 100.5, {"rsi": 30.0})
-    await buy.save("t1", stop_price=95.0, target_price=110.0, trade_fee=1.5)
+    await buy.save(
+        clock.now(), stop_price=95.0, target_price=110.0, trade_fee=1.5
+    )
     sell = new_trade(run, symbol, "sell", 105.25, {"x": float("nan")})
-    await sell.save("t2")
+    await sell.save(clock.now())
     if not buy.trade_id or not sell.trade_id or buy.tstamp is None:
         raise AssertionError("saved trades missing database values")
     if sell.indicators != {}:
@@ -268,7 +272,7 @@ async def test_gain_loss_and_trade_analysis() -> bool:
     )
     await GainLoss.save(gains)
 
-    start = pd.Timestamp("2026-01-05 10:00", tz="America/New_York")
+    start = pd.Timestamp("2026-01-05 10:00", tz=clock.NY)
     analyses = pd.DataFrame(
         [
             ("AAA", run.algo_run_id, 1.5, 15.0, 0.5, start, start),
@@ -286,7 +290,7 @@ async def test_gain_loss_and_trade_analysis() -> bool:
     )
     await TradeAnalysis.save(analyses)
 
-    start_date = date.today() - timedelta(days=2)
+    start_date = clock.today() - pd.Timedelta(days=2)
     loaded = await GainLoss.load(start_date)
     ours = loaded[loaded.strategy_name == strategy]
     if (
@@ -346,16 +350,11 @@ async def test_list_portfolios() -> bool:
 async def test_trade_plan_new_entries() -> bool:
     portfolio_id, strategy = unique("portfolio"), unique("strategy")
     await Portfolio.save(portfolio_id, 1000, 0, {})
+    created = clock.now()
     async with session_scope() as session:
-        # A naive time is in the session time zone of the database, which is
-        # UTC on SQLite.
-        if session.get_bind().dialect.name == "postgresql":
-            session_now = await session.scalar(select(func.localtimestamp()))
-        else:
-            session_now = datetime.now(timezone.utc).replace(tzinfo=None)
         entry = TradePlan(
             portfolio_id=portfolio_id,
-            start_date=date.today() - timedelta(days=1),
+            start_date=clock.today() - pd.Timedelta(days=1),
             strategy_name=strategy,
             parameters={"k": 1},
         )
@@ -364,23 +363,24 @@ async def test_trade_plan_new_entries() -> bool:
     def names(entries):
         return {e.strategy_name: e.parameters for e in entries}
 
-    minute = timedelta(minutes=1)
+    minute = pd.Timedelta(minutes=1)
     try:
         if names(await TradePlan.load()).get(strategy) != {"k": 1}:
             raise AssertionError("active entry not loaded")
         if strategy not in names(
-            await TradePlan.get_new_entries(session_now - minute)
+            await TradePlan.get_new_entries(created - minute)
         ):
-            raise AssertionError("naive time before creation excluded")
+            raise AssertionError("time before creation excluded")
         if strategy in names(
-            await TradePlan.get_new_entries(session_now + minute)
+            await TradePlan.get_new_entries(clock.now() + minute)
         ):
-            raise AssertionError("naive time after creation included")
-        utc_now = datetime.now(timezone.utc)
+            raise AssertionError("time after creation included")
         if strategy not in names(
-            await TradePlan.get_new_entries(utc_now - minute)
+            await TradePlan.get_new_entries(
+                (created - minute).tz_convert("UTC")
+            )
         ):
-            raise AssertionError("aware time before creation excluded")
+            raise AssertionError("UTC time before creation excluded")
     finally:
         # The entry has no strategy to run, so expire it before other tests
         # create the strategies of the active trade plan.
@@ -388,7 +388,7 @@ async def test_trade_plan_new_entries() -> bool:
             await session.execute(
                 update(TradePlan)
                 .where(TradePlan.trade_plan_id == entry.trade_plan_id)
-                .values(expire_tstamp=datetime.now(timezone.utc))
+                .values(expire_tstamp=clock.now())
             )
 
     return True
@@ -407,9 +407,11 @@ async def test_analysis_loaders() -> bool:
     await Portfolio.associate_batch_id_to_profile(portfolio_id, batch_id)
     run = await new_run(strategy, batch_id)
     await new_trade(run, symbol, "buy", 10.0, {"a": 1}).save(
-        "2026-01-05 10:00:00", target_price=12.0
+        pd.Timestamp("2026-01-05 10:00", tz=clock.NY), target_price=12.0
     )
-    await new_trade(run, symbol, "sell", 11.0, {}).save("2026-01-05 11:00:00")
+    await new_trade(run, symbol, "sell", 11.0, {}).save(
+        pd.Timestamp("2026-01-05 11:00", tz=clock.NY)
+    )
     day = (await NewTrade.load_latest(symbol, strategy))[5].date()
 
     trades = await analysis.load_trades(day)
@@ -441,9 +443,42 @@ async def test_analysis_loaders() -> bool:
         raise AssertionError("traded symbol missing")
 
     period = await analysis.load_trades_for_period(
-        "TEST", day, day + timedelta(days=1)
+        "TEST", day, day + pd.Timedelta(days=1)
     )
     if len(period[period.symbol == symbol]) != 2:
         raise AssertionError("trades for period missing")
+
+    return True
+
+
+@pytest.mark.asyncio
+@pytest.mark.devtest
+async def test_tz_datetime_round_trip() -> bool:
+    strategy = unique("strategy")
+    run = await new_run(strategy, unique("batch"))
+    # 01:30 occurs twice on 2024-11-03 in New York; this is the second, EST.
+    client_time = pd.Timestamp("2024-11-03 06:30:00.123456", tz="UTC")
+    trade = new_trade(run, unique("SYM"), "buy", 1.0, {})
+    await trade.save(client_time.tz_convert(clock.NY))
+
+    async with session_scope() as session:
+        stored = await session.scalar(
+            select(NewTrade.client_time).where(
+                NewTrade.trade_id == trade.trade_id
+            )
+        )
+    if not isinstance(stored, pd.Timestamp) or stored.tz != clock.NY:
+        raise AssertionError(f"not read back in New York time: {stored!r}")
+    if stored != client_time or stored.utcoffset() != pd.Timedelta(hours=-5):
+        raise AssertionError(f"wrong time read back: {stored!r}")
+
+    for invalid in (
+        "2026-01-05 10:00:00",
+        pd.Timestamp("2026-01-05 10:00"),
+        datetime(2026, 1, 5, 10, tzinfo=timezone.utc),
+        date(2026, 1, 5),
+    ):
+        with pytest.raises(Exception, match="time zone-aware pd.Timestamp"):
+            await new_trade(run, unique("SYM"), "buy", 1.0, {}).save(invalid)
 
     return True

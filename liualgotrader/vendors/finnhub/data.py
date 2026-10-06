@@ -11,20 +11,17 @@ check_auth
     Return a wrapper that requires an authenticated Finnhub client.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date
 from importlib.resources import files
 from typing import Dict, List, Optional
 
 import pandas as pd
-import pytz
 from finnhub import Client
 
+from liualgotrader.common import clock
 from liualgotrader.common.types import TimeScale
 from liualgotrader.data.base import DataAPI
 from liualgotrader.vendors.finnhub.config import FinnhubConfig
-
-NY = "America/New_York"
-nytz = pytz.timezone(NY)
 
 
 def check_auth(f):
@@ -151,7 +148,7 @@ class FinnhubData(DataAPI):
         self,
         symbol: str,
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
         """Return historical candles for a symbol.
@@ -162,26 +159,28 @@ class FinnhubData(DataAPI):
             The symbol to load.
         start: date
             The first date to load.
-        end: date, default date.today()
-            The last date to load.
+        end: Optional[date], default None
+            The last date to load, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             TimeScale.minute or TimeScale.day.
 
         Returns
         -------
         Return a DataFrame indexed by New York time with the open, high, low,
-        close and volume columns.
+        close and volume columns; a daily candle is indexed by midnight of its
+        date.
 
         Raises
         ------
         Raise AssertionError for any other scale and ValueError if no data is
         available.
         """
-        _start = int(datetime.combine(start, datetime.min.time()).timestamp())
+        end = end or clock.today()
+        _start = int(pd.Timestamp(start, tz=clock.NY).timestamp())
         _end = int(
-            datetime.combine(
-                end if scale == TimeScale.day else end + timedelta(days=1),
-                datetime.min.time(),
+            pd.Timestamp(
+                end if scale == TimeScale.day else end + pd.Timedelta(days=1),
+                tz=clock.NY,
             ).timestamp()
         )
         t: Optional[str] = (
@@ -202,9 +201,13 @@ class FinnhubData(DataAPI):
                 _end,
             )
         )
-        data.t = pd.to_datetime(data.t, unit="s")
-        data = data.set_index(data.t)
-        data = data.tz_localize("America/New_York", ambiguous="infer")
+        times = pd.to_datetime(data.t, unit="s", utc=True)
+        data = data.set_index(
+            # Finnhub stamps a daily candle with midnight UTC of its date
+            times.dt.tz_localize(None).dt.tz_localize(clock.NY)
+            if scale == TimeScale.day
+            else times.dt.tz_convert(clock.NY)
+        )
         data = data[data.s == "ok"]
         data = data.drop(columns=["s", "t"])
         data.rename(
@@ -229,7 +232,7 @@ class FinnhubData(DataAPI):
         self,
         symbols: List[str],
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> Dict[str, pd.DataFrame]:
         """Raise NotImplementedError, as bulk loading is not supported.
@@ -240,14 +243,14 @@ class FinnhubData(DataAPI):
             The symbols to load.
         start: date
             The start of the date range.
-        end: date, default date.today()
-            The end of the date range.
+        end: Optional[date], default None
+            The end of the date range, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar resolution.
         """
         raise NotImplementedError("get_symbols_data")
 
-    def get_last_trading(self, symbol: str) -> datetime:
+    def get_last_trading(self, symbol: str) -> pd.Timestamp:
         """Raise NotImplementedError, as this lookup is not supported.
 
         Parameters
@@ -258,16 +261,16 @@ class FinnhubData(DataAPI):
         raise NotImplementedError("get_last_trading")
 
     def get_trading_day(
-        self, symbol: str, now: datetime, offset: int
-    ) -> datetime:
+        self, symbol: str, now: pd.Timestamp, offset: int
+    ) -> pd.Timestamp:
         """Raise NotImplementedError, as this method is not supported.
 
         Parameters
         ----------
         symbol: str
             The symbol whose trading calendar applies.
-        now: datetime
-            The reference datetime.
+        now: pd.Timestamp
+            The reference time.
         offset: int
             The number of trading days to shift by.
         """
@@ -291,7 +294,7 @@ class FinnhubData(DataAPI):
         symbol: str
             The symbol whose trading calendar applies.
         slice
-            The datetime slice to adjust.
+            The timestamp slice to adjust.
         """
         raise NotImplementedError("trading_days_slice")
 

@@ -8,7 +8,7 @@ DataAPI
 
 import math
 from abc import ABCMeta, abstractmethod
-from datetime import date, datetime
+from datetime import date
 from typing import Callable, Dict, List, Optional
 
 import pandas as pd
@@ -34,9 +34,9 @@ class DataAPI(metaclass=ABCMeta):
     get_last_trading
         Return the time of the latest trading activity.
     get_trading_day
-        Return a datetime shifted by trading days.
+        Return a timestamp shifted by trading days.
     trading_days_slice
-        Adjust a datetime slice to trading sessions.
+        Adjust a timestamp slice to trading sessions.
     num_trading_minutes
         Return the trading minutes in one day.
     num_trading_days
@@ -52,7 +52,7 @@ class DataAPI(metaclass=ABCMeta):
         self,
         symbol: str,
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
         """Return historical bars for a symbol over a date range.
@@ -63,16 +63,16 @@ class DataAPI(metaclass=ABCMeta):
             The symbol to load.
         start: date
             The start of the date range.
-        end: date, default date.today()
-            The end of the date range.
+        end: Optional[date], default None
+            The end of the date range, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar resolution.
 
         Raises
         ------
-        Implementations must return a DataFrame indexed by timestamp with at
-        least the open, high, low, close and volume columns, and should raise
-        ValueError if no data is available.
+        Implementations must return a DataFrame indexed by New York time with
+        at least the open, high, low, close and volume columns, and should
+        raise ValueError if no data is available.
         """
         ...
 
@@ -103,7 +103,7 @@ class DataAPI(metaclass=ABCMeta):
         self,
         symbols: List[str],
         start: date,
-        end: date = date.today(),
+        end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> Dict[str, pd.DataFrame]:
         """Return historical bars for several symbols over a date range.
@@ -117,15 +117,15 @@ class DataAPI(metaclass=ABCMeta):
             The symbols to load.
         start: date
             The start of the date range.
-        end: date, default date.today()
-            The end of the date range.
+        end: Optional[date], default None
+            The end of the date range, or None for today in New York.
         scale: TimeScale, default TimeScale.minute
             The bar resolution.
         """
         ...
 
     @abstractmethod
-    def get_last_trading(self, symbol: str) -> datetime:
+    def get_last_trading(self, symbol: str) -> pd.Timestamp:
         """Return the time of the most recent trading activity for a symbol.
 
         Parameters
@@ -137,8 +137,8 @@ class DataAPI(metaclass=ABCMeta):
 
     @abstractmethod
     def get_trading_day(
-        self, symbol: str, now: datetime, offset: int
-    ) -> datetime:
+        self, symbol: str, now: pd.Timestamp, offset: int
+    ) -> pd.Timestamp:
         """Return a reference time shifted by a number of trading days.
 
         The exact counting convention is defined by each implementation.
@@ -147,8 +147,8 @@ class DataAPI(metaclass=ABCMeta):
         ----------
         symbol: str
             The symbol whose trading calendar applies.
-        now: datetime
-            The reference datetime.
+        now: pd.Timestamp
+            The reference time.
         offset: int
             The number of trading days to shift by.
         """
@@ -156,7 +156,7 @@ class DataAPI(metaclass=ABCMeta):
 
     @abstractmethod
     def trading_days_slice(self, symbol: str, slice) -> slice:
-        """Return a datetime slice adjusted to the trading sessions it spans.
+        """Return a timestamp slice adjusted to the trading sessions it spans.
 
         Implementations may return the slice unchanged when no adjustment is
         needed.
@@ -166,7 +166,7 @@ class DataAPI(metaclass=ABCMeta):
         symbol: str
             The symbol whose trading calendar applies.
         slice
-            The datetime slice to adjust.
+            The timestamp slice to adjust.
         """
         ...
 
@@ -206,9 +206,13 @@ class DataAPI(metaclass=ABCMeta):
         ...
 
     def data_concurrency_ranges(
-        self, symbol: str, start: date, end: date, scale: TimeScale
-    ) -> List[Optional[pd.DatetimeIndex]]:
-        """Split a date range into boundaries for concurrent data loading.
+        self,
+        symbol: str,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+        scale: TimeScale,
+    ) -> pd.DatetimeIndex:
+        """Split a time range into boundaries for concurrent data loading.
 
         Each pair of consecutive timestamps bounds a range whose estimated size
         does not exceed get_max_data_points_per_load.
@@ -217,10 +221,10 @@ class DataAPI(metaclass=ABCMeta):
         ----------
         symbol: str
             The symbol to load.
-        start: date
-            The start of the date range.
-        end: date
-            The end of the date range.
+        start: pd.Timestamp
+            The start of the range.
+        end: pd.Timestamp
+            The end of the range.
         scale: TimeScale
             The bar resolution.
 
@@ -228,14 +232,17 @@ class DataAPI(metaclass=ABCMeta):
         -------
         Return evenly spaced timestamps from start to end.
         """
-        scale_factor_minutes = self.num_trading_minutes(symbol, start, end)
+        scale_factor_minutes = self.num_trading_minutes(
+            symbol, start.date(), end.date()
+        )
         data_points = (
             scale_factor_minutes / 60
             if scale == TimeScale.day
             else scale_factor_minutes
         )
         total_data_points = (
-            self.num_trading_days(symbol, start, end) * data_points
+            self.num_trading_days(symbol, start.date(), end.date())
+            * data_points
         )
         periods = math.ceil(
             total_data_points / self.get_max_data_points_per_load()

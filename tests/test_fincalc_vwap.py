@@ -1,10 +1,9 @@
 import logging
-from datetime import datetime, timedelta
 
 import pandas as pd
 import pytest
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.fincalcs.vwap import add_daily_vwap, anchored_vwap
 
 logger = logging.getLogger(__name__)
@@ -13,7 +12,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.devtest
 def test_add_daily_vwap_single_line() -> bool:
     logger.info("test_add_daily_vwap_single_line")
-    start = datetime.utcnow().replace(second=0, microsecond=0)
+    start = clock.now().replace(second=0, microsecond=0, nanosecond=0)
     end = start
 
     index = pd.date_range(start=start, end=end, freq="min")
@@ -42,8 +41,8 @@ def test_add_daily_vwap_single_line() -> bool:
 @pytest.mark.devtest
 def test_add_daily_vwap_two_line() -> bool:
     logger.info("test_add_daily_vwap_two_line")
-    start = datetime.utcnow().replace(second=0, microsecond=0)
-    end = start + timedelta(minutes=1)
+    start = clock.now().replace(second=0, microsecond=0, nanosecond=0)
+    end = start + pd.Timedelta(minutes=1)
 
     index = pd.date_range(start=start, end=end, freq="min")
 
@@ -72,8 +71,8 @@ def test_add_daily_vwap_two_line() -> bool:
 @pytest.mark.devtest
 def test_add_daily_vwap_three_line() -> bool:
     logger.info("test_add_daily_vwap_three_line")
-    start = datetime.utcnow().replace(second=0, microsecond=0)
-    end = start + timedelta(minutes=2)
+    start = clock.now().replace(second=0, microsecond=0, nanosecond=0)
+    end = start + pd.Timedelta(minutes=2)
 
     index = pd.date_range(start=start, end=end, freq="min")
 
@@ -101,8 +100,8 @@ def test_add_daily_vwap_three_line() -> bool:
 @pytest.mark.devtest
 def test_anchored_vwap_three_line() -> bool:
     logger.info("test_anchored_vwap_three_line")
-    start = datetime.utcnow().replace(second=0, microsecond=0)
-    end = start + timedelta(minutes=2)
+    start = clock.now().replace(second=0, microsecond=0, nanosecond=0)
+    end = start + pd.Timedelta(minutes=2)
 
     index = pd.date_range(start=start, end=end, freq="min")
 

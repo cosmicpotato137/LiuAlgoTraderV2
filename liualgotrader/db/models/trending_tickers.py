@@ -6,13 +6,13 @@ TrendingTicker
     Symbol found by a scanner, stored in the trending_tickers table.
 """
 
-from datetime import datetime
 from typing import List, Optional, Tuple
 
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from liualgotrader.db.models.base import Base, CurrentTimestamp, Timestamp
+from liualgotrader.db.models.base import Base, CurrentTimestamp
 from liualgotrader.db.session import session_scope
 
 
@@ -27,7 +27,7 @@ class TrendingTicker(Base):
         The identifier of the batch the symbol was found in.
     symbol: str
         The trending symbol.
-    create_tstamp: Optional[datetime]
+    create_tstamp: Optional[pd.Timestamp]
         The time the symbol was found, set by the database when saved.
     scanner_name: str
         The name of the scanner that found the symbol.
@@ -45,8 +45,8 @@ class TrendingTicker(Base):
     trending_id: Mapped[int] = mapped_column(primary_key=True)
     batch_id: Mapped[str] = mapped_column(index=True)
     symbol: Mapped[str]
-    create_tstamp: Mapped[Optional[datetime]] = mapped_column(
-        Timestamp(timezone=True), server_default=CurrentTimestamp(), index=True
+    create_tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
+        server_default=CurrentTimestamp(), index=True
     )
     scanner_name: Mapped[str] = mapped_column(
         server_default="momentum", index=True
@@ -69,7 +69,9 @@ class TrendingTicker(Base):
             )
 
     @classmethod
-    async def load(cls, batch_id: str) -> List[Tuple[str, Optional[datetime]]]:
+    async def load(
+        cls, batch_id: str
+    ) -> List[Tuple[str, Optional[pd.Timestamp]]]:
         """Return the trending symbols of a batch.
 
         Parameters

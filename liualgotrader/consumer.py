@@ -44,6 +44,8 @@ execute_strategy_result
     Submit and record the order of a strategy.
 do_strategy
     Run a strategy on one symbol.
+is_shortable
+    Return whether a symbol can be sold short.
 do_strategies
     Run the eligible per-symbol strategies on one symbol.
 handle_aggregate
@@ -70,7 +72,6 @@ import asyncio
 import logging
 import math
 import os
-from datetime import datetime, timedelta
 from multiprocessing import Queue
 from queue import Empty
 from random import randint
@@ -78,10 +79,9 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from pandas import DataFrame as df
-from pytz import timezone
 
 from liualgotrader.analytics.analysis import load_trades_by_portfolio
-from liualgotrader.common import config, market_data, trading_data
+from liualgotrader.common import clock, config, market_data, trading_data
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import Order, Trade
@@ -92,16 +92,14 @@ from liualgotrader.db.session import create_db_connection
 from liualgotrader.fincalcs.data_conditions import QUOTE_SKIP_CONDITIONS
 from liualgotrader.strategy.base import Strategy, StrategyType
 from liualgotrader.trade.base import TraderAPI
-from liualgotrader.trade.factory import (get_trader_by_name,
-                                                trader_factory)
+from liualgotrader.trade.factory import get_trader_by_name, trader_factory
 
 logger = logging.getLogger(__name__)
 
-shortable: Dict = {}
+shortable: Dict[str, bool] = {}
 symbol_data_error: Dict = {}
 rejects: Dict[str, List[str]] = {}
-time_tick: Dict[str, datetime] = {}
-nyc = timezone("America/New_York")
+time_tick: Dict[str, pd.Timestamp] = {}
 
 
 async def end_time(reason: str):
@@ -208,7 +206,7 @@ async def do_strategy_all(
     Log and re-raise any exception.
     """
     try:
-        now = datetime.now(nyc)
+        now = clock.now()
         symbols_position = {
             symbol.lower(): (
                 trading_data.positions[symbol]
@@ -253,7 +251,7 @@ async def cancel_lingering_orders(trader: TraderAPI):
         if not len(trading_data.open_orders):
             continue
 
-        ny_now = datetime.now(nyc)
+        ny_now = clock.now()
         if not trader.is_market_open(ny_now):
             logger.info("cancel_lingering_orders() market is closed")
             continue
@@ -324,23 +322,19 @@ async def periodic_runner(data_loader: DataLoader, trader: TraderAPI) -> None:
     logger.info("periodic_runner() task completed")
 
 
-async def should_cancel_order(order: Order, market_clock: datetime) -> bool:
+async def should_cancel_order(
+    order: Order, market_clock: pd.Timestamp
+) -> bool:
     """Return whether order has been outstanding for at least a minute.
 
     Parameters
     ----------
     order: Order
         The open order.
-    market_clock: datetime
+    market_clock: pd.Timestamp
         The current market time.
     """
-    # Make sure the order's not too old
-    submitted_at = order.submitted_at.astimezone(market_clock.tzinfo)
-    order_lifetime = market_clock - submitted_at
-    return (
-        market_clock > submitted_at
-        and order_lifetime.total_seconds() // 60 >= 1
-    )
+    return market_clock - order.submitted_at >= pd.Timedelta(minutes=1)
 
 
 async def save(
@@ -349,7 +343,7 @@ async def save(
     last_op: str,
     price: float,
     indicators: Dict[Any, Any],
-    now: str,
+    now: pd.Timestamp,
     trade_fee=0.0,
 ) -> None:
     """Save a trade record for symbol to the database.
@@ -369,7 +363,7 @@ async def save(
         The trade price.
     indicators: Dict[Any, Any]
         The indicators to store with the trade.
-    now: str
+    now: pd.Timestamp
         The client time of the trade.
     trade_fee, default 0.0
         The fee charged for the trade.
@@ -503,7 +497,7 @@ async def update_partially_filled_order(
         side.name,
         filled_avg_price,
         indicators,
-        str(updated_at),
+        updated_at,
         trade_fee,
     )
 
@@ -875,9 +869,7 @@ async def order_inflight(
                     existing_order.order_id,
                     symbol,
                     now,
-                    existing_order.submitted_at.astimezone(
-                        timezone("America/New_York")
-                    ),
+                    existing_order.submitted_at,
                 )
                 if await trader.cancel_order(existing_order):
                     trading_data.open_orders.pop(symbol)
@@ -961,9 +953,9 @@ async def update_trading_data(
     trading_data.open_order_strategy[symbol] = strategy
     trading_data.last_used_strategy[symbol] = strategy
     if buy:
-        trading_data.buy_time[symbol] = datetime.now(
-            tz=timezone("America/New_York")
-        ).replace(second=0, microsecond=0)
+        trading_data.buy_time[symbol] = clock.now().replace(
+            second=0, microsecond=0, nanosecond=0
+        )
 
 
 async def execute_strategy_result(
@@ -1012,7 +1004,7 @@ async def execute_strategy_result(
         last_op=str(what["side"]),
         price=0.0,
         indicators={},
-        now=str(datetime.utcnow()),
+        now=clock.now(),
     )
 
     if config.debug_enabled:
@@ -1106,6 +1098,32 @@ async def _filter_strategies(symbol: str) -> List:
     ]
 
 
+async def is_shortable(trader: TraderAPI, symbol: str) -> bool:
+    """Return whether symbol can be sold short, asking trader once per symbol.
+
+    Keep the answer in shortable for later calls. Log a failed lookup and
+    treat the symbol as not shortable.
+
+    Parameters
+    ----------
+    trader: Trader
+        The trader of the broker that would sell the symbol short.
+    symbol: str
+        The symbol, in lower case.
+    """
+    if symbol not in shortable:
+        try:
+            shortable[symbol] = await trader.is_shortable(symbol)
+        except Exception:
+            logger.warning(
+                "could not check whether %s is shortable, assuming it is not",
+                symbol,
+                exc_info=True,
+            )
+            shortable[symbol] = False
+    return shortable[symbol]
+
+
 async def do_strategies(
     trader: TraderAPI,
     data_loader: DataLoader,
@@ -1139,17 +1157,17 @@ async def do_strategies(
     """
     # run strategies
     strategies = await _filter_strategies(symbol)
+    if strategies:
+        symbol_shortable = await is_shortable(trader, symbol)
     for s in strategies:
         try:
             if not await do_strategy(
                 strategy=s,
                 symbol=symbol,
-                shortable=shortable[symbol],
+                shortable=symbol_shortable,
                 position=position,
                 minute_history=data_loader[symbol].symbol_data,
-                now=pd.to_datetime(now.replace(nanosecond=0)).replace(
-                    second=0, microsecond=0
-                ),
+                now=now.replace(second=0, microsecond=0, nanosecond=0),
                 portfolio_value=config.portfolio_value,
                 data_loader=data_loader,
                 trader=trader,
@@ -1223,7 +1241,7 @@ async def handle_data_queue_msg(
 ) -> bool:
     """Handle a market data message from the data queue.
 
-    Mark the symbol as shortable. Ignore a repeated timestamp for a symbol.
+    Ignore a repeated timestamp for a symbol.
 
     Parameters
     ----------
@@ -1241,20 +1259,15 @@ async def handle_data_queue_msg(
     Return False for a message, other than a minute aggregate, that arrives
     more than 15 seconds late. Return True otherwise.
     """
-    global shortable
     global symbol_data_error
     global rejects
 
-    ts = pd.to_datetime(
-        data["timestamp"].replace(second=0, microsecond=0, nanosecond=0)
-    )
+    ts = data["timestamp"].replace(second=0, microsecond=0, nanosecond=0)
     symbol = data["symbol"].lower()
-    shortable[symbol] = True  # TODO revisit collecting 'is shortable' data
 
-    # timezone("America/New_York")
-    time_diff = datetime.now(tz=data["timestamp"].tz) - data["timestamp"]
+    time_diff = clock.now() - data["timestamp"]
 
-    if data["EV"] != "AM" and time_diff > timedelta(seconds=15):
+    if data["EV"] != "AM" and time_diff > pd.Timedelta(seconds=15):
         if randint(1, 100) == 1:  # nosec
             logger.info(
                 "%s %s too out of sync w %s", data["EV"], symbol, time_diff

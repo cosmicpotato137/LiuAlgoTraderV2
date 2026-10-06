@@ -14,32 +14,31 @@ import logging
 import queue
 import ssl
 import time
-from datetime import date, datetime, timedelta
+from datetime import date
 from threading import Thread
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
 import websocket
-from pytz import timezone
 
+from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
-from liualgotrader.common.types import Order, SymbolQueueMap, ThreadFlags, Trade
+from liualgotrader.common.types import (Order, SymbolQueueMap, ThreadFlags,
+                                        Trade)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
 
 logger = logging.getLogger(__name__)
 
-utctz = timezone("UTC")
-
 
 class GeminiTrader(TraderAPI):
     """Trader implementation for the Gemini cryptocurrency exchange.
 
-    The market is treated as open all day, every day; all symbols are
-    fractionable, none is shortable, and market orders are rejected. Requests
-    go to the trading URLs of the config, which are the Gemini sandbox by
-    default.
+    The market is treated as open all day, every New York calendar day; all
+    symbols are fractionable, none is shortable, and market orders are
+    rejected. Requests go to the trading URLs of the config, which are the
+    Gemini sandbox by default.
 
     Attributes
     ----------
@@ -142,11 +141,10 @@ class GeminiTrader(TraderAPI):
             raise AssertionError(
                 "both env variables GEMINI_API_KEY and GEMINI_API_SECRET must be set up"
             )
-        t = datetime.now()
-        payload_nonce = int(time.mktime(t.timetuple()) * 1000)
+        payload_nonce = int(clock.now().timestamp() * 1000)
 
-        if self.last_nonce and self.last_nonce == payload_nonce:
-            payload_nonce += 1
+        if self.last_nonce and self.last_nonce >= payload_nonce:
+            payload_nonce = self.last_nonce + 1
 
         self.last_nonce = payload_nonce
 
@@ -182,9 +180,7 @@ class GeminiTrader(TraderAPI):
             raise AssertionError(
                 "both env variables GEMINI_API_KEY and GEMINI_API_SECRET must be set up"
             )
-        t = datetime.now()
-        payload_nonce = str(int(time.mktime(t.timetuple()) * 1000))
-        payload["nonce"] = payload_nonce
+        payload["nonce"] = str(int(clock.now().timestamp() * 1000))
         encoded_payload = json.dumps(payload).encode()
         b64 = base64.b64encode(encoded_payload)
         signature = hmac.new(
@@ -209,9 +205,11 @@ class GeminiTrader(TraderAPI):
         return (
             Order.EventType.canceled
             if order_data["is_cancelled"] == True
-            else Order.EventType.fill
-            if order_data["remaining_amount"] == "0"
-            else Order.EventType.partial_fill
+            else (
+                Order.EventType.fill
+                if order_data["remaining_amount"] == "0"
+                else Order.EventType.partial_fill
+            )
         )
 
     @classmethod
@@ -225,17 +223,13 @@ class GeminiTrader(TraderAPI):
         trade_data: Dict
             An order event received from the WebSocket stream.
         """
-        return (
-            Order.EventType.canceled
-            if trade_data["type"] == "cancelled"
-            else Order.EventType.rejected
-            if trade_data["type"] == "rejected"
-            else Order.EventType.canceled
-            if trade_data["type"] == "cancel_rejected"
-            else Order.EventType.fill
-            if trade_data["remaining_amount"] == "0"
-            else Order.EventType.partial_fill
-        )
+        if trade_data["type"] in ("cancelled", "cancel_rejected"):
+            return Order.EventType.canceled
+        if trade_data["type"] == "rejected":
+            return Order.EventType.rejected
+        if trade_data["remaining_amount"] == "0":
+            return Order.EventType.fill
+        return Order.EventType.partial_fill
 
     @classmethod
     def _get_order_side(cls, order_data: Dict) -> Order.FillSide:
@@ -274,8 +268,8 @@ class GeminiTrader(TraderAPI):
             price=float(order_data["price"]),
             side=cls._get_order_side(order_data),
             submitted_at=pd.Timestamp(
-                ts_input=order_data["timestampms"], unit="ms", tz="UTC"
-            ),
+                order_data["timestampms"], unit="ms", tz="UTC"
+            ).tz_convert(clock.NY),
             avg_execution_price=float(order_data["avg_execution_price"]),
             remaining_amount=float(order_data["remaining_amount"]),
             trade_fees=trade_fees,
@@ -297,21 +291,25 @@ class GeminiTrader(TraderAPI):
             order_id=trade_dict["order_id"],
             symbol=trade_dict["symbol"].lower(),
             event=cls._get_trade_event_type(trade_dict),
-            filled_qty=float(trade_dict["fill"]["amount"])
-            if "fill" in trade_dict
-            else 0.0,
-            trade_fee=float(
-                trade_dict["fill"]["fee"] if "fill" in trade_dict else 0.0
-            )
-            if "fill" in trade_dict
-            else 0.0,
-            filled_avg_price=float(trade_dict["avg_execution_price"] or 0.0),
-            liquidity=trade_dict["fill"]["liquidity"]
-            if "fill" in trade_dict
-            else "",
-            updated_at=pd.Timestamp(
-                ts_input=trade_dict["timestampms"], unit="ms", tz="UTC"
+            filled_qty=(
+                float(trade_dict["fill"]["amount"])
+                if "fill" in trade_dict
+                else 0.0
             ),
+            trade_fee=(
+                float(
+                    trade_dict["fill"]["fee"] if "fill" in trade_dict else 0.0
+                )
+                if "fill" in trade_dict
+                else 0.0
+            ),
+            filled_avg_price=float(trade_dict["avg_execution_price"] or 0.0),
+            liquidity=(
+                trade_dict["fill"]["liquidity"] if "fill" in trade_dict else ""
+            ),
+            updated_at=pd.Timestamp(
+                trade_dict["timestampms"], unit="ms", tz="UTC"
+            ).tz_convert(clock.NY),
             side=Order.FillSide[trade_dict["side"]],
         )
 
@@ -366,34 +364,30 @@ class GeminiTrader(TraderAPI):
 
     def get_market_schedule(
         self,
-    ) -> Tuple[Optional[datetime], Optional[datetime]]:
-        """Return the start and end of today as the trading session.
+    ) -> Tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
+        """Return the start and end of today in New York as the session.
 
-        Both times carry the UTC time zone.
+        The session runs from midnight to 23:59:59.
         """
-        return datetime.now().replace(
-            hour=0, minute=0, second=0, microsecond=0, tzinfo=utctz
-        ), datetime.now().replace(
-            hour=23, minute=59, second=59, microsecond=0, tzinfo=utctz
-        )
+        start = pd.Timestamp(clock.today(), tz=clock.NY)
+        return start, start.replace(hour=23, minute=59, second=59)
 
     def get_trading_days(
-        self, start_date: date, end_date: date = date.today()
+        self, start_date: date, end_date: Optional[date] = None
     ) -> pd.DataFrame:
         """Return a DataFrame indexed by every calendar day in a range.
 
-        The DataFrame has no columns.
+        The DataFrame has no columns, and its index, named date, holds dates.
 
         Parameters
         ----------
         start_date: date
             The first day of the range.
-        end_date: date, default date.today()
-            The last day of the range.
+        end_date: Optional[date], default None
+            The last day of the range, or None for today in New York.
         """
-        return pd.DataFrame(
-            index=pd.date_range(start=start_date, end=end_date)
-        )
+        days = pd.date_range(start=start_date, end=end_date or clock.today())
+        return pd.DataFrame(index=pd.Index(days.date, name="date"))
 
     def get_position(self, symbol: str) -> float:
         """Return the account balance held in a currency.
@@ -476,11 +470,15 @@ class GeminiTrader(TraderAPI):
         """Return True, since the market is treated as open every day."""
         return True
 
-    def get_time_market_close(self) -> Optional[timedelta]:
-        """Return the time remaining until the end of the current day."""
-        return datetime.now().replace(
-            hour=23, minute=59, second=59, microsecond=0, tzinfo=utctz
-        ) - datetime.now().replace(tzinfo=utctz)
+    def get_time_market_close(self) -> Optional[pd.Timedelta]:
+        """Return the time remaining until 23:59:59 today in New York."""
+        now = clock.now()
+        return (
+            now.replace(
+                hour=23, minute=59, second=59, microsecond=0, nanosecond=0
+            )
+            - now
+        )
 
     async def reconnect(self):
         """Restart the order event listener and heartbeat threads."""
@@ -798,15 +796,15 @@ class GeminiTrader(TraderAPI):
             "request": endpoint,
             "symbol": symbol,
             "amount": str(qty),
-            "price": limit_price
-            if order_type == "limit"
-            else str(60000.0 * qty),
+            "price": (
+                limit_price if order_type == "limit" else str(60000.0 * qty)
+            ),
             "side": side,
             "type": "exchange limit",
             "client_order_id": client_order_id,
-            "options": ["immediate-or-cancel"]
-            if order_type == "market"
-            else [],
+            "options": (
+                ["immediate-or-cancel"] if order_type == "market" else []
+            ),
         }
 
         headers = self._generate_request_headers(payload)

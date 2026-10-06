@@ -8,7 +8,7 @@ Trader
 
 import asyncio
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import List, Optional, Tuple
 
 import pandas as pd
@@ -113,28 +113,29 @@ class TraderAPI:
 
     def get_market_schedule(
         self,
-    ) -> Tuple[Optional[datetime], Optional[datetime]]:
+    ) -> Tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
         """Return the opening and closing times of today's session.
 
-        Implementations must return an (open, close) tuple of timezone-aware
-        datetimes, or (None, None) if the market does not trade today.
+        Implementations must return an (open, close) tuple of timestamps, or
+        (None, None) if the market does not trade today.
         """
         ...
 
     def get_trading_days(
-        self, start_date: date, end_date: date = date.today()
+        self, start_date: date, end_date: Optional[date] = None
     ) -> pd.DataFrame:
         """Return the trading days between two dates as a DataFrame.
 
-        Implementations must index the DataFrame by one timestamp per trading
-        day; other columns are optional.
+        Implementations must index the DataFrame by one date per trading day;
+        other columns are optional.
 
         Parameters
         ----------
         start_date: date
             The first date of the range.
-        end_date: date, default date.today()
-            The last date of the range, inclusive.
+        end_date: Optional[date], default None
+            The last date of the range, inclusive, or None for today in New
+            York.
         """
         ...
 
@@ -142,7 +143,7 @@ class TraderAPI:
         """Return True if a trading session is scheduled for today."""
         ...
 
-    def is_market_open(self, now: datetime) -> bool:
+    def is_market_open(self, now: pd.Timestamp) -> bool:
         """Return True if now falls within today's trading session.
 
         Set market_open and market_close from get_market_schedule if
@@ -150,8 +151,8 @@ class TraderAPI:
 
         Parameters
         ----------
-        now: datetime
-            The moment to test, as a timezone-aware datetime.
+        now: pd.Timestamp
+            The moment to test.
 
         Returns
         -------
@@ -165,7 +166,7 @@ class TraderAPI:
             else self.market_open <= now <= self.market_close
         )
 
-    def get_time_market_close(self) -> Optional[timedelta]:
+    def get_time_market_close(self) -> Optional[pd.Timedelta]:
         """Return the time remaining until today's market close.
 
         Implementations must return None if the closing time is unknown.

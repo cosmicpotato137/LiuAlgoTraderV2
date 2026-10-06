@@ -9,9 +9,10 @@ StockOhlc
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 from sqlalchemy import UniqueConstraint, func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Mapped, mapped_column
@@ -48,9 +49,9 @@ class TickerData(Base):
         The exchange the ticker trades on, or None.
     short_ratio: Optional[float]
         The short ratio, or None.
-    create_tstamp: Optional[datetime]
+    create_tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the ticker is saved.
-    modify_tstamp: Optional[datetime]
+    modify_tstamp: Optional[pd.Timestamp]
         The time of the last update, or None.
 
     Methods
@@ -72,10 +73,10 @@ class TickerData(Base):
     sector: Mapped[Optional[str]] = mapped_column(index=True)
     exchange: Mapped[Optional[str]]
     short_ratio: Mapped[Optional[float]]
-    create_tstamp: Mapped[Optional[datetime]] = mapped_column(
+    create_tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
         server_default=CurrentTimestamp()
     )
-    modify_tstamp: Mapped[Optional[datetime]]
+    modify_tstamp: Mapped[Optional[pd.Timestamp]]
 
     @classmethod
     async def load_symbols(cls) -> List[str]:
@@ -155,9 +156,9 @@ class StockOhlc(Base):
         The traded volume.
     indicators: Optional[Dict[str, Any]]
         The indicators for the date, or None.
-    modify_tstamp: Optional[datetime]
+    modify_tstamp: Optional[pd.Timestamp]
         The time of the last update, or None.
-    create_tstamp: Optional[datetime]
+    create_tstamp: Optional[pd.Timestamp]
         The creation time, set by the database when the record is saved.
 
     Methods
@@ -184,8 +185,8 @@ class StockOhlc(Base):
     close: Mapped[float]
     volume: Mapped[int]
     indicators: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
-    modify_tstamp: Mapped[Optional[datetime]]
-    create_tstamp: Mapped[Optional[datetime]] = mapped_column(
+    modify_tstamp: Mapped[Optional[pd.Timestamp]]
+    create_tstamp: Mapped[Optional[pd.Timestamp]] = mapped_column(
         server_default=CurrentTimestamp()
     )
 

@@ -259,8 +259,7 @@ def _upgrade(connection: Connection) -> None:
 async def upgrade_schema() -> None:
     """Upgrade the database schema to the latest migration.
 
-    Create the tables of a new database, and bring a database created by the
-    former database/schema.sql up to date. Create the shared engine for
+    Create the tables of a new database. Create the shared engine for
     config.dsn if it does not exist.
     """
     global _schema_upgraded

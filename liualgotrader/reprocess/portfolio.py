@@ -6,8 +6,6 @@ account_transactions
     Rebuild the account transactions of a portfolio.
 """
 
-import pytz
-
 from liualgotrader.analytics.analysis import load_trades_by_portfolio
 from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.db.models.accounts import Account
@@ -27,13 +25,11 @@ async def _calc_account_transactions(portfolio_id: str, account_id: int):
         The account that receives the transactions.
     """
     _df = load_trades_by_portfolio(portfolio_id)
-    local = pytz.timezone("UTC")
     for _, row in _df.iterrows():
-        utc_dt = local.localize(row.tstamp, is_dst=None)
         await Account.add_transaction(
             account_id,
             (row.qty * row.price) * (-1 if row.operation == "buy" else 1),
-            utc_dt,
+            row.tstamp,
         )
 
 

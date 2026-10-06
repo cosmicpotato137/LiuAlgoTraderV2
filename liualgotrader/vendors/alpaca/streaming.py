@@ -9,28 +9,25 @@ AlpacaStream
 import asyncio
 import logging
 import queue
-from datetime import datetime, timedelta
 from random import randint
 from typing import Callable, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
-import pytz
 from alpaca.common.enums import BaseURL
 from alpaca.data.enums import DataFeed
 from alpaca.data.live import CryptoDataStream, StockDataStream
 from alpaca.data.live.websocket import DataStream
 
+from liualgotrader.common import clock
 from liualgotrader.common.list_utils import chunks
 from liualgotrader.common.types import SymbolQueueMap, WSEventType
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
-from liualgotrader.vendors.alpaca.data import _crypto_pair, _is_crypto_symbol
+from liualgotrader.vendors.alpaca.util import (alpaca_time, crypto_pair,
+                                               is_crypto_symbol)
 
 logger = logging.getLogger(__name__)
-
-NY = "America/New_York"
-nytz = pytz.timezone(NY)
 
 _STREAM_FEEDS = (DataFeed.IEX, DataFeed.SIP)
 
@@ -237,9 +234,7 @@ class AlpacaStream(StreamingAPI):
                 "close": msg.close,
                 "high": msg.high,
                 "low": msg.low,
-                "timestamp": pd.to_datetime(
-                    msg.timestamp, utc=True
-                ).astimezone(nytz),
+                "timestamp": alpaca_time(msg.timestamp),
                 "volume": _whole(msg.volume),
                 "count": int(msg.trade_count),
                 "vwap": np.nan,
@@ -285,9 +280,7 @@ class AlpacaStream(StreamingAPI):
                 "close": msg.close,
                 "high": msg.high,
                 "low": msg.low,
-                "timestamp": pd.to_datetime(
-                    msg.timestamp, utc=True
-                ).astimezone(nytz),
+                "timestamp": alpaca_time(msg.timestamp),
                 "volume": msg.volume,
                 "count": int(msg.trade_count),
                 "vwap": np.nan,
@@ -325,8 +318,8 @@ class AlpacaStream(StreamingAPI):
             The Alpaca trade.
         """
         try:
-            ts = pd.Timestamp(msg.timestamp).tz_convert(NY)
-            if (time_diff := (datetime.now(tz=nytz) - ts)) > timedelta(
+            ts = alpaca_time(msg.timestamp)
+            if (time_diff := (clock.now() - ts)) > pd.Timedelta(
                 seconds=10
             ) and randint(  # nosec
                 1, 100
@@ -347,9 +340,9 @@ class AlpacaStream(StreamingAPI):
                 "timestamp": ts,
                 "volume": _whole(msg.size),
                 "exchange": msg.exchange,
-                "conditions": msg.conditions
-                if hasattr(msg, "conditions")
-                else None,
+                "conditions": (
+                    msg.conditions if hasattr(msg, "conditions") else None
+                ),
                 "tape": msg.tape if hasattr(msg, "tape") else None,
                 "average": np.nan,
                 "count": 1,
@@ -390,8 +383,8 @@ class AlpacaStream(StreamingAPI):
             symbol = cls.get_instance().crypto_symbols.get(
                 msg.symbol, msg.symbol
             )
-            ts = pd.Timestamp(msg.timestamp).tz_convert(NY)
-            if (time_diff := (datetime.now(tz=nytz) - ts)) > timedelta(
+            ts = alpaca_time(msg.timestamp)
+            if (time_diff := (clock.now() - ts)) > pd.Timedelta(
                 seconds=10
             ) and randint(  # nosec
                 1, 100
@@ -412,9 +405,9 @@ class AlpacaStream(StreamingAPI):
                 "timestamp": ts,
                 "volume": msg.size,
                 "exchange": msg.exchange,
-                "conditions": msg.conditions
-                if hasattr(msg, "conditions")
-                else None,
+                "conditions": (
+                    msg.conditions if hasattr(msg, "conditions") else None
+                ),
                 "tape": msg.tape if hasattr(msg, "tape") else None,
                 "average": np.nan,
                 "count": 1,
@@ -473,9 +466,9 @@ class AlpacaStream(StreamingAPI):
         for syms in chunks(upper_symbols, 1000):
             logger.info("\tsubscribe %s/%s", len(syms), len(upper_symbols))
 
-            crypto_symbols = list(filter(_is_crypto_symbol, syms))
+            crypto_symbols = list(filter(is_crypto_symbol, syms))
             equity_symbols = [x for x in syms if x not in crypto_symbols]
-            crypto_pairs = [_crypto_pair(x) for x in crypto_symbols]
+            crypto_pairs = [crypto_pair(x) for x in crypto_symbols]
             self.crypto_symbols.update(zip(crypto_pairs, crypto_symbols))
 
             for event in events:

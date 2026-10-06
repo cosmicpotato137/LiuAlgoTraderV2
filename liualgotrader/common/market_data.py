@@ -32,12 +32,11 @@ from typing import Dict, List, Set
 import numpy as np
 import pandas as pd
 import pandas_market_calendars
-import pytz
 import requests
 from pandas import DataFrame as df
 from sqlalchemy import select
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.data_loader import m_and_a_data  # type: ignore
 from liualgotrader.common.types import TimeScale
@@ -49,9 +48,6 @@ logger = logging.getLogger(__name__)
 
 volume_today: Dict[str, int] = {}
 quotes: Dict[str, df] = {}
-
-NY = "America/New_York"
-nytz = pytz.timezone(NY)
 
 
 def get_symbol_data(
@@ -79,7 +75,9 @@ def get_symbol_data(
     if not data_loader:
         data_loader = DataLoader(TimeScale[scale])
 
-    return data_loader[symbol][start_date:end_date]  # type: ignore
+    start = pd.Timestamp(start_date, tz=clock.NY)
+    end = pd.Timestamp(end_date, tz=clock.NY)
+    return data_loader[symbol][start:end]  # type: ignore
 
 
 async def _select_ticker_column(statement) -> List[str]:
@@ -184,18 +182,17 @@ def _read_wikipedia_tables(page: str) -> List[pd.DataFrame]:
     return pd.read_html(io.StringIO(response.text))
 
 
-async def sp500_historical_constituents(date: str):
+async def sp500_historical_constituents(day: date):
     """Estimate the S&P 500 constituents as of the given date.
 
     Download the current constituents and the index changes from Wikipedia,
-    and undo the index changes and mergers dated after date. Convert the
-    index of the shared merger and acquisition data to datetime in place, and
-    log intermediate results.
+    and undo the index changes and mergers dated after day. Log intermediate
+    results.
 
     Parameters
     ----------
-    date: str
-        The date, as a string.
+    day: date
+        The date of the constituents.
 
     Returns
     -------
@@ -205,7 +202,7 @@ async def sp500_historical_constituents(date: str):
     ------
     Raise requests.HTTPError if Wikipedia does not return the data.
     """
-    logger.info("loading sp500 constituents for %s", date)
+    logger.info("loading sp500 constituents for %s", day)
     symbols: List = _read_wikipedia_tables("List_of_S%26P_500_companies")[
         0
     ].Symbol.to_list()
@@ -214,12 +211,11 @@ async def sp500_historical_constituents(date: str):
     ]
     effective = pd.to_datetime(
         changes["Effective Date", "Effective Date"], format="%B %d, %Y"
-    )
-    m_and_a_data.index = m_and_a_data.index.astype("datetime64[ns]", copy=True)
+    ).dt.date
 
-    adjusted_symbols = m_and_a_data.loc[date < m_and_a_data.index, "to_symbol"]
+    adjusted_symbols = m_and_a_data.loc[day < m_and_a_data.index, "to_symbol"]
     logger.debug("adjusted_symbols %s", adjusted_symbols)
-    later = effective[effective > date].sort_values(ascending=False).index
+    later = effective[effective > day].sort_values(ascending=False).index
 
     constituents: Set = set(symbols)
 

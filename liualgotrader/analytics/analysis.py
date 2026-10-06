@@ -50,15 +50,14 @@ get_portfolio_cash
 
 import copy
 import logging
-from datetime import date, timedelta
-from typing import Dict, Tuple
+from datetime import date
+from typing import Dict, Optional, Tuple
 
 import pandas as pd
-from pytz import timezone
 from sqlalchemy import Select, select
 from tqdm import tqdm
 
-from liualgotrader.common import config
+from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType
 from liualgotrader.db.models.accounts import Account
@@ -70,8 +69,6 @@ from liualgotrader.db.session import fetch_as_dataframe
 from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
-
-est = timezone("America/New_York")
 
 
 def _trades_with_runs(*columns) -> Select:
@@ -111,8 +108,8 @@ async def load_trades_for_period(
             AlgoRun.strategy_name,
         )
         .where(
-            NewTrade.tstamp >= from_date,
-            NewTrade.tstamp < to_date,
+            NewTrade.tstamp >= pd.Timestamp(from_date, tz=clock.NY),
+            NewTrade.tstamp < pd.Timestamp(to_date, tz=clock.NY),
             NewTrade.expire_tstamp.is_(None),
             AlgoRun.env == env,
         )
@@ -141,7 +138,7 @@ async def portfolio_return(
     plus a daily total.
     """
     df = await load_trades_for_period(
-        env, start_date, date.today() + timedelta(days=1)
+        env, start_date, clock.today() + pd.Timedelta(days=1)
     )
 
     # day X strategy = total return
@@ -149,7 +146,7 @@ async def portfolio_return(
     invested_table: Dict = {}
     percentages_table: Dict = {}
     for _, row in df.iterrows():
-        d = pd.Timestamp(pd.to_datetime(row["client_time"]).date(), tz=est)
+        d = row["client_time"].date()
         if d not in table:
             table[d] = {}
             invested_table[d] = {}
@@ -190,14 +187,16 @@ async def portfolio_return(
     )
 
 
-async def load_trades(day: date, end_date: date = None) -> pd.DataFrame:
+async def load_trades(
+    day: date, end_date: Optional[date] = None
+) -> pd.DataFrame:
     """Load the unexpired trades within a date range, with run details.
 
     Parameters
     ----------
     day: date
         The first date to include.
-    end_date: date, default None
+    end_date: Optional[date], default None
         The end date, exclusive, or None to load a single day.
 
     Returns
@@ -210,8 +209,11 @@ async def load_trades(day: date, end_date: date = None) -> pd.DataFrame:
             NewTrade.__table__, AlgoRun.batch_id, AlgoRun.strategy_name
         )
         .where(
-            NewTrade.tstamp >= day,
-            NewTrade.tstamp < (end_date or day + timedelta(days=1)),
+            NewTrade.tstamp >= pd.Timestamp(day, tz=clock.NY),
+            NewTrade.tstamp
+            < pd.Timestamp(
+                end_date or day + pd.Timedelta(days=1), tz=clock.NY
+            ),
             NewTrade.expire_tstamp.is_(None),
         )
         .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
@@ -221,8 +223,6 @@ async def load_trades(day: date, end_date: date = None) -> pd.DataFrame:
 async def load_trades_by_batch_id(batch_id: str) -> pd.DataFrame:
     """Load the unexpired, non-zero-price trades of a batch.
 
-    Log an error if the conversion fails.
-
     Parameters
     ----------
     batch_id: str
@@ -231,10 +231,9 @@ async def load_trades_by_batch_id(batch_id: str) -> pd.DataFrame:
     Returns
     -------
     Return a DataFrame of every trade column plus the batch identifier, start
-    time and strategy name, ordered by symbol and time, with client_time
-    converted to datetime.
+    time and strategy name, ordered by symbol and time.
     """
-    df: pd.DataFrame = await fetch_as_dataframe(
+    return await fetch_as_dataframe(
         _trades_with_runs(
             NewTrade.__table__,
             AlgoRun.batch_id,
@@ -248,22 +247,12 @@ async def load_trades_by_batch_id(batch_id: str) -> pd.DataFrame:
         )
         .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
     )
-    try:
-        if not df.empty:
-            df["client_time"] = pd.to_datetime(df["client_time"])
-    except Exception:
-        logger.error(
-            "load_trades_by_batch_id(%s) can't convert 'client_time' column to datetime",
-            batch_id,
-        )
-    return df
 
 
 async def load_trades_by_portfolio(portfolio_id: str) -> pd.DataFrame:
     """Load the distinct trades of every batch linked to a portfolio.
 
-    Include only unexpired trades with a non-zero price and a target price. Log
-    an error if the conversion fails.
+    Include only unexpired trades with a non-zero price and a target price.
 
     Parameters
     ----------
@@ -272,10 +261,9 @@ async def load_trades_by_portfolio(portfolio_id: str) -> pd.DataFrame:
 
     Returns
     -------
-    Return a DataFrame with run details, ordered by symbol and time, with
-    client_time converted to datetime.
+    Return a DataFrame with run details, ordered by symbol and time.
     """
-    df: pd.DataFrame = await fetch_as_dataframe(
+    return await fetch_as_dataframe(
         _trades_with_runs(
             NewTrade.__table__,
             AlgoRun.batch_id,
@@ -295,25 +283,18 @@ async def load_trades_by_portfolio(portfolio_id: str) -> pd.DataFrame:
         .distinct()
         .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
     )
-    try:
-        if not df.empty:
-            df["client_time"] = pd.to_datetime(df["client_time"])
-    except Exception:
-        logger.error(
-            "load_trades_by_portfolio(%s) can't convert 'client_time' column to datetime",
-            portfolio_id,
-        )
-    return df
 
 
-async def load_runs(day: date, end_date: date = None) -> pd.DataFrame:
+async def load_runs(
+    day: date, end_date: Optional[date] = None
+) -> pd.DataFrame:
     """Load the algorithm runs that started within a date range.
 
     Parameters
     ----------
     day: date
         The first date to include.
-    end_date: date, default None
+    end_date: Optional[date], default None
         The end date, exclusive, or None to load a single day.
 
     Returns
@@ -323,8 +304,11 @@ async def load_runs(day: date, end_date: date = None) -> pd.DataFrame:
     df = await fetch_as_dataframe(
         select(AlgoRun.__table__)
         .where(
-            AlgoRun.start_time >= day,
-            AlgoRun.start_time < (end_date or day + timedelta(days=1)),
+            AlgoRun.start_time >= pd.Timestamp(day, tz=clock.NY),
+            AlgoRun.start_time
+            < pd.Timestamp(
+                end_date or day + pd.Timedelta(days=1), tz=clock.NY
+            ),
         )
         .order_by(AlgoRun.start_time, AlgoRun.algo_run_id)
     )
@@ -349,8 +333,9 @@ async def load_batch_list(day: date, env: str) -> pd.DataFrame:
     return await fetch_as_dataframe(
         _trades_with_runs(AlgoRun.batch_id, AlgoRun.start_time)
         .where(
-            NewTrade.tstamp >= day,
-            NewTrade.tstamp < day + timedelta(days=1),
+            NewTrade.tstamp >= pd.Timestamp(day, tz=clock.NY),
+            NewTrade.tstamp
+            < pd.Timestamp(day + pd.Timedelta(days=1), tz=clock.NY),
             NewTrade.expire_tstamp.is_(None),
         )
         .distinct()
@@ -457,8 +442,6 @@ def count_trades(symbol, trades: pd.DataFrame, batch_id: str) -> int:
 def trades_analysis(trades: pd.DataFrame, batch_id: str) -> pd.DataFrame:
     """Summarize the revenue and trade count of each symbol in a batch.
 
-    Convert the client_time column of trades to UTC datetime in place.
-
     Parameters
     ----------
     trades: pd.DataFrame
@@ -472,7 +455,6 @@ def trades_analysis(trades: pd.DataFrame, batch_id: str) -> pd.DataFrame:
     """
     min(trades["client_time"].tolist())
     trades_analytics = pd.DataFrame()
-    trades["client_time"] = pd.to_datetime(trades["client_time"], utc=True)
     trades_analytics["symbol"] = trades.symbol.unique()
     trades_analytics["revenues"] = trades_analytics["symbol"].apply(
         lambda x: calc_batch_revenue(x, trades, batch_id)
@@ -542,9 +524,9 @@ def calc_symbol_trades_returns(
 ):
     """Add the daily market value of a symbol's position to an equity series.
 
-    Value the position at the 9:30 a.m. US Eastern close of each day it is
-    held. Log and skip valuation errors, except a ValueError raised for a
-    position still open after the last trade, which propagates.
+    Value the position at the close of the 9:30 a.m. New York bar of each
+    day it is held. Log and skip valuation errors, except a ValueError raised
+    for a position still open after the last trade, which propagates.
 
     Parameters
     ----------
@@ -554,22 +536,19 @@ def calc_symbol_trades_returns(
         The symbol's trades in time order; its qty column is converted to float
         in place.
     daily_returns: pd.DataFrame
-        The DataFrame indexed by day whose equity column is updated in place.
+        The DataFrame indexed by date whose equity column is updated in place.
     data_loader: DataLoader
         The loader that supplies closing prices.
     """
     t1 = t2 = None
     qty: float = 0.0
-    eastern = timezone(
-        "US/Eastern",
-    )
 
     symbol_trades["qty"] = symbol_trades["qty"].astype(float)
     for _, row in symbol_trades.iterrows():
         if t1 is None:
-            t1 = daily_returns.index.get_loc(str(row.client_time.date()))
+            t1 = daily_returns.index.get_loc(row.client_time.date())
         else:
-            t2 = daily_returns.index.get_loc(str(row.client_time.date()))
+            t2 = daily_returns.index.get_loc(row.client_time.date())
 
         if t1 is not None and t2 is not None:
             for i in range(t1, t2):
@@ -577,11 +556,7 @@ def calc_symbol_trades_returns(
                     value = (
                         qty
                         * data_loader[symbol].close[
-                            eastern.localize(
-                                daily_returns.index[i].to_pydatetime()
-                            ).replace(
-                                hour=9, minute=30, second=0, microsecond=0
-                            )
+                            clock.market_open(daily_returns.index[i])
                         ]
                     )
                     daily_returns.loc[
@@ -610,9 +585,7 @@ def calc_symbol_trades_returns(
                 value = (
                     qty
                     * data_loader[symbol].close[
-                        eastern.localize(
-                            daily_returns.index[i].to_pydatetime()
-                        ).replace(hour=9, minute=30, second=0, microsecond=0)
+                        clock.market_open(daily_returns.index[i])
                     ]
                 )
             except ValueError:
@@ -659,7 +632,7 @@ async def calc_batch_returns(batch_id: str) -> pd.DataFrame:
 
     Returns
     -------
-    Return a DataFrame indexed by trading day with equity, cash and totals
+    Return a DataFrame indexed by trading date with equity, cash and totals
     columns, where cash is the portfolio size, or an empty DataFrame if the
     batch has no trades.
     """
@@ -687,8 +660,6 @@ async def calc_batch_returns(batch_id: str) -> pd.DataFrame:
         calc_symbol_trades_returns(symbol, symbol_trades, td, data_loader)
 
     td["totals"] = td["equity"] + td["cash"]
-    # td["date"] = pd.to_datetime(td.index)
-    # td = td.set_index("date")
     return pd.DataFrame(td, columns=["equity", "cash", "totals"])
 
 
@@ -707,7 +678,7 @@ async def compare_to_symbol_returns(
     Returns
     -------
     Return a Series of closing prices named after the symbol and indexed by
-    trading day.
+    trading date, each the last close at or before midnight New York time.
     """
     data_loader = DataLoader()
     trades = await load_trades_by_portfolio(portfolio_id)
@@ -718,7 +689,7 @@ async def compare_to_symbol_returns(
     td = trader.get_trading_days(start_date=start_date, end_date=end_date)
     td[symbol] = td.apply(
         lambda row: data_loader[symbol].close[
-            row.name.to_pydatetime().replace(tzinfo=est)
+            pd.Timestamp(row.name, tz=clock.NY)
         ],
         axis=1,
     )
@@ -737,14 +708,12 @@ async def get_cash(account_id: int, initial_cash: float) -> pd.DataFrame:
 
     Returns
     -------
-    Return a DataFrame indexed by date with amount and cash columns, holding
-    one row per date that has transactions.
+    Return a DataFrame indexed by New York date with amount and cash columns,
+    holding one row per date that has transactions.
     """
     df = await Account.get_transactions(account_id)
     df = df.groupby(df.index.date).sum()
     df.iloc[0, df.columns.get_loc("amount")] += initial_cash
-    r = pd.date_range(start=df.index.min(), end=df.index.max(), name="date")
-    df.reindex(r).ffill()
     df["cash"] = df.amount.cumsum()
     df.index.rename("date", inplace=True)
     return df
@@ -762,9 +731,9 @@ async def calc_portfolio_returns(portfolio_id: str) -> pd.DataFrame:
 
     Returns
     -------
-    Return a DataFrame with equity, cash and totals columns over trading days
-    for US equities and calendar days otherwise, or an empty DataFrame if the
-    portfolio has no trades.
+    Return a DataFrame indexed by date with equity, cash and totals columns,
+    over trading days for US equities and calendar days otherwise, or an
+    empty DataFrame if the portfolio has no trades.
     """
     portfolio = await Portfolio.load_by_portfolio_id(portfolio_id)
 
@@ -780,7 +749,15 @@ async def calc_portfolio_returns(portfolio_id: str) -> pd.DataFrame:
     if portfolio.asset_type == AssetType.US_EQUITIES:
         td = trader.get_trading_days(start_date=start_date, end_date=end_date)
     else:
-        td = pd.DataFrame(index=pd.date_range(start_date, end_date))
+        td = pd.DataFrame(
+            index=pd.Index(
+                [
+                    start_date + pd.Timedelta(days=i)
+                    for i in range((end_date - start_date).days + 1)
+                ],
+                name="date",
+            )
+        )
 
     td["equity"] = 0.0
 
