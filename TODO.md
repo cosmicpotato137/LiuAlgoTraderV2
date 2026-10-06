@@ -21,7 +21,6 @@
 - Tradier always fails: trade/trader_factory.py:26-27 stores the Tradier trader under "TRADIER" but returns traders["TradierTrader"], so every call raises KeyError.
 - Invalid SQL: models/algo_run.py's get_batch_list_by_date puts ORDER BY before WHERE, which Postgres rejects.
 - Broken queries: analytics/analysis.py:94,149 has literal \x1f control characters instead of newlines in the SQL f-strings of load_trades and load_runs, so those queries are likely broken.
-- Setting ignored: in miners/stock_cluster.py, the num_workers setter checks the value but never stores it.
 - GeminiTrader.cancel_order returns a dict despite its -> bool annotation.
 - enhanced_backtest.py checks the signature of buy_callback when handling sells.
 - Several queue.Full handlers raise KeyError on event['sym'], because that key no longer exists by then.

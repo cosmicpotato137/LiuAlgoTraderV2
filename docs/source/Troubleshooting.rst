@@ -25,8 +25,8 @@ dedicated PostgreSQL server (local, hosted, or managed) rather than the default 
  
 **Running Liu applications**
  
-`pip install liualgotrader` installs 6 applications: **liu**, **trader**, **backtester**, **optimizer**,
-**market_miner** and **portfolio**. On Windows, they are installed as `.exe` files in the `Scripts` folder of
+`pip install liualgotrader` installs 5 applications: **liu**, **trader**, **backtester**, **optimizer**
+and **portfolio**. On Windows, they are installed as `.exe` files in the `Scripts` folder of
 the Python environment, so you can run them by name once the environment is activated.
  
 For example, assuming you have Python 3.12 or later installed on your Windows machine, follow the steps below to

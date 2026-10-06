@@ -160,35 +160,6 @@ def upgrade() -> None:
         indexes=["symbol", "symbol_date"],
     )
     _create_table(
-        "ticker_data",
-        sa.Column("symbol", sa.Text(), nullable=False),
-        sa.Column("name", sa.Text(), nullable=False),
-        sa.Column("description", sa.Text(), nullable=False),
-        sa.Column(
-            "tags",
-            sa.JSON().with_variant(postgresql.ARRAY(sa.Text()), "postgresql"),
-            nullable=True,
-        ),
-        sa.Column(
-            "similar_tickers",
-            sa.JSON().with_variant(postgresql.ARRAY(sa.Text()), "postgresql"),
-            nullable=True,
-        ),
-        sa.Column("industry", sa.Text(), nullable=True),
-        sa.Column("sector", sa.Text(), nullable=True),
-        sa.Column("exchange", sa.Text(), nullable=True),
-        sa.Column("short_ratio", sa.Double(), nullable=True),
-        sa.Column(
-            "create_tstamp",
-            sa.DateTime(timezone=True),
-            server_default=CurrentTimestamp(),
-            nullable=True,
-        ),
-        sa.Column("modify_tstamp", sa.DateTime(timezone=True), nullable=True),
-        sa.PrimaryKeyConstraint("symbol"),
-        indexes=["industry", "sector"],
-    )
-    _create_table(
         "trending_tickers",
         sa.Column("trending_id", sa.Integer(), nullable=False),
         sa.Column("batch_id", sa.Text(), nullable=False),
@@ -237,30 +208,6 @@ def upgrade() -> None:
             ["accounts.account_id"],
         ),
         sa.PrimaryKeyConstraint("transaction_id"),
-    )
-    _create_table(
-        "gain_loss",
-        sa.Column("gain_loss_id", sa.Integer(), nullable=False),
-        sa.Column("symbol", sa.Text(), nullable=False),
-        sa.Column("algo_run_id", sa.Integer(), nullable=False),
-        sa.Column(
-            "gain_percentage", sa.Numeric(precision=5, scale=2), nullable=False
-        ),
-        sa.Column(
-            "gain_value", sa.Numeric(precision=8, scale=2), nullable=False
-        ),
-        sa.Column(
-            "tstamp",
-            sa.DateTime(timezone=True),
-            server_default=CurrentTimestamp(),
-            nullable=True,
-        ),
-        sa.ForeignKeyConstraint(
-            ["algo_run_id"],
-            ["algo_run.algo_run_id"],
-        ),
-        sa.PrimaryKeyConstraint("gain_loss_id"),
-        sa.UniqueConstraint("symbol", "algo_run_id"),
     )
     _create_table(
         "new_trades",
@@ -355,33 +302,6 @@ def upgrade() -> None:
         indexes=["account_id"],
     )
     _create_table(
-        "trade_analysis",
-        sa.Column("trade_analysis_id", sa.Integer(), nullable=False),
-        sa.Column("symbol", sa.Text(), nullable=False),
-        sa.Column("algo_run_id", sa.Integer(), nullable=False),
-        sa.Column("start_time", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("end_time", sa.DateTime(timezone=True), nullable=False),
-        sa.Column(
-            "gain_percentage", sa.Numeric(precision=5, scale=2), nullable=False
-        ),
-        sa.Column(
-            "gain_value", sa.Numeric(precision=8, scale=2), nullable=False
-        ),
-        sa.Column("r_units", sa.Numeric(precision=4, scale=2), nullable=True),
-        sa.Column(
-            "tstamp",
-            sa.DateTime(timezone=True),
-            server_default=CurrentTimestamp(),
-            nullable=True,
-        ),
-        sa.ForeignKeyConstraint(
-            ["algo_run_id"],
-            ["algo_run.algo_run_id"],
-        ),
-        sa.PrimaryKeyConstraint("trade_analysis_id"),
-        sa.UniqueConstraint("symbol", "algo_run_id", "start_time"),
-    )
-    _create_table(
         "portfolio_batch_ids",
         sa.Column("assoc_id", sa.Integer(), nullable=False),
         sa.Column("portfolio_id", sa.Text(), nullable=False),
@@ -461,13 +381,10 @@ def downgrade() -> None:
     op.drop_table("trade_plan_execution_audit")
     op.drop_table("trade_plan")
     op.drop_table("portfolio_batch_ids")
-    op.drop_table("trade_analysis")
     op.drop_table("portfolio")
     op.drop_table("new_trades")
-    op.drop_table("gain_loss")
     op.drop_table("account_transactions")
     op.drop_table("trending_tickers")
-    op.drop_table("ticker_data")
     op.drop_table("stock_ohlc")
     op.drop_table("optimizer_run")
     op.drop_table("keystore")

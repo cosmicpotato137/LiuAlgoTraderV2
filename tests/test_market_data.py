@@ -7,11 +7,7 @@ import pytest
 
 from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.market_data import (get_industries_tickers,
-                                              get_market_industries,
-                                              get_market_sectors,
-                                              get_sectors_tickers,
-                                              get_trading_day,
+from liualgotrader.common.market_data import (get_trading_day,
                                               get_trading_holidays,
                                               sp500_historical_constituents)
 from liualgotrader.common.types import TimeScale
@@ -24,46 +20,6 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(autouse=True)
 async def db_connection():
     await create_db_connection()
-
-
-@pytest.mark.asyncio
-@pytest.mark.devtest
-async def test_get_market_industries():
-    industry_list = await get_market_industries()
-
-    logger.info("%s", industry_list)
-
-    return True
-
-
-@pytest.mark.asyncio
-@pytest.mark.devtest
-async def test_get_market_sectors():
-    sector_list = await get_market_sectors()
-    logger.info("%s", sector_list)
-
-    return True
-
-
-@pytest.mark.asyncio
-@pytest.mark.devtest
-async def test_get_market_sectors_symbols():
-    sector_list = await get_market_sectors()
-
-    l = await get_sectors_tickers(sector_list)
-    logger.info("sectors_tickers %s", l)
-
-    return True
-
-
-@pytest.mark.asyncio
-@pytest.mark.devtest
-async def test_get_market_industries_symbols():
-    industries_list = await get_market_industries()
-    l = await get_industries_tickers(industries_list)
-    logger.info("%s", l)
-
-    return True
 
 
 @pytest.mark.asyncio

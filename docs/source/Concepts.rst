@@ -37,12 +37,12 @@ The DataLoader class is fundamental in creating a strategy using LiuAlgoTrader. 
 Usage Fundamentals
 ------------------
 
-The framework consists of 3 `base classes`: `Scanner`, `Strategy` and `Miner`. `Scanner` and `Strategy` are for basic trading activities, while `Miner` are for advanced off-market calculations.
+The framework consists of 2 `base classes`: `Scanner` and `Strategy`, for basic trading activities.
 The framework comes with a generic `Scanner`, though we recommend to treat it as a reference.
 
 To get start with the framework, you should create your custom scanners and strategies, inheriting from base classes `Scanner` and `Strategy`. Once the building blocks are in place, you can instruct the framework which scanners & strategies to instantiate in `tradeplan.toml` file, together with configuration parameters that you would like to pass for each.
 
-All your trading activities are stored in a database, and all trades are automatically analyzed at the end of a trading session. You can then use a multitude of notebooks for further analysis and improving the performance of your algo trading strategies.
+All your trading activities are stored in a database. You can then use a multitude of notebooks for further analysis and improving the performance of your algo trading strategies.
 
 Hands-free framework
 --------------------
@@ -187,8 +187,7 @@ files for a future developer.
     |   |   |   └── streaming.py
     |   |   └── ...
     │   ├─── analytics
-    |   |    ├── analysis.py
-    |   |    └── consolidate.py
+    |   |    └── analysis.py
     │   ├── fincalcs
     |   |    ├── candle_patterns.py
     |   |    ├── support_resistance.py
@@ -199,11 +198,6 @@ files for a future developer.
     |   |        ├── base.py
     |   |        ├── algo_run.py
     |   |        └── ...
-    │   ├── miners
-    |   |    ├── base.py
-    |   |    ├── stock_cluster.py
-    |   |    ├── gainloss.py
-    |   |    └── daily_ohlc.py
     │   ├── scanners
     |   |    ├── base.py
     |   |    └── momentum.py
@@ -301,14 +295,6 @@ The main database tables are as follows:
 |                     | whatever reasoning is persisted by the        |
 |                     | executed strategy.                            |
 +---------------------+-----------------------------------------------+
-| gain_loss           | Tracks of per symbol and per algo_run         |
-|                     | profit & loss, measured as percentage and     |
-|                     | absolute value.                               |
-+---------------------+-----------------------------------------------+
-| trade_analysis      | Tracks of per trade, the r_units,             |
-|                     | profit & loss, measured as percentage and     |
-|                     | as absolute value.                            |
-+---------------------+-----------------------------------------------+
 | portfolio           | Tracks of securities value over time.         |
 +---------------------+-----------------------------------------------+
 | portfolio_batch_ids | Table associating portfolio to batches.       |
@@ -332,8 +318,7 @@ The main database tables are as follows:
 - volume
 - indicators JSONB,
 
-The table holds daily OHLC values, per stock, including indicators that
-we collected and calculated using the `data_miner` application.
+The table holds daily OHLC values, per stock, including indicators.
 
 `algo_run` table
 ^^^^^^^^^^^^^^^^
@@ -371,27 +356,6 @@ The table tracks:
 
 Additional tables
 *****************
-
-`ticker_data`
-^^^^^^^^^^^^^
-
-The ticker_data table keeps basic data on traded stocks
-which include the symbol name, company name & description
-as well as industry & sector and similar symbols.
-
-It is recommended to use the *market_miner* application
-to periodically mine fresh data.
-
-The industry & sector data is informative for creating
-a per sector / industry trend.
-
-`gain_loss`
-^^^^^^^^^^^
-The table holds the percentage and value gained per stock, per strategy for a batch_id. The table is populate at the end of a trading session, or using `market_miner`.
-
-`trade_analysis`
-^^^^^^^^^^^^^^^^
-The table holds gain & loss, per trade in percentage, value, as well as `r units`. The table is populated at the end of a trading session, or using `market_miner`. The table is used for performance analysis of a trading session.
 
 `portfolio`
 ^^^^^^^^^^^
