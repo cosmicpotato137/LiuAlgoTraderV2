@@ -333,9 +333,9 @@ class _Memoized(Component):
 class Filter(Component):
     """Select the symbols that signals evaluate.
 
-    Replaces Scanner. Subclasses implement run. The symbols a filter selects
-    join its universe for the rest of the trading day; a later run adds
-    symbols but never removes them.
+    Replaces Scanner. Subclasses implement run. Each run replaces the
+    filter's universe with the symbols it selects, and the universe lasts
+    until the next run, even across days.
 
     Attributes
     ----------

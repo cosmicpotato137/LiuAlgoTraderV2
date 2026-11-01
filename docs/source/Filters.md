@@ -59,8 +59,9 @@ async def run(self, now: pd.Timestamp) -> list[str]:
 
 The run() function returns a list of stock symbols which the framework needs to track. `now` is the time to select as of: the current time when trading, and a past time when back-testing, allowing developer to test various scenarios before deployment. Like every time in the framework, it is a time zone-aware `pd.Timestamp` in New York time. Use `self.ctx.backtesting` to tell the two apart.
 
-The symbols a filter selects join its universe for the rest of the trading
-day; a later run adds symbols but never removes them.
+Each run replaces the filter's universe with the symbols it selects, both when
+trading and when back-testing, and the universe lasts until the next run, even
+across days. A rule keeps trading a symbol it holds after the filter drops it.
 
 ```python
 self.ctx

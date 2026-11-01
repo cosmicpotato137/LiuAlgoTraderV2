@@ -208,13 +208,13 @@ class Backtest:
     ) -> None:
         """Simulate a trading day.
 
-        Start with empty filter universes, so that only the rules' own
-        symbols carry over from the previous day. Compute indicators and
-        signals through the end of the day on first use, which their causal
-        compute allows, so that later steps read them from the cache. With
-        minute steps, cancel the orders still open at the end of the day, as
-        day orders expire at the close; with daily steps, they fill at the
-        next day's open.
+        Keep each filter universe from the filter's latest run, which is on
+        an earlier day when its recurrence is longer than a day. Compute
+        indicators and signals through the end of the day on first use, which
+        their causal compute allows, so that later steps read them from the
+        cache. With minute steps, cancel the orders still open at the end of
+        the day, as day orders expire at the close; with daily steps, they
+        fill at the next day's open.
 
         Parameters
         ----------
@@ -223,7 +223,6 @@ class Backtest:
         day_end: pd.Timestamp
             The end of the day.
         """
-        self.state.universes.clear()
         self.ctx.compute_through = day_end
         for now in self._steps(day_start, day_end):
             await self.step(now)
@@ -235,7 +234,8 @@ class Backtest:
         """Simulate the step of a day at the time of a bar.
 
         Fill the orders of the previous step and run the filters that are
-        due. Then ask the symbol rules for orders on every symbol in a
+        due, replacing the universe of each with the symbols it selects. Then
+        ask the symbol rules for orders on every symbol in a
         universe or owned by a rule, and the portfolio rules whose recurrence
         elapsed, and place the orders, sells before buys.
 
@@ -248,8 +248,7 @@ class Backtest:
 
         for name, selector in self.state.graph.filters.items():
             if self._due(selector, now):
-                for symbol in await selector.select(now):
-                    self.state.add_symbol(name, symbol)
+                self.state.set_universe(name, await selector.select(now))
 
         decisions = []
         for symbol in sorted(self.state.symbols()):

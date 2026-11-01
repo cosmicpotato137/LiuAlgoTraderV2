@@ -30,9 +30,10 @@ logger = logging.getLogger(__name__)
 async def filter_runner(selector: Filter, queue: mp.Queue) -> None:
     """Run a filter and publish the symbols it selects to queue.
 
-    Put the JSON object {filter_name, symbols} on queue after each run that
-    selects symbols. Repeat at the recurrence of the filter, or run once if
-    it has none. Log exceptions instead of raising them.
+    Put the JSON object {filter_name, symbols} on queue after each run, even
+    one that selects no symbols, since each run replaces the filter's
+    universe. Repeat at the recurrence of the filter, or run once if it has
+    none. Log exceptions instead of raising them.
 
     Parameters
     ----------
@@ -45,15 +46,12 @@ async def filter_runner(selector: Filter, queue: mp.Queue) -> None:
         while True:
             symbols = await selector.select(clock.now())
 
-            if symbols:
-                logger.info(
-                    "filter %s picked %s symbols", selector.name, len(symbols)
-                )
-                queue.put(
-                    json.dumps(
-                        {"filter_name": selector.name, "symbols": symbols}
-                    )
-                )
+            logger.info(
+                "filter %s picked %s symbols", selector.name, len(symbols)
+            )
+            queue.put(
+                json.dumps({"filter_name": selector.name, "symbols": symbols})
+            )
 
             if not selector.recurrence:
                 break

@@ -99,11 +99,12 @@ class SymbolRouter:
         """Assign and subscribe new symbols, and forward filter results to
         the proper queue.
 
-        Send every symbol to its consumer as a filter_result message, even
-        when the symbol is already subscribed. Then subscribe the new
-        symbols to second bars, minute bars and trades, and save them as
-        trending tickers. Warn about a portfolio filter's symbol that another
-        consumer already has, since portfolio rules never see it.
+        Send each consumer a filter_result message with the symbols assigned
+        to it, even none, as the consumer replaces the filter's universe with
+        them. Then subscribe the new symbols to second bars, minute bars and
+        trades, and save them as trending tickers. Warn about a portfolio
+        filter's symbol that another consumer already has, since portfolio
+        rules never see it.
 
         Parameters
         ----------
@@ -113,6 +114,7 @@ class SymbolRouter:
             The symbols, in lower case.
         """
         new_symbols = []
+        selections: List[List[str]] = [[] for _ in self.queues]
         for symbol in symbols:
             if symbol not in self.assigned:
                 self._assign(symbol, filter_name)
@@ -127,10 +129,12 @@ class SymbolRouter:
                     filter_name,
                     self.assigned[symbol],
                 )
-            self.queues[self.assigned[symbol]].put(
+            selections[self.assigned[symbol]].append(symbol)
+        for queue, selection in zip(self.queues, selections):
+            queue.put(
                 {
                     "EV": QueueMessageType.FILTER_RESULT,
-                    "symbol": symbol,
+                    "symbols": selection,
                     "filter_name": filter_name,
                 }
             )

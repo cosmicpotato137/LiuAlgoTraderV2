@@ -288,10 +288,10 @@ class Consumer:
     async def queue_consumer(self, queue: Queue) -> None:
         """Consume and dispatch the messages of the producer until cancelled.
 
-        Apply trade updates, add filter results to their universes and handle
-        market data; log an error for a message of unknown type. On a
-        ConnectionError, reconnect the trader and put the message back on
-        queue. Log other exceptions and continue.
+        Apply trade updates, replace the universe of a filter with each of its
+        results and handle market data; log an error for a message of unknown
+        type. On a ConnectionError, reconnect the trader and put the message
+        back on queue. Log other exceptions and continue.
 
         Parameters
         ----------
@@ -310,8 +310,8 @@ class Consumer:
                                 Trade(**data["trade"])
                             )
                         case QueueMessageType.FILTER_RESULT:
-                            self.state.add_symbol(
-                                data["filter_name"], data["symbol"]
+                            self.state.set_universe(
+                                data["filter_name"], data["symbols"]
                             )
                         case (
                             QueueMessageType.MINUTE_BAR

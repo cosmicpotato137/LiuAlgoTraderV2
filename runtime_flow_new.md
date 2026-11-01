@@ -91,25 +91,25 @@ recurrence = 5
 1. Connect to the database and build the map that decides which consumer queue each symbol goes to. Find the *portfolio filters*: the filters that feed a `PortfolioRule` through its signals. This loads the rule classes but doesn't create the rules.
 2. Start the market-data stream (Alpaca, Polygon or Gemini, chosen by `DATA_CONNECTOR`).
 3. Start the broker trader (chosen by `LIU_BROKER`). It subscribes to order updates and sends each one as a `trade_update` message to every consumer queue.
-4. Loop on the filter queue. For each `{symbol, filter_name}`:
-   1. If the symbol is new, assign it a consumer queue: consumer 0 for a portfolio filter, and otherwise the consumer with the fewest symbols. The assignment never changes. Subscribe the symbol to second bars, minute bars and trades, and save it to `TrendingTicker` with its filter name.
-   2. Always send `{EV: "filter_result", symbol, filter_name}` to the symbol's consumer, even if the symbol was already subscribed, so that a symbol picked by a second filter reaches that filter's signals.
+4. Loop on the filter queue. For each `{filter_name, symbols}`:
+   1. Assign each new symbol a consumer queue: consumer 0 for a portfolio filter, and otherwise the consumer with the fewest symbols. The assignment never changes. Subscribe the new symbols to second bars, minute bars and trades, and save them to `TrendingTicker` with their filter name.
+   2. Send every consumer `{EV: "filter_result", symbols, filter_name}` with the symbols assigned to it, even when there are none, so that each consumer can replace the filter's universe. Already subscribed symbols are included, so that a symbol picked by a second filter reaches that filter's signals.
 
 The producer no longer polls the `TradePlan` table or sends `new_strategy` messages.
 
 ### Filter process (`filters_runner.py`)
 
 1. Create a `Context` with its own `DataLoader` and the broker trader, which the momentum filter asks for tradeable symbols. Create the filters with `create_filters()`.
-2. Run all filters at the same time. Each one calls `run(clock.now())`, puts a JSON list of `{symbol, filter_name}` on the filter queue, then waits for its `recurrence`. A filter with no recurrence runs once.
+2. Run all filters at the same time. Each one calls `run(clock.now())`, puts a JSON object `{filter_name, symbols}` on the filter queue, even when it selects no symbols, then waits for its `recurrence`. A filter with no recurrence runs once.
 
 ### Consumer (`consumer.py`)
 
 1. Create a `Context` with a `DataLoader` and the trader, and build the `StrategyGraph` with `with_filters=False`. No loading from the database. Will rebuild later.
-2. Keep the run state in one object created here, instead of the `trading_data` module globals: each filter's universe (its symbols, which only grow during the day), each rule's positions, the open orders by order ID with the rule that placed them, and the owner of each symbol.
+2. Keep the run state in one object created here, instead of the `trading_data` module globals: each filter's universe (the symbols of its latest run on this consumer), each rule's positions, the open orders by order ID with the rule that placed them, and the owner of each symbol.
 3. Run three tasks at the same time:
    - **Queue consumer:** handles each message by its `EV` with a `match` statement, and logs an error for an unknown type:
      - `trade_update`: looks up the open order by its ID, and ignores the update if this consumer has no such order, because updates go to every consumer. Otherwise it updates the rule's position, releases the symbol if the position is now flat, and calls `rule.on_fill(trade)`. When the order is canceled, rejected or expires, it drops the open order and calls `rule.on_cancel(order)`.
-     - `filter_result`: adds the symbol to the filter's universe.
+     - `filter_result`: replaces the filter's universe with the symbols, as the backtester does.
      - Market data: adds the bar to the `DataLoader` and calls `ctx.invalidate(symbol)`. If the symbol has a stale open order, it checks the order and cancels it. Then, for a minute bar only (`AM`), with `now` set to the bar's timestamp:
        1. For each signal whose filters selected the symbol, it gets `signal.at(symbol, now)`. A value other than NaN means the signal fired.
        2. For each `SymbolRule` that is linked to a fired signal or owns the symbol, it skips the rule if the rule has an open order for the symbol or another rule owns it. Otherwise it calls `rule.decide(symbol, now, position, fired)`, where `fired` holds only that rule's fired signals.
@@ -123,8 +123,8 @@ The producer no longer polls the `TradePlan` table or sends `new_strategy` messa
 2. `enhanced_backtest.backtest()` creates a batch ID and calls `backtest_main` on a fresh event loop.
 3. Connect to the database, which the momentum filter reads (see known issues). Create a `DataLoader(scale)` and a `Context(data_loader, trader, backtesting=True)`, and build the whole `StrategyGraph`. Don't record anything to algo run for now. Will figure out database at a later point.
 4. Get the list of days. Equities use the Alpaca market calendar; crypto uses every calendar day.
-5. For each day, clear the filter universes, then step from the start of the day to the end, one minute or one day at a time. Rules keep evaluating the symbols they own even if no filter selects them that day. At each step `now`:
-   1. Run any filters that are due with `run(now)`, and add their symbols to their universes. A filter with no recurrence runs once per day.
+5. For each day, step from the start of the day to the end, one minute or one day at a time. Each filter's universe holds the symbols of its latest run, which is on an earlier day when its recurrence is longer than a day. Rules keep evaluating the symbols they own even if no filter selects them. At each step `now`:
+   1. Run any filters that are due with `run(now)`, and replace their universes with the symbols they select. A filter with no recurrence runs once per day.
    2. For symbols that just joined a universe, prefetch the day's bars, then prime each of their signals with `signal.get(symbol, day_end)`. Because `compute()` is causal, this computes the whole day at once, and later steps read from the cache.
    3. Evaluate the symbol rules exactly as the consumer does, with fired signals, ownership and open orders. Run each portfolio rule whose `recurrence` has elapsed.
    4. Fill the orders from the previous step at this bar's open: market orders always, and limit orders only if this bar trades through the limit. Apply the fees, update the rule's position and the symbol's owner, and call `rule.on_fill` with a `Trade`. Don't save `NewTrade` rows.

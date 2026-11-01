@@ -3,12 +3,14 @@
 The components here read synthetic bars, so the tests need no credentials.
 """
 
+import asyncio
+import json
 import queue
 
 import pandas as pd
 import pytest
 
-from liualgotrader import producer
+from liualgotrader import filters_runner, producer
 from liualgotrader.common import clock
 from liualgotrader.common.types import (
     Order,
@@ -200,7 +202,7 @@ async def test_rule_decides_on_fired_symbols_only(ctx) -> None:
     if await state.decide_symbol("aapl", DAY_START):
         raise AssertionError("decided on a symbol no filter selected")
 
-    state.add_symbol("f", "aapl")
+    state.set_universe("f", ["aapl"])
     decisions = await state.decide_symbol("aapl", DAY_START)
     if [r for r, _ in decisions] != [rule] or rule.calls != [
         ("aapl", DAY_START, 0.0, {"sig": 1.0})
@@ -213,7 +215,7 @@ async def test_rule_decides_on_fired_symbols_only(ctx) -> None:
 @pytest.mark.asyncio
 async def test_owner_and_open_orders_block_other_decisions(ctx) -> None:
     state = RunState(make_graph(ctx, "first", "second"))
-    state.add_symbol("f", "aapl")
+    state.set_universe("f", ["aapl"])
     first, second = state.graph.rules.values()
 
     decisions = await state.decide_symbol("aapl", DAY_START)
@@ -230,7 +232,7 @@ async def test_owner_and_open_orders_block_other_decisions(ctx) -> None:
 @pytest.mark.asyncio
 async def test_fills_update_positions_and_release_symbols(ctx) -> None:
     state = RunState(make_graph(ctx, "r"))
-    state.add_symbol("f", "aapl")
+    state.set_universe("f", ["aapl"])
     rule = state.graph.rules["r"]
     [(_, request)] = await state.decide_symbol("aapl", DAY_START)
     state.add_open_order(submitted("1", "aapl"), rule, request)
@@ -256,7 +258,7 @@ async def test_fills_update_positions_and_release_symbols(ctx) -> None:
 @pytest.mark.asyncio
 async def test_cancel_notifies_rule_and_releases_symbol(ctx) -> None:
     state = RunState(make_graph(ctx, "r"))
-    state.add_symbol("f", "aapl")
+    state.set_universe("f", ["aapl"])
     rule = state.graph.rules["r"]
     [(_, request)] = await state.decide_symbol("aapl", DAY_START)
     state.add_open_order(submitted("1", "aapl"), rule, request)
@@ -274,8 +276,7 @@ async def test_cancel_notifies_rule_and_releases_symbol(ctx) -> None:
 async def test_portfolio_rule_gets_latest_signal_values(ctx) -> None:
     ctx.data_loader["msft"] = Bars(make_bars([20.0]))
     state = RunState(make_graph(ctx, "r", portfolio="p"))
-    state.add_symbol("f", "aapl")
-    state.add_symbol("f", "msft")
+    state.set_universe("f", ["aapl", "msft"])
     state.owners["msft"] = "r"
     rule = state.graph.rules["p"]
 
@@ -337,6 +338,56 @@ async def test_backtest_cancels_untouched_limit_order() -> None:
     rule = graph.rules["r"]
     if session.trades or len(rule.cancels) != 2:
         raise AssertionError(f"limit order filled: {session.trades}")
+
+
+class Sequence(Filter):
+    """Select the next list of symbols on each run, and count the runs."""
+
+    def __init__(self, *selections, **kwargs):
+        super().__init__(**kwargs)
+        self.selections = list(selections)
+        self.runs = 0
+
+    async def run(self, now):
+        self.runs += 1
+        return self.selections.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_backtest_filter_run_replaces_universe() -> None:
+    bars = make_bars([10.0, 11.0])
+    ctx = Context(loader(aapl=bars, msft=bars), backtesting=True)
+    selector = Sequence(
+        ["aapl", "msft"], ["aapl"], ctx=ctx, name="f", recurrence=MINUTE
+    )
+    graph = make_graph(ctx, filters={"f": selector})
+    session = Backtest(ctx, graph, TimeScale.minute)
+
+    await session.run_day(DAY_START, DAY_START + 2 * MINUTE)
+
+    if session.state.universes != {"f": {"aapl"}}:
+        raise AssertionError(
+            f"dropped symbol stayed in universe: {session.state.universes}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_backtest_universe_lasts_until_next_filter_run() -> None:
+    ctx = Context(loader(aapl=make_bars([10.0])), backtesting=True)
+    selector = Sequence(
+        ["aapl"], ctx=ctx, name="f", recurrence=pd.Timedelta(days=2)
+    )
+    graph = make_graph(ctx, filters={"f": selector})
+    session = Backtest(ctx, graph, TimeScale.minute)
+
+    await session.run_day(DAY_START, DAY_START + MINUTE)
+    next_day = DAY_START + pd.Timedelta(days=1)
+    await session.run_day(next_day, next_day + MINUTE)
+
+    if selector.runs != 1 or session.state.universes != {"f": {"aapl"}}:
+        raise AssertionError(
+            f"universe lost before the next run: {session.state.universes}"
+        )
 
 
 def test_write_results(tmp_path, monkeypatch) -> None:
@@ -429,13 +480,75 @@ async def test_router_assigns_and_forwards(monkeypatch) -> None:
         raise AssertionError(f"unexpected subscriptions {stream.subscribed}")
     if saved != [("f", ["aapl", "msft"]), ("pf", ["spy"])]:
         raise AssertionError(f"unexpected trending tickers {saved}")
-    first = [queues[0].get_nowait() for _ in range(queues[0].qsize())]
-    if [(m["EV"], m["symbol"], m["filter_name"]) for m in first] != [
-        (QueueMessageType.FILTER_RESULT, "aapl", "f"),
-        (QueueMessageType.FILTER_RESULT, "spy", "pf"),
-        (QueueMessageType.FILTER_RESULT, "aapl", "g"),
+    # every consumer gets its share of each run, even an empty one
+    messages = [
+        [
+            (m["EV"], m["filter_name"], m["symbols"])
+            for m in (q.get_nowait() for _ in range(q.qsize()))
+        ]
+        for q in queues
+    ]
+    result = QueueMessageType.FILTER_RESULT
+    if messages != [
+        [
+            (result, "f", ["aapl"]),
+            (result, "pf", ["spy"]),
+            (result, "g", ["aapl"]),
+        ],
+        [(result, "f", ["msft"]), (result, "pf", []), (result, "g", [])],
+        [(result, "f", []), (result, "pf", []), (result, "g", [])],
     ]:
-        raise AssertionError(f"unexpected messages {first}")
+        raise AssertionError(f"unexpected messages {messages}")
+
+
+class Messages:
+    """A consumer queue that holds some messages, then cancels its reader."""
+
+    def __init__(self, *messages):
+        self.messages = list(messages)
+
+    def get(self, timeout=None):
+        if not self.messages:
+            raise asyncio.CancelledError
+        return self.messages.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_consumer_filter_result_replaces_universe(ctx) -> None:
+    ctx.trader = FakeTrader()
+    consumer = Consumer(ctx, make_graph(ctx, "r"), False)
+
+    def result(filter_name, symbols):
+        return {
+            "EV": QueueMessageType.FILTER_RESULT,
+            "filter_name": filter_name,
+            "symbols": symbols,
+        }
+
+    await consumer.queue_consumer(
+        Messages(
+            result("f", ["aapl", "msft"]),
+            result("f", ["aapl"]),
+            result("g", []),
+        )
+    )
+
+    if consumer.state.universes != {"f": {"aapl"}, "g": set()}:
+        raise AssertionError(
+            f"unexpected universes {consumer.state.universes}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_filter_runner_reports_empty_selection(ctx) -> None:
+    results = queue.Queue()
+
+    selector = Sequence([], ctx=ctx, name="f")
+
+    await filters_runner.filter_runner(selector, results)
+
+    if json.loads(results.get_nowait()) != {"filter_name": "f", "symbols": []}:
+        raise AssertionError("empty selection not reported")
 
 
 class FakeTrader:
@@ -464,7 +577,7 @@ async def test_consumer_submits_and_applies_trade_updates(ctx) -> None:
     trader = FakeTrader()
     ctx.trader = trader
     consumer = Consumer(ctx, make_graph(ctx, "r"), False)
-    consumer.state.add_symbol("f", "aapl")
+    consumer.state.set_universe("f", ["aapl"])
 
     await consumer.submit(
         await consumer.state.decide_symbol("aapl", DAY_START)
@@ -482,7 +595,7 @@ async def test_consumer_cancels_stale_partially_filled_order(ctx) -> None:
     trader = FakeTrader(Order.EventType.partial_fill, filled_qty=0.25)
     ctx.trader = trader
     consumer = Consumer(ctx, make_graph(ctx, "r"), False)
-    consumer.state.add_symbol("f", "aapl")
+    consumer.state.set_universe("f", ["aapl"])
     await consumer.submit(
         await consumer.state.decide_symbol("aapl", DAY_START)
     )
