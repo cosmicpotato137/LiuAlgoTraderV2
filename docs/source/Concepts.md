@@ -1,17 +1,16 @@
-Concepts
-========
+# Concepts
 
 This section explains the concepts and architecture of `LiuAlgoTrader` framework.
 
-.. image:: /images/core-platform-components.png
-    :width: 1000
-    :align: left
-    :alt: liu blcok diagram
+```{image} /images/core-platform-components.png
+:width: 1000
+:align: left
+:alt: liu blcok diagram
+```
 
 
 
-Building Blocks
----------------
+## Building Blocks
 A trading strategy is made of four kinds of components, which the trade plan wires together:
 
 * Filters, or stock screeners as called by some platforms, run periodically to search for stocks from the stock universe that adhere to criteria of choice. Users can easily create and deploy filters, with only few lines of Python code. Filters determine the time to `subscribe` for events of a specific stock. Events could be price changes or trades in a predefined window, e.g. per second/ per minute.
@@ -19,30 +18,26 @@ A trading strategy is made of four kinds of components, which the trade plan wir
 * Signals turn indicator values into a prediction of price movement for each symbol selected by the filters they are linked to. The sign of a signal value is the direction, and its magnitude the confidence.
 * Rules turn signals and positions into order requests. A `SymbolRule` acts on a single stock, and a `PortfolioRule` on a collection of stocks. Rules never call the broker: the framework submits their orders when trading, and simulates them when back-testing. The framework supports both long and short positions to equities, and is designed to be capable of concurrently handling hundreds of stocks with numerous rules. A position belongs to the rule that opened it until it is flat again.
 
-Data Propagation 
-----------------
+## Data Propagation
 
-Data is either loaded directly from a data-providers, 
+Data is either loaded directly from a data-providers,
 or updated in real-time using web-sockets.
 
 * `DataLoader()` class introduces a DataFrame-like interface to load data from a data providers, or updating data from web-sockets,
-* `StreamingAPI()` and `DataAPI()` are abstract classes for integrating data-providers (there are implemented connectors for both Alpaca and Polygon), 
+* `StreamingAPI()` and `DataAPI()` are abstract classes for integrating data-providers (there are implemented connectors for both Alpaca and Polygon),
 * `data_loader_factory()` instantiates implementation for `StreamingAPI()` and `DataAPI()`, based on the selected data-providers,
 * `Trader()` is a base-class for integration Broker APIs (only Alpaca is currently supported),
 
-DataLoader class
-****************
+### DataLoader class
 
 The DataLoader class is fundamental in creating a strategy using LiuAlgoTrader. It allows access to data without the need to pay attention to any connectivity details and is consistent among the different data providers. The Framework is responsibility for constantly maintaing an updated DataLoader class, which components reach through the `Context` of their run, as `self.ctx.data_loader`.
 
-Context class
-*************
+### Context class
 
 Each run, which is a consumer process, the filter process or a back-test, creates one `Context` and passes it to every component. The context holds the `DataLoader`, an optional trader for read-only queries, and the shared indicators and caches, so separate runs in the same process do not share state.
 
 
-Usage Fundamentals
-------------------
+## Usage Fundamentals
 
 The framework's `base classes` are in `liualgotrader.strategy.new_base`: `Filter`, `Indicator`, `Signal`, `SymbolRule` and `PortfolioRule`.
 The framework comes with a generic momentum `Filter`, though we recommend to treat it as a reference.
@@ -51,8 +46,7 @@ To get start with the framework, you should create your custom filters, signals 
 
 Back-tests write their trades and a summary to files, which you can analyze to improve the performance of your algo trading strategies.
 
-Hands-free framework
---------------------
+## Hands-free framework
 
 `LiuAlgoTrader` is designed to be a (nearly) high throughput & scalable framework, that optimizes at utilizing the underlying hardware.
 
@@ -61,11 +55,10 @@ for strategy developers without the need to worry about
 low-level considerations such as connection issues.
 
 
-High Level Architecture
------------------------
+## High Level Architecture
 
 Polygon.io, Alpaca and other real-time stock data
-providers provide data via WebSockets_. In most cases
+providers provide data via {ref}`WebSockets <websockets>`. In most cases
 data providers become impatient when posted data is not timely
 collected by the intended recipient.
 
@@ -77,17 +70,17 @@ the algorithmic decision making and initiate trades via API calls.
 Below diagram visualizes the high-level call flow & system components
 
 
-.. image:: /images/liu-hld.png
-    :width: 1000
-    :align: left
-    :alt: liu architecture
+```{image} /images/liu-hld.png
+:width: 1000
+:align: left
+:alt: liu architecture
+```
 
 
-Implementation details
-**********************
+### Implementation details
 
-LiuAlgoTrader is implemented using `multi-process
-infrastructure`_, and each process uses `asyncio` for
+LiuAlgoTrader is implemented using [multi-process
+infrastructure](https://docs.python.org/3/library/multiprocessing.html), and each process uses `asyncio` for
 inter-process lightweight threading (The framework works w/ 3.8 and above).
 This architecture provides high throughput which maximizes the hardware
 capabilities.
@@ -111,8 +104,7 @@ stocks are picked. The producer assigns each picked stock to a
 consumer: the first consumer for the filters of portfolio rules,
 and otherwise the consumer with the fewest stocks.
 
-Performance
-***********
+### Performance
 
 Each consumer would check the time-stamp of the received events.
 If the events are more than 5 seconds behind, the message will be
@@ -121,9 +113,9 @@ This allows a quick catch-up at the expense of losing data.
 When such catch-up takes place the following message would
 be written to the log:
 
-.. code-block:: bash
-
-    consumer A {symbol} out of sync w {time_diff}
+```bash
+consumer A {symbol} out of sync w {time_diff}
+```
 
 When you see such a message repetitively, it may mean that either:
 
@@ -133,16 +125,11 @@ When you see such a message repetitively, it may mean that either:
 - The consumer process listen to second message, as well as trade and quote messages, depending on the strategy and hardware capacity it might be best to reduce the event types that the producer is sending to the consumers (change the `tradeplan` configuration file),
 
 
-.. _WebSockets :
-
-    https://en.wikipedia.org/wiki/WebSocket#:~:text=WebSocket%20is%20a%20computer%20communications,WebSocket%20is%20distinct%20from%20HTTP.
-
-.. _multi-process infrastructure :
-    https://docs.python.org/3/library/multiprocessing.html
+(websockets)=
+> [https://en.wikipedia.org/wiki/WebSocket#:~:text=WebSocket%20is%20a%20computer%20communications,WebSocket%20is%20distinct%20from%20HTTP](https://en.wikipedia.org/wiki/WebSocket#:~:text=WebSocket%20is%20a%20computer%20communications,WebSocket%20is%20distinct%20from%20HTTP).
 
 
-Understanding the project structure
------------------------------------
+## Understanding the project structure
 
 **NOTE** the project structure may change periodically, please check our GitHub repo for the most accurate structure.
 
@@ -152,75 +139,74 @@ developer. Below is the project
 structure highlighting important
 files for a future developer.
 
-::
+```text
+├── AUTHORS
+├── LICENCE
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
+├── analysis
+│   ├── backtester_ui.py
+│   ├── day_trade_ui.py
+|   └── notebooks
+│       ├── portfolio_performance_analysis.ipynb
+│       └── backtest_performance_analysis.ipynb
+|       └── ...
+├── design
+|      └── various design & concepts documents
+├── liualgotrader
+│   ├── common
+|   |   ├── types.py
+|   |   ├── config.py
+|   |   ├── market_data.py
+|   |   ├── log.py
+|   |   └── data_loader.py
+|   ├── data
+|   |   ├── data_base.py
+|   |   └── data_factory.py
+|   ├── streaming
+|   |   ├── streaming_base.py
+|   |   └── streaming_factory.py
+|   ├── trade
+|   |   ├── base.py
+|   |   └── trader_factory.py
+|   ├── vendors
+|   |   ├── alpaca
+|   |   |   ├── config.py
+|   |   |   ├── data.py
+|   |   |   ├── streaming.py
+|   |   |   └── trader.py
+|   |   ├── polygon
+|   |   |   ├── config.py
+|   |   |   ├── data.py
+|   |   |   └── streaming.py
+|   |   └── ...
+│   ├─── analytics
+|   |    └── analysis.py
+│   ├── fincalcs
+|   |    ├── candle_patterns.py
+|   |    ├── support_resistance.py
+|   |    └── vwap.py
+│   ├── db
+|   |    ├── session.py
+|   |    └── models
+|   |        ├── base.py
+|   |        ├── algo_run.py
+|   |        └── ...
+│   ├── filters
+|   |    └── momentum.py
+│   ├── strategy
+|   |    └── new_base.py
+│   ├── consumer.py
+│   ├── filters_runner.py
+│   ├── enhanced_backtest.py
+│   └── producer.py
+|
+├── examples
+├── tools
+└── tests
+```
 
-    ├── AUTHORS
-    ├── LICENCE
-    ├── CONTRIBUTING.md
-    ├── CODE_OF_CONDUCT.md
-    ├── analysis
-    │   ├── backtester_ui.py
-    │   ├── day_trade_ui.py
-    |   └── notebooks
-    │       ├── portfolio_performance_analysis.ipynb
-    │       └── backtest_performance_analysis.ipynb
-    |       └── ...
-    ├── design
-    |      └── various design & concepts documents
-    ├── liualgotrader
-    │   ├── common
-    |   |   ├── types.py
-    |   |   ├── config.py
-    |   |   ├── market_data.py
-    |   |   ├── log.py
-    |   |   └── data_loader.py
-    |   ├── data
-    |   |   ├── data_base.py
-    |   |   └── data_factory.py
-    |   ├── streaming
-    |   |   ├── streaming_base.py
-    |   |   └── streaming_factory.py
-    |   ├── trade
-    |   |   ├── base.py
-    |   |   └── trader_factory.py
-    |   ├── vendors
-    |   |   ├── alpaca
-    |   |   |   ├── config.py
-    |   |   |   ├── data.py
-    |   |   |   ├── streaming.py
-    |   |   |   └── trader.py
-    |   |   ├── polygon
-    |   |   |   ├── config.py
-    |   |   |   ├── data.py
-    |   |   |   └── streaming.py
-    |   |   └── ...
-    │   ├─── analytics
-    |   |    └── analysis.py
-    │   ├── fincalcs
-    |   |    ├── candle_patterns.py
-    |   |    ├── support_resistance.py
-    |   |    └── vwap.py
-    │   ├── db
-    |   |    ├── session.py
-    |   |    └── models
-    |   |        ├── base.py
-    |   |        ├── algo_run.py
-    |   |        └── ...
-    │   ├── filters
-    |   |    └── momentum.py
-    │   ├── strategy
-    |   |    └── new_base.py
-    │   ├── consumer.py
-    │   ├── filters_runner.py
-    │   ├── enhanced_backtest.py
-    │   └── producer.py
-    |
-    ├── examples
-    ├── tools
-    └── tests
-
-common
-******
+### common
 The `common` folder contains 4 important files that the developer should be aware of:
 
 - `config.py` is a file for global configuration. The file includes internal constants which are not accessible via the environment variables of the configuration file for now,
@@ -228,12 +214,10 @@ The `common` folder contains 4 important files that the developer should be awar
 - `log.py` configures the standard Python `logging` module to write log entries to STDOUT, at the level set by the `LIU_LOG_LEVEL` environment variable,
 - `data_loader.py` explained above.
 
-strategy
-********
+### strategy
 `strategy/new_base.py` holds the base classes of the strategy components, the `Context` and the `StrategyGraph` that the trade plan is loaded into. See the `Strategies` section.
 
-fincalcs
-********
+### fincalcs
 The folder includes packages for basic financial calculations.
 Those are helper functions for strategy developers:
 
@@ -241,8 +225,7 @@ Those are helper functions for strategy developers:
 - `support_resistance.py` - implements basic algorithms for calculations of horizontal support and resistance lines.
 - `vwap.py` - accurate calculation of 5-min VWAP, helpful for VWAP based strategies.
 
-db
-**
+### db
 Data abstraction layer implementing the persistence and loading of the data model.
 Each model in `db/models` is a SQLAlchemy ORM class that maps one table and
 carries the queries for that table; together the models define the schema, which
@@ -253,22 +236,22 @@ database with the Alembic migrations in `db/migrations`; call
 `create_db_connection()` from `liualgotrader.db.session` to connect to a DSN
 other than the configured one.
 
-Data Model
-----------
+## Data Model
 
 The following diagram represents the conceptual models which constitute the framework.
 It is important to understand different concepts, and their relations, when developing
 strategies using the platform.
 
-.. image:: /images/conceptual_model.png
-    :width: 1000
-    :align: left
-    :alt: liu architecture
+```{image} /images/conceptual_model.png
+:width: 1000
+:align: left
+:alt: liu architecture
+```
 
 
 
-* To browse the entire database schema: https://amor71.github.io/LiuAlgoTrader/dbspy/
-* To view the relationships between the tables: https://amor71.github.io/LiuAlgoTrader/dbspy/relationships.html
+* To browse the entire database schema: <https://amor71.github.io/LiuAlgoTrader/dbspy/>
+* To view the relationships between the tables: <https://amor71.github.io/LiuAlgoTrader/dbspy/relationships.html>
 
 
 The data-model, as represented in the database tables can
@@ -277,48 +260,27 @@ and back-testing.
 
 This section describes the database schema and usage patterns.
 
-batch_id
-********
+### batch_id
 
 Each execution of the `trader` application generates a unique-id
 internally referred as a `batch_id`.
 
-main database tables
-********************
+### main database tables
 
 The main database tables are as follows:
 
-+---------------------+-----------------------------------------------+
-| Name                | Description                                   |
-+---------------------+-----------------------------------------------+
-| stock_ohlc          | Daily OHLC "cache" for                        |
-|                     | back-testing.                                 |
-+---------------------+-----------------------------------------------+
-| trending_tickers    | Tracks of selected stocks per `batch_id`,     |
-|                     | including time-stamp and filter name.         |
-+---------------------+-----------------------------------------------+
-| algo_run            | Strategy execution log, per `batch_id` and    |
-|                     | consumer process, of earlier releases. More   |
-|                     | details below.                                |
-+---------------------+-----------------------------------------------+
-| new_trades          | Tracks of each executed order                 |
-|                     | (including partial), per `algo_run`, of       |
-|                     | earlier releases.                             |
-+---------------------+-----------------------------------------------+
-| portfolio           | Tracks of securities value over time.         |
-+---------------------+-----------------------------------------------+
-| portfolio_batch_ids | Table associating portfolio to batches.       |
-+---------------------+-----------------------------------------------+
-| keystore            | Key/Value repository. Convenient for          |
-|                     | Strategies to track values cross batch        |
-|                     | executions.                                   |
-+---------------------+-----------------------------------------------+
-| accounts            | Bank-account equivalent. Mostly used to keep  |
-|                     | track of portfolio cash amounts.              |
-+---------------------+-----------------------------------------------+
+| Name                | Description |
+| ------------------- | ----------- |
+| stock_ohlc          | Daily OHLC "cache" for back-testing. |
+| trending_tickers    | Tracks of selected stocks per `batch_id`, including time-stamp and filter name. |
+| algo_run            | Strategy execution log, per `batch_id` and consumer process, of earlier releases. More details below. |
+| new_trades          | Tracks of each executed order (including partial), per `algo_run`, of earlier releases. |
+| portfolio           | Tracks of securities value over time. |
+| portfolio_batch_ids | Table associating portfolio to batches. |
+| keystore            | Key/Value repository. Convenient for Strategies to track values cross batch executions. |
+| accounts            | Bank-account equivalent. Mostly used to keep track of portfolio cash amounts. |
 
-`stock_ohlc` table
-^^^^^^^^^^^^^^^^^^
+#### `stock_ohlc` table
 - symbol
 - symbol_date
 - open
@@ -330,8 +292,7 @@ The main database tables are as follows:
 
 The table holds daily OHLC values, per stock, including indicators.
 
-`algo_run` table
-^^^^^^^^^^^^^^^^
+#### `algo_run` table
 
 Earlier releases created a table entry in the `consumer` process, upon an
 execution of a strategy. Therefore, each line in the table
@@ -347,8 +308,7 @@ back-testing:
 - strategy name
 - environment (PAPER, BACKTEST, PROD)
 
-`new_trades` table
-^^^^^^^^^^^^^^^^^^
+#### `new_trades` table
 
 the table persists each trading operation
 (including partial fills) of earlier releases, each trade is linked to an
@@ -369,9 +329,7 @@ The table tracks:
 
 
 
-Additional tables
-*****************
+### Additional tables
 
-`portfolio`
-^^^^^^^^^^^
+#### `portfolio`
 Holds a calculated portfolio, that may be calculated during off-market hours and used by a strategy as a reference.

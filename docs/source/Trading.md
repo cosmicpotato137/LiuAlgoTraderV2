@@ -1,10 +1,4 @@
-**Trading with Liu**
-====================
-
-.. # define a hard line break for HTML
-.. |br| raw:: html
-
-   <br />
+# **Trading with Liu**
 
 LiuAlgoTrader has two applications and a set of
 analysis notebooks.
@@ -18,8 +12,7 @@ The applications are:
 This section describes the trader application,
 
 
-No Liability Disclaimer
------------------------
+## No Liability Disclaimer
 LiuAlgoTrader is provided with sample filters and
 out-of-the-box strategies. You may choose to use it,
 modify it or completely disregard it - Regardless,
@@ -29,20 +22,17 @@ or any of its derivatives (on the other hand, they
 also won't share your profits, if there are any).
 
 
-*trader*
---------
+## *trader*
 
 The trader application is the main application in
 the LiuAlgoTrading package and it runs algorithmic
 trading using the Alpaca Markets APIs.
 
-Prerequisites
-*************
+### Prerequisites
 1. Ensuring environment variables are properly set including Alpaca Market API credentials, and the database DSN when not using the default SQLite database,
 2. An existing *tradeplan.toml* in the `TRADEPLAN_DIR` folder, or in the folder where the trader application is executed, with at least one filter under **[filters]**; the trader application exits with an error otherwise. For more details on how to setup the trade plan configuration file, see the `Configuration` and `Strategies` sections.
 
-Trading session
-***************
+### Trading session
 Each run of the `trader` application generates a unique
 `batch-id`. The `batch-id` is displayed at the beginning
 of the execution of the  `trader` application, as well
@@ -65,25 +55,24 @@ kept in memory only. If a trading session is interrupted, the
 positions held at the broker are not owned by any rule when
 the `trader` application runs again, so no rule exits them.
 
-Usage
-*****
+### Usage
 
 To run the trader app type:
 
-.. code-block:: bash
-
-    trader
+```bash
+trader
+```
 
 An expected beginning of execution should look like:
 
-.. image:: /images/trader-usage1.png
-    :width: 600
-    :align: left
-    :alt: *trader* output
+```{image} /images/trader-usage1.png
+:width: 600
+:align: left
+:alt: '*trader* output'
+```
 
 
-Understanding *trader* output and Logging
-*****************************************
+### Understanding *trader* output and Logging
 
 The *trader* application writes its log to STDOUT
 (standard output) using the Python `logging` module.
@@ -109,8 +98,3 @@ to help troubleshooting and for better readability.
 - The third section displays the location of the `tradeplan` file and parses its header. A basic validation of the `tradeplan` file is done during that point and error messages will be presented for crude formatting.
 - The fourth section normally displays the filter execution. For more details on filters read the `Filters` section.
 - The fifth and last section displays the decisions of signals and rules, and their orders. For more details read the `Strategies` section.
-
-
-
-
-

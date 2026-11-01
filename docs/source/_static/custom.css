@@ -1,0 +1,17 @@
+/* Diagrams with transparent backgrounds are drawn for a white page: keep a
+   white backdrop behind images in dark mode so their dark lines stay visible. */
+body[data-theme="dark"] article img {
+  background: white;
+}
+
+@media (prefers-color-scheme: dark) {
+  body[data-theme="auto"] article img {
+    background: white;
+  }
+}
+
+/* Furo indents left-aligned images by 1rem, which pushes full-width images
+   past the edge of the text column on narrow screens. */
+article img.align-left {
+  margin-left: 0;
+}

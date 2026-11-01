@@ -1,21 +1,19 @@
-Additional apps
-===============
+# Additional apps
 
 
-Optimizer
----------
+## Optimizer
 
 The `optimizer` application is a tool for back-testing strategy with different parameters in parallel.
 `optimizer` helps select the best hyper-parameters for a strategy.
 
-How-To
-******
+### How-To
 
 To use the `optimizer` application, a new section should be added to the `tradeplan.toml` file:
 
-.. literalinclude:: ../../examples/optimizer/tradeplan.toml
-  :language: python
-  :linenos:
+```{literalinclude} ../../examples/optimizer/tradeplan.toml
+:language: toml
+:linenos:
+```
 
 * Note the [optimizer] section is added to the `tradeplan.toml` file,
 * `start_date` & `end_date` specify the time-window for back-testing,
@@ -23,29 +21,26 @@ To use the `optimizer` application, a new section should be added to the `tradep
 * Parameters and hyper-parameters are named by the trade plan entry they apply to, as `filters.<name>.<setting>`, `signals.<name>.<setting>` or `rules.<name>.<setting>`. For example, `[optimizer.hyperparameters.rules.trend_follow]` lists the hyper-parameters of the `trend_follow` rule,
 
 
-Parameters and Hyper-parameters
-*******************************
+### Parameters and Hyper-parameters
 
-The `optimizer` application supports two different 
+The `optimizer` application supports two different
 types of configuration-space constructs: Parameters and Hyper-Parameters.
 
 Parameters are meta-instructions for generating configurations for filters, signals and rules,
-that are calculated per back-testing step. In contrast, Hyper-Parameters is a 
+that are calculated per back-testing step. In contrast, Hyper-Parameters is a
 configuration space spanning a product of all possible values for each Hyper-Parameter.
 
-Usage
-*****
+### Usage
 
-To run the `optimizer` application, simply type: 
+To run the `optimizer` application, simply type:
 
-.. code-block:: bash
-
-    optimizer
+```bash
+optimizer
+```
 
 The application will read the `tradeplan.toml` file and spawn process for back-testing the different configurations.
 
-Model
-*****
+### Model
 Each `optimizer` execution generates a UUID representing a unique execution identification.
 Each back-test will generate its own `batch-id`.
 The relationship between the optimizer execution id, batch-ids and the hyper-parameters configurations
@@ -53,55 +48,47 @@ is stored in the **OPTIMIZER_RUN** database table, together with the `score` of 
 Back-tests do not write their trades to the database, so compare configurations by their score, or by the
 files that each back-test writes (see the `Back-testing` section).
 
-Analysis
-********
+### Analysis
 A dedicated Jupyter Notebook (see the `analysis` section) allows loading and comparing
 performance of different configurations. The notebook reads the trades from the database,
 so it shows only optimizer sessions of earlier releases.
 
-Parallel execution
-******************
+### Parallel execution
 Similar to `trader` application, `optimizer` supports multi-processing execution to optimize run times. By default the `optimizer` executes 4 processes, however that may be changed by specifying the `--concurrency` parameter.
 
 
-Portfolio
-*********
+### Portfolio
 
-The Portfolio app uses Google Fire_ infrastructure for CLI development.
-
-.. _Fire: https://github.com/google/python-fire
+The Portfolio app uses Google [Fire](https://github.com/google/python-fire) infrastructure for CLI development.
 
 
 The application provides means to creating portfolios, summarizing current portfolio status in a neat table, displaying the cash account transactions, as well as a re-processing tool.
 
-Usage
-*****
+### Usage
 
 To see the different commands of the `portfolio` application, type:
 
-.. code-block:: bash
+```bash
+portfolio --help
+```
 
-    portfolio --help
 
-
-Create Portfolio
-****************
+### Create Portfolio
 
 To create a new portfolio, type:
 
-.. code-block:: bash
-
-    portfolio create <portfolio cash amount> <credit line>
+```bash
+portfolio create <portfolio cash amount> <credit line>
+```
 
 For example, running the below creates a new portfolio, with a cash account of $10,000 and a credit line of $1,000.
 
-.. code-block:: bash
+```bash
+portfolio create 10000 1000
+```
 
-    portfolio create 10000 1000
 
-
-Re-processing
-*************
+### Re-processing
 
 The cash account is updated with every trade. Normally, there will not be a need to re-calculate the cash requests from the account. In some cases, however, where manual intervention is required, it may be helpful to re-calculate the cash transaction.
 
@@ -109,8 +96,6 @@ The cash account is updated with every trade. Normally, there will not be a need
 
 To create a recalculated portfolio, type:
 
-.. code-block:: bash
-
-    portfolio recalc <portfolio-id> 
-
-
+```bash
+portfolio recalc <portfolio-id>
+```

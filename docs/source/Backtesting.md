@@ -1,18 +1,11 @@
-**Back-testing**
-================
-
-.. # define a hard line break for HTML
-.. |br| raw:: html
-
-   <br />
+# **Back-testing**
 
 This section describes LiuAlgoTrader back-testing capabilities.
 The `backtester` command-line tool runs the filters, signals and
 rules of a trade plan over past market data, and writes the
 resulting trades to files for analysis.
 
-No Liability Disclaimer
------------------------
+## No Liability Disclaimer
 LiuAlgoTrader is provided with sample filters and
 out-of-the-box strategies. You may choose to use it,
 modify it or completely disregard it - Regardless,
@@ -21,8 +14,7 @@ to any possible loses from using LiuAlgoTrader,
 or any of its derivatives (on the other hand, they
 also won't share your profits, if there are any).
 
-Liu approach to back-testing
-----------------------------
+## Liu approach to back-testing
 
 While the framework was designed for high-performance real-time trading
 with dynamic filtering of the stock universe, the framework is equipped with
@@ -33,8 +25,7 @@ application submits to the broker, and the `backtester` application
 simulates. The same filters, signals and rules therefore run unchanged in
 both. Back-testing can be done on minute or daily resolution.
 
-Picking the right back-testing tools
-************************************
+### Picking the right back-testing tools
 
 Day-trading sessions run filters repeatedly, over the universe of
 stocks, and select stocks for trading. Signals evaluate the selected
@@ -57,8 +48,7 @@ Swing-trading on selected stocks can be effectively done while back-testing
 strategies over long period of data. Back-testing for Swing-trading is
 avalaible out of the box, and does not require specialized filters or hardware.
 
-Word of caution
-***************
+### Word of caution
 
 Day-trading is hard, perfecting day-trading algorithms is harder.
 When back-testing day-trading sessions try to be aware of over-fitting and
@@ -70,43 +60,39 @@ more effective. Last but not least, make small incremental changes, each time
 on a single parameter and progress slowly.
 
 
-*backtester*
-------------
+## *backtester*
 
-Prerequisites
-*************
+### Prerequisites
 1. Installed and configured Liu Algo Trading Framework,
 2. An existing *tradeplan.toml* in the `TRADEPLAN_DIR` folder, or in the current folder. For more details on how to setup the trade plan configuration file, see the `Configuration` and `Strategies` sections.
 
-How-To Use
-**********
+### How-To Use
 
 To run the `backtester` application with no arguments type:
 
-.. code-block:: bash
-
-    backtester
+```bash
+backtester
+```
 
 Displays the usage of the tool.
 
 To run the back-testing you need to specify a starting day.
 For example, assuming `tradeplan.toml` file is present:
 
-.. code-block:: bash
-
-    backtester from '2020-10-18'
+```bash
+backtester from '2020-10-18'
+```
 
 To back-test some of the rules on minute bars:
 
-.. code-block:: bash
-
-    backtester from '2020-10-18' --to='2020-10-23' --scale=minute --rules=breakout_long
+```bash
+backtester from '2020-10-18' --to='2020-10-23' --scale=minute --rules=breakout_long
+```
 
 Each back-test session creates a new `batch-id`, which the `backtester`
 logs when it completes.
 
-How a back-test runs
-********************
+### How a back-test runs
 
 For each day in the range (the market calendar for US equities, and every
 calendar day for crypto), the `backtester` clears the filters' selections,
@@ -121,8 +107,7 @@ time. At each step `now`:
 Rules keep evaluating the symbols they own even if no filter selects them on
 a later day.
 
-Results
-*******
+### Results
 
 The `backtester` writes two files to the current folder, named by the `batch-id`:
 
@@ -133,46 +118,21 @@ The `backtester` writes two files to the current folder, named by the `batch-id`
 analysis notebooks and the browser-based analyzer, which read those tables, do
 not show new back-test sessions.
 
-Understanding command-line parameters
-*************************************
+### Understanding command-line parameters
 
-+---------------------+-------------------------------------------------------+
-| Parameter Name      | Description                                           |
-+---------------------+-------------------------------------------------------+
-| to                  | The last day for calculating the back-testing.        |
-|                     | the date is provided in the format `YYYY-MM-DD`.      |
-|                     | The `to` date will be included in the back-testing    |
-|                     | session. If not specified, `today` is being used.     |
-+---------------------+-------------------------------------------------------+
-| scale               | The time-scale for running the back-test.             |
-|                     | Allowed values are: day or minute. If not specified   |
-|                     | day will be used. Keep in mind that minute will       |
-|                     | take longer to run, but may be more realistic         |
-|                     | for your strategy.                                    |
-+---------------------+-------------------------------------------------------+
-| rules               | Comma-separated list of rule names to be used in      |
-|                     | the back-testing session. The rule names are read     |
-|                     | from the `tradeplan.toml` file, and the signals and   |
-|                     | filters that the selected rules link to come with     |
-|                     | them. If not specified all rules will be executed.    |
-+---------------------+-------------------------------------------------------+
-| asset               | The asset type being traded: equity (default) for US  |
-|                     | equities, or crypto. The asset type selects the       |
-|                     | market schedule for back-testing.                     |
-+---------------------+-------------------------------------------------------+
-| buy-fee-percentage  | trading fee for buying. Represented as percentage     |
-|                     | between 0 and 100. For example 0.3 is 0.3%            |
-|                     | transaction fee.                                      |
-+---------------------+-------------------------------------------------------+
-| sell-fee-percentage | trading fee for selling. Represented as percentage    |
-|                     | between 0 and 100. For example 0.3 is 0.3%            |
-|                     | transaction fee.                                      |
-+---------------------+-------------------------------------------------------+
+| Parameter Name      | Description |
+| ------------------- | ----------- |
+| to                  | The last day for calculating the back-testing. the date is provided in the format `YYYY-MM-DD`. The `to` date will be included in the back-testing session. If not specified, `today` is being used. |
+| scale               | The time-scale for running the back-test. Allowed values are: day or minute. If not specified day will be used. Keep in mind that minute will take longer to run, but may be more realistic for your strategy. |
+| rules               | Comma-separated list of rule names to be used in the back-testing session. The rule names are read from the `tradeplan.toml` file, and the signals and filters that the selected rules link to come with them. If not specified all rules will be executed. |
+| asset               | The asset type being traded: equity (default) for US equities, or crypto. The asset type selects the market schedule for back-testing. |
+| buy-fee-percentage  | trading fee for buying. Represented as percentage between 0 and 100. For example 0.3 is 0.3% transaction fee. |
+| sell-fee-percentage | trading fee for selling. Represented as percentage between 0 and 100. For example 0.3 is 0.3% transaction fee. |
 
 It is always recommanded to check the latest avaliable parameters by running
 
-.. code-block:: bash
-
-    backtester
+```bash
+backtester
+```
 
 and seeing the full usage description.

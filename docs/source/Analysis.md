@@ -1,0 +1,11 @@
+# Liu Analysis Tool-box
+
+`LiuAlgoTrader` [analysis](https://github.com/amor71/LiuAlgoTrader/tree/master/analysis/notebooks) toolkit is made of three main components: **Labs**, **NN** and the main analysis notebooks.
+
+The **Labs** folder, includes a collection of notebooks that can be used for understanding certain indicators, and common concepts. For example [anchored vwap](https://github.com/amor71/LiuAlgoTrader/blob/master/analysis/notebooks/Labs/anchored-vwap-lab.ipynb).
+
+Liu provides two different notebooks for analysis: analysis of portfolio
+(by `portfolio_id`) and analysis of a trading session (by `batch_id`):
+
+* The [portfolio](https://github.com/amor71/LiuAlgoTrader/blob/master/analysis/notebooks/portfolio_analysis.ipynb) notebook generates a benchmark with SPY,
+* The [batch](https://github.com/amor71/LiuAlgoTrader/blob/master/analysis/notebooks/batch_analysis.ipynb) notebook loads all trades and presents analysis for the trading session, including visual presentation of the trades.

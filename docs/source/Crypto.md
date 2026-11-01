@@ -1,40 +1,33 @@
-Crypto
-======
+# Crypto
 
 **Crypto trading is still in BETA and in active development**
 
-Asset types
------------
+## Asset types
 
-The framework supports two asset types: US_EQUITIES and CRYPTO. 
+The framework supports two asset types: US_EQUITIES and CRYPTO.
 
 When creating a portfolio for Crypto trading, use the following:
 
-.. code-block:: bash
+```bash
+portfolio create <size in FIAT currency> <credit in FIAT currency> CRYPTO
+```
 
-   portfolio create <size in FIAT currency> <credit in FIAT currency> CRYPTO
 
+## Gemini Crypto Exchange
 
-Gemini Crypto Exchange
-----------------------
-
-Gemini_ is a leading Crypto Exchange that provides APIs for Crypto trading, 
-including live data stream and limited histrocial data. 
-
-.. _gemini: https://www.gemini.com/
+[Gemini](https://www.gemini.com/) is a leading Crypto Exchange that provides APIs for Crypto trading,
+including live data stream and limited histrocial data.
 
 1. To trade using Gemini, make sure to set the  environment variables:
 
-.. code-block:: bash
+```bash
+export DATA_CONNECTOR="gemini"
+export LIU_BROKER="gemini"
+export GEMINI_API_KEY=
+export GEMINI_API_SECRET=
+```
 
-    export DATA_CONNECTOR="gemini"
-    export LIU_BROKER="gemini"
-    export GEMINI_API_KEY=
-    export GEMINI_API_SECRET=
-
-2. During BETA phase  the framework support `sandbox` trading only. To open a Sanbox account and obtain your API keys press here_ .
-
-.. _here: https://exchange.sandbox.gemini.com/signin
+2. During BETA phase  the framework support `sandbox` trading only. To open a Sanbox account and obtain your API keys press [here](https://exchange.sandbox.gemini.com/signin) .
 
 3. During BETA phase only `BTC/USD` (Bitcoin to USD) is supported.
 
@@ -44,29 +37,22 @@ including live data stream and limited histrocial data.
 
 6. When using the Notebook(s) make sure to specify gemini as the DATA_CONNECTOR
 
-7. Keep in mind that Gemini historical data is limited for the last 3 months, also loading bar data from Gemini in quite limited and slower than US Equities. It is recommanded for Strategies to pre-load historical data before starting to trade. Real-time streaming update seems quite fast and updated. 
+7. Keep in mind that Gemini historical data is limited for the last 3 months, also loading bar data from Gemini in quite limited and slower than US Equities. It is recommanded for Strategies to pre-load historical data before starting to trade. Real-time streaming update seems quite fast and updated.
 
 8. During BETA make sure to execute `limit` orders only. `market` orders are not supported, however the platform would try to execute limit order as `Maker` orders at minimal costs,
 
 9. keep in mind that Crypto trading is not-free and transactions may have fees associated with them. The Platform take it into account and withdraws from the account the approrpiate fees as well as properly store trading costs.
 
-If you find any issues, please do not hesitate to report an issue or reach-out on the on-line chat. 
+If you find any issues, please do not hesitate to report an issue or reach-out on the on-line chat.
 
 
-Polygon Crypto Data
--------------------
+## Polygon Crypto Data
 Polygon has a good support for Crypto data. If you are using Polygon.io you should check which package you are using and if it support Crypto. Note that Polygon abbrevates "X." in the name of Crypto pairs - for example BTC/USD would be X.BTCUSD on Polygon. That may require small modifications if you decide to use Polygon w Gemini (or another exchange)
 
 
 
-Alpaca Crypto
--------------
+## Alpaca Crypto
 
 Alpaca has a new and interesting Crypto offering, full support for it will be released in the future. Currently spported:
 
 1. data_loading of BTC/USD and ETH/USD via Alapca data bars (day and minute)
-
-
-
-
-
