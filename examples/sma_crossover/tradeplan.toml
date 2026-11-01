@@ -1,0 +1,45 @@
+# This is a TOML configuration file.
+#
+# A momentum strategy: buy when the 10-bar simple moving average of the close
+# crosses above the 30-bar one, and sell when it crosses back below. Back-test
+# it on daily bars from the repository root, for example:
+#
+#   TRADEPLAN_DIR=examples/sma_crossover backtester from 2024-01-01 --to=2024-12-31
+
+# symbol filters, may have several; each table key names an instance of the
+# class, so two entries may use the same class with different settings
+[filters.watchlist]
+class = "MyFilter"
+filename = "examples/sma_crossover/filter.py"
+symbols = ["AAPL", "MSFT", "NVDA"]
+
+# To trade the picks of the momentum filter instead, uncomment this filter and
+# list it in the signal's filters. In back-tests it only replays the picks
+# that the live trader recorded.
+# [filters.momentum]
+# class = "liualgotrader.filters.momentum.Momentum"
+# min_volume = 30000
+# today_change_percent = 3.5
+# min_last_dv = 500000
+# max_share_price = 20.0
+# min_share_price = 2.0
+# from_market_open = 15
+# recurrence = 5
+
+# signals; each one evaluates the symbols of the filters it lists
+[signals.sma_cross]
+class = "SmaCrossover"
+filename = "examples/sma_crossover/strategy.py"
+filters = ["watchlist"]
+fast = 10
+slow = 30
+# calendar days of bars to read, which must cover `slow` bars; a few days are
+# enough for minute bars
+lookback_days = 60
+
+# rules; each one decides on the signals it lists
+[rules.sma_cross_long]
+class = "SmaCrossoverRule"
+filename = "examples/sma_crossover/strategy.py"
+signals = ["sma_cross"]
+qty = 10

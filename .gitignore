@@ -25,6 +25,8 @@
 /design/.ipynb_checkpoints/
 *.toml
 *.toml.*
+# The example trade plans are part of the docs
+!/examples/**/*.toml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
