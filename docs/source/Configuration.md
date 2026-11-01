@@ -1,12 +1,10 @@
-Configuration
-=============
+# Configuration
 
 There are two parts of configuration for the **trader**
 application: OS level environment variables,
 and TOML configuration file read by the trader application.
 
-Environment variables
----------------------
+## Environment variables
 
 Environment variables are used to configure authentication
 to external resources, such as the trading database,
@@ -19,12 +17,12 @@ as well as support dockerized executions.
 Below is an example of the environment variables, which are not kept in the
 repository:
 
-.. literalinclude:: ../../examples/.env.example
-  :language: bash
-  :linenos:
+```{literalinclude} ../../examples/.env.example
+:language: bash
+:linenos:
+```
 
-Additional parameters
-*********************
+### Additional parameters
 
 LiuAlgoTrader is a multi-processing framework with
 producer-consumers design pattern. There is a
@@ -55,19 +53,16 @@ applications.
 `DSN` holds the URL of the database, such as
 `postgresql://user:password@host/db`. Leave it unset
 for the SQLite database at `~/.liualgotrader/liu.db`.
-See `Database Setup` in :doc:`(Advanced) Setup`.
+See `Database Setup` in {doc}`(Advanced) Setup`.
 
 `LIU_LOG_LEVEL` sets the minimum level of log
 entries written to STDOUT by all `LiuAlgoTrader`
 applications: `DEBUG`, `INFO` (default), `WARNING`
 or `ERROR`.
 
-TOML configuration file
------------------------
+## TOML configuration file
 the **trader** & **backtester** applications expect a TOML configuration file.
-Click here_ to learn more on the TOML file format.
-
-.. _here: https://toml.io/en/
+Click [here](https://toml.io/en/) to learn more on the TOML file format.
 
 By default the trader application will be looking for
 a configuration file with the name *tradeplan.toml*.
@@ -90,6 +85,7 @@ See the Filters and Strategies sections respectively
 to learn more on the available tools, and how to extend
 them.
 
-.. literalinclude:: ../../examples/sma_crossover/tradeplan.toml
-  :language: bash
-  :linenos:
+```{literalinclude} ../../examples/sma_crossover/tradeplan.toml
+:language: bash
+:linenos:
+```

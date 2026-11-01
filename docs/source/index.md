@@ -1,8 +1,6 @@
-A scalable algorithmic trading framework
-========================================
+# A scalable algorithmic trading framework
 
-Overview
-^^^^^^^^
+## Overview
 
 **LiuAlgoTrader** is a scalable, multi-process framework
 for effective algorithmic trading. The framework is
@@ -15,21 +13,13 @@ LiuAlgoTrader can run on a laptop and *hedge-on-the-go*, or run on a multi-core 
 
 LiuAlgoTrader supports:
 
-* Alpaca.Markets_  APIs for trading, and data loading & streaming,
+* [Alpaca.Markets](https://alpaca.markets/)  APIs for trading, and data loading & streaming,
 
-.. _alpaca.markets: https://alpaca.markets/
+* [Gemini](https://www.gemini.com/) Crypto Exchange APIs for trading, data loading & streaming,
 
-* Gemini_ Crypto Exchange APIs for trading, data loading & streaming,
+* [Polygon.io](https://polygon.io/) APIs for data-loading, and streaming,
 
-.. _gemini : https://www.gemini.com/
-
-* Polygon.io_ APIs for data-loading, and streaming,
-
-.. _polygon.io : https://polygon.io/
-
-* (**BETA**) Tradier_ APIs for trading and data loadinng
-
-.. _Tradier : https://tradier.com/
+* (**BETA**) [Tradier](https://tradier.com/) APIs for trading and data loadinng
 
 
 LiuAlgoTrader can run on a laptop and
@@ -40,8 +30,8 @@ LiuAlgoTrader is made of the following components:
 
 - **trader**: the main application for real-time trading,
 - **backtester**: re-running past trading sessions, back-testing strategies,
-- **optimizer**: application for optimizing strategies' hyper-parameters. 
-- **portfolio**: application for managing & tracking portfolios. 
+- **optimizer**: application for optimizing strategies' hyper-parameters.
+- **portfolio**: application for managing & tracking portfolios.
 
 AND
 
@@ -52,31 +42,30 @@ setup, configure and run trading & analysis
 sessions w/ LiuAlgoTrader.
 
 
-.. toctree::
-   :maxdepth: 2
+```{toctree}
+:maxdepth: 2
 
-   What's New
-   Quickstart
-   Getting Started
-   Tutorials
-   (Advanced) Setup
-   Concepts
-   Configuration
-   Crypto
-   Filters
-   Strategies
-   Trading
-   Backtesting 
-   Additional apps
-   Analysis
-   How to Contribute
-   Troubleshooting
-   
+What's New
+Quickstart
+Getting Started
+Tutorials
+(Advanced) Setup
+Concepts
+Configuration
+Crypto
+Filters
+Strategies
+Trading
+Backtesting
+Additional apps
+Analysis
+How to Contribute
+Troubleshooting
+```
 
 
-Indices and tables
-==================
+# Indices and tables
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+* {ref}`genindex`
+* {ref}`modindex`
+* {ref}`search`

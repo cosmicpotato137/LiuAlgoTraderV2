@@ -30,7 +30,10 @@ release = "0.4.00"
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ["sphinx.ext.autodoc"]
+extensions = ["myst_parser", "sphinx.ext.autodoc"]
+
+# The documentation is written in Markdown, parsed by MyST.
+source_suffix = {".md": "markdown"}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -46,11 +49,14 @@ exclude_patterns: List = []
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "alabaster"
+# Furo follows the reader's light/dark system preference, and its header
+# button switches between light, dark and automatic.
+html_theme = "furo"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-# html_static_path = ["_static"]
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 
 master_doc = "index"
