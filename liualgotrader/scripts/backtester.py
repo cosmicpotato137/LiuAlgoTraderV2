@@ -9,10 +9,6 @@ fees. --rules selects rules, and their signals and filters come with them.
 
 Functions
 ---------
-show_version
-    Print the script file name and version.
-dateFromString
-    Return the date described by a natural-language string.
 main_cli
     Run a backtest from the command line.
 """
@@ -21,67 +17,18 @@ import argparse
 import logging
 import os
 import sys
-from datetime import date
 
-import parsedatetime.parsedatetime as pdt
 import toml
 
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import clock, config
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType, TimeScale
+from liualgotrader.common.utils import date_from_string
 
 logger = logging.getLogger(__name__)
 
 ASSET_TYPES = {"equity": AssetType.US_EQUITIES, "crypto": AssetType.CRYPTO}
-
-
-def show_version(filename: str, version: str) -> None:
-    """Print the script file name and version.
-
-    Parameters
-    ----------
-    filename: str
-        The script file name.
-    version: str
-        The Git version label.
-    """
-    print(f"filename:{filename}\ngit version:{version}\n")
-
-
-def dateFromString(s: str) -> date:
-    """Return the date described by a natural-language string.
-
-    Parameters
-    ----------
-    s: str
-        The date string, either explicit or relative to the current New York
-        time, such as "yesterday".
-
-    Raises
-    ------
-    Raise ValueError if the string cannot be parsed as a date or a time.
-    """
-    c = pdt.Calendar()
-    result, what = c.parse(s, clock.now().timetuple())
-    dt = None
-
-    # what was returned (see http://code-bear.com/code/parsedatetime/docs/)
-    # 0 = failed to parse
-    # 1 = date (with current time, as a struct_time)
-    # 2 = time (with current date, as a struct_time)
-    # 3 = datetime
-    if what in (1, 2):
-        # result is struct_time
-        dt = date(*result[:3])
-    elif what == 3:
-        # result is a datetime
-        dt = result.date()
-
-    if dt is None:
-        raise ValueError(f"Don't understand date '{s}'")
-
-    return dt
 
 
 def main_cli() -> None:
@@ -102,7 +49,7 @@ def main_cli() -> None:
     )
     from_parser.add_argument(
         "start_date",
-        type=dateFromString,
+        type=date_from_string,
         help="first date, such as YYYY-MM-DD or 'yesterday'",
     )
     from_parser.add_argument(
@@ -120,7 +67,7 @@ def main_cli() -> None:
     from_parser.add_argument(
         "--to",
         dest="to_date",
-        type=dateFromString,
+        type=date_from_string,
         default=clock.today(),
         help="last date, such as YYYY-MM-DD. DEFAULT is today",
     )

@@ -40,39 +40,32 @@ StrategyGraph
 
 Functions
 ---------
-load_class
-    Return the component class that a trade plan entry names.
 lookback_start
     Return the start of the bars that a computation through now reads.
-tradeplan_links
-    Return the links of a trade plan.
 create_filters
     Create the filters of a trade plan.
 portfolio_filters
     Return the filters that feed a portfolio rule.
+select_rules
+    Return a trade plan with only some of its rules.
 """
 
 import copy
-import hashlib
-import importlib
-import importlib.util
 import json
 import logging
 import math
-import sys
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Callable, Optional, Self, TypeVar
 
 import pandas as pd
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import Order, OrderType, Trade
+from liualgotrader.common.utils import load_class
 from liualgotrader.trade.base import TraderAPI
 
 logger = logging.getLogger(__name__)
 
-C = TypeVar("C", bound="Component")
 T = TypeVar("T", pd.DataFrame, pd.Series)
 
 
@@ -745,62 +738,6 @@ class PortfolioRule(Rule):
         return []
 
 
-def load_class(base: type[C], spec: dict) -> type[C]:
-    """Return the component class that a trade plan entry names.
-
-    Load each file once, under a module name derived from its path, so that
-    the components of one file share its module.
-
-    Parameters
-    ----------
-    base: type[C]
-        The class that the named class must inherit from.
-    spec: dict
-        The trade plan entry. With a "filename", its "class" is the name of a
-        class in that file; otherwise, it is a dotted import path such as
-        "liualgotrader.filters.momentum.Momentum". Both settings are removed.
-
-    Raises
-    ------
-    Raise KeyError if spec has no "class", ImportError or AttributeError if
-    the class cannot be loaded, and TypeError if it does not inherit from base.
-    """
-    class_name = spec.pop("class")
-    filename = spec.pop("filename", None)
-    if filename:
-        path = Path(filename).resolve()
-        module_name = (
-            "liualgotrader_user_"
-            + hashlib.sha1(
-                str(path).encode(), usedforsecurity=False
-            ).hexdigest()
-        )
-        module = sys.modules.get(module_name)
-        if module is None:
-            module_spec = importlib.util.spec_from_file_location(
-                module_name, path
-            )
-            if module_spec is None or module_spec.loader is None:
-                raise ImportError(f"cannot load {filename}")
-            module = importlib.util.module_from_spec(module_spec)
-            sys.modules[module_name] = module
-            try:
-                module_spec.loader.exec_module(module)
-            except BaseException:
-                del sys.modules[module_name]
-                raise
-        component_class = getattr(module, class_name)
-    else:
-        module_path, _, attr = class_name.rpartition(".")
-        component_class = getattr(importlib.import_module(module_path), attr)
-
-    if not (
-        isinstance(component_class, type) and issubclass(component_class, base)
-    ):
-        raise TypeError(f"{class_name} must inherit from {base.__name__}")
-    return component_class
-
-
 def _links(spec: dict, key: str, targets: dict, owner: str) -> list[str]:
     """Return the names that a trade plan entry links to.
 
@@ -828,7 +765,7 @@ def _links(spec: dict, key: str, targets: dict, owner: str) -> list[str]:
     return list(names)
 
 
-def tradeplan_links(
+def _tradeplan_links(
     tradeplan: dict,
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """Return the links of a trade plan without creating its components.
@@ -861,12 +798,6 @@ def tradeplan_links(
     return signal_filters, rule_signals
 
 
-def _minutes_to_timedelta(spec: dict, key: str) -> None:
-    """Convert a setting in minutes to a pd.Timedelta, if spec has it."""
-    if key in spec:
-        spec[key] = pd.Timedelta(minutes=spec[key])
-
-
 def create_filters(tradeplan: dict, ctx: Context) -> dict[str, Filter]:
     """Create the filters of a trade plan.
 
@@ -884,7 +815,8 @@ def create_filters(tradeplan: dict, ctx: Context) -> dict[str, Filter]:
     filters = {}
     for name, spec in copy.deepcopy(tradeplan.get("filters", {})).items():
         filter_class = load_class(Filter, spec)
-        _minutes_to_timedelta(spec, "recurrence")
+        if "recurrence" in spec:
+            spec["recurrence"] = pd.Timedelta(minutes=spec["recurrence"])
         filters[name] = filter_class(ctx=ctx, name=name, **spec)
     return filters
 
@@ -901,15 +833,56 @@ def portfolio_filters(tradeplan: dict) -> set[str]:
 
     Raises
     ------
-    Raise the exceptions of tradeplan_links and load_class.
+    Raise the exceptions of _tradeplan_links and load_class.
     """
-    signal_filters, rule_signals = tradeplan_links(tradeplan)
+    signal_filters, rule_signals = _tradeplan_links(tradeplan)
     names: set[str] = set()
     for name, spec in copy.deepcopy(tradeplan.get("rules", {})).items():
         if issubclass(load_class(Rule, spec), PortfolioRule):
             for signal in rule_signals[name]:
                 names.update(signal_filters[signal])
     return names
+
+
+def select_rules(tradeplan: dict, rule_names: Optional[list[str]]) -> dict:
+    """Return a trade plan with only some of its rules.
+
+    Keep the signals of the selected rules, and the filters of those signals.
+
+    Parameters
+    ----------
+    tradeplan: dict
+        The trade plan; it is not modified.
+    rule_names: Optional[list[str]]
+        The rules to keep, or None or empty for all.
+
+    Raises
+    ------
+    Raise ValueError if a selected rule is not in the trade plan, and the
+    exceptions of _tradeplan_links.
+    """
+    if not rule_names:
+        return tradeplan
+
+    signal_filters, rule_signals = _tradeplan_links(tradeplan)
+    if unknown := set(rule_names) - set(rule_signals):
+        raise ValueError(f"unknown rules: {sorted(unknown)}")
+    signal_names = {s for r in rule_names for s in rule_signals[r]}
+    filter_names = {f for s in signal_names for f in signal_filters[s]}
+
+    plan = dict(tradeplan)
+    plan["rules"] = {name: tradeplan["rules"][name] for name in rule_names}
+    plan["signals"] = {
+        name: spec
+        for name, spec in tradeplan["signals"].items()
+        if name in signal_names
+    }
+    plan["filters"] = {
+        name: spec
+        for name, spec in tradeplan.get("filters", {}).items()
+        if name in filter_names
+    }
+    return plan
 
 
 @dataclass
@@ -963,10 +936,10 @@ class StrategyGraph:
 
         Raises
         ------
-        Raise the exceptions of tradeplan_links and load_class.
+        Raise the exceptions of _tradeplan_links and load_class.
         """
         plan = copy.deepcopy(tradeplan)
-        signal_filters, rule_signals = tradeplan_links(plan)
+        signal_filters, rule_signals = _tradeplan_links(plan)
 
         signals: dict[str, Signal] = {}
         for name, spec in plan.get("signals", {}).items():
@@ -979,8 +952,8 @@ class StrategyGraph:
         for name, spec in plan.get("rules", {}).items():
             del spec["signals"]
             rule_class = load_class(Rule, spec)
-            if issubclass(rule_class, PortfolioRule):
-                _minutes_to_timedelta(spec, "recurrence")
+            if issubclass(rule_class, PortfolioRule) and "recurrence" in spec:
+                spec["recurrence"] = pd.Timedelta(minutes=spec["recurrence"])
             rules[name] = rule_class(
                 ctx=ctx,
                 name=name,

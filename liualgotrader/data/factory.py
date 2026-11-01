@@ -2,7 +2,7 @@
 
 Functions
 ---------
-data_loader_factory
+data_api_factory
     Return a new historical data provider for a connector.
 """
 
@@ -16,7 +16,7 @@ from liualgotrader.vendors.polygon.data import PolygonData
 from liualgotrader.vendors.tradier.data import TradierData
 
 
-def data_loader_factory(connector: DataConnectorType = None) -> DataAPI:
+def data_api_factory(connector: DataConnectorType = None) -> DataAPI:
     """Return a new historical data provider for a connector.
 
     The provider is created with the connector's settings from config.

@@ -13,8 +13,6 @@ create_parameters
     Return the parameters defined in a configuration.
 create_hyperparameters
     Return the hyperparameters defined in a configuration.
-dateFromString
-    Return the date described by a natural-language string.
 realize
     Return a copy of a configuration with parameter values applied.
 optimize
@@ -35,12 +33,11 @@ import uuid
 from datetime import date
 from typing import Dict, List
 
-import parsedatetime.parsedatetime as pdt
-
 from liualgotrader.backtesting.optimizer import backtest_iteration
 from liualgotrader.common import clock, config
 from liualgotrader.common.hyperparameter import Hyperparameters, Parameter
 from liualgotrader.common.log import configure_logging
+from liualgotrader.common.utils import date_from_string
 
 logger = logging.getLogger(__name__)
 
@@ -96,42 +93,6 @@ def create_hyperparameters(parameters: Dict) -> Hyperparameters:
     params = create_parameters(parameters)
     logger.info("created %s hyper-parameters", len(params))
     return Hyperparameters(params)
-
-
-def dateFromString(s: str) -> date:
-    """Return the date described by a natural-language string.
-
-    Parameters
-    ----------
-    s: str
-        The date string, either explicit or relative to the current New York
-        time, such as "yesterday".
-
-    Raises
-    ------
-    Raise ValueError if the string cannot be parsed as a date or a time.
-    """
-    c = pdt.Calendar()
-    result, what = c.parse(s, clock.now().timetuple())
-
-    dt = None
-
-    # what was returned (see http://code-bear.com/code/parsedatetime/docs/)
-    # 0 = failed to parse
-    # 1 = date (with current time, as a struct_time)
-    # 2 = time (with current date, as a struct_time)
-    # 3 = datetime
-    if what in (1, 2):
-        # result is struct_time
-        dt = date(*result[:3])
-    elif what == 3:
-        # result is a datetime
-        dt = result.date()
-
-    if dt is None:
-        raise ValueError("Don't understand date '" + s + "'")
-
-    return dt
 
 
 def realize(config: Dict, parameters: tuple) -> Dict:
@@ -278,8 +239,8 @@ def main_cli() -> None:
     logger.info("optimizer directive found in %s", fname)
 
     try:
-        start_date = dateFromString(conf_dict["optimizer"]["start_date"])
-        end_date = dateFromString(conf_dict["optimizer"]["end_date"])
+        start_date = date_from_string(conf_dict["optimizer"]["start_date"])
+        end_date = date_from_string(conf_dict["optimizer"]["end_date"])
     except Exception:
         logger.error("failed to load start & end dates")
         sys.exit(0)

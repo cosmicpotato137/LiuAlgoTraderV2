@@ -7,10 +7,6 @@ Backtest
 
 Functions
 ---------
-select_rules
-    Return a trade plan with only some of its rules.
-trading_sessions
-    Yield the start and end of each trading day in a date range.
 net_cash_flow
     Return the sell value minus the buy value and fees of some trades.
 write_results
@@ -38,7 +34,7 @@ from liualgotrader.common.types import AssetType, Order, OrderType, TimeScale
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.strategy.new_base import (Component, Context, Filter,
                                              OrderRequest, PortfolioRule,
-                                             StrategyGraph, tradeplan_links)
+                                             StrategyGraph, select_rules)
 from liualgotrader.strategy.runtime import OpenOrder, RunState
 from liualgotrader.trade.factory import trader_factory
 from liualgotrader.vendors.alpaca.data import AlpacaData
@@ -49,48 +45,7 @@ logger = logging.getLogger(__name__)
 TRADE_COLUMNS = ["time", "rule", "symbol", "side", "qty", "price", "fee"]
 
 
-def select_rules(tradeplan: Dict, rule_names: Optional[List[str]]) -> Dict:
-    """Return a trade plan with only some of its rules.
-
-    Keep the signals of the selected rules, and the filters of those signals.
-
-    Parameters
-    ----------
-    tradeplan: Dict
-        The trade plan; it is not modified.
-    rule_names: Optional[List[str]]
-        The rules to keep, or None or empty for all.
-
-    Raises
-    ------
-    Raise ValueError if a selected rule is not in the trade plan, and the
-    exceptions of tradeplan_links.
-    """
-    if not rule_names:
-        return tradeplan
-
-    signal_filters, rule_signals = tradeplan_links(tradeplan)
-    if unknown := set(rule_names) - set(rule_signals):
-        raise ValueError(f"unknown rules: {sorted(unknown)}")
-    signal_names = {s for r in rule_names for s in rule_signals[r]}
-    filter_names = {f for s in signal_names for f in signal_filters[s]}
-
-    plan = dict(tradeplan)
-    plan["rules"] = {name: tradeplan["rules"][name] for name in rule_names}
-    plan["signals"] = {
-        name: spec
-        for name, spec in tradeplan["signals"].items()
-        if name in signal_names
-    }
-    plan["filters"] = {
-        name: spec
-        for name, spec in tradeplan.get("filters", {}).items()
-        if name in filter_names
-    }
-    return plan
-
-
-def trading_sessions(
+def _trading_sessions(
     from_date: date, to_date: date, asset_type: AssetType
 ) -> Iterator[Tuple[pd.Timestamp, pd.Timestamp]]:
     """Yield the start and end of each trading day in a date range.
@@ -243,7 +198,7 @@ class Backtest:
         asset_type: AssetType
             The type of asset traded.
         """
-        for day_start, day_end in trading_sessions(
+        for day_start, day_end in _trading_sessions(
             from_date, to_date, asset_type
         ):
             await self.run_day(day_start, day_end)
