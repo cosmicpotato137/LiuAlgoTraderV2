@@ -1,7 +1,9 @@
-"""The base class for trading strategies.
+"""Strategy components and the run state that executes them.
 
 Modules
 -------
-base
-    Base class for trading strategies.
+new_base
+    Strategy components: filters, indicators, signals and rules.
+runtime
+    Run state shared by the live consumer and the backtester.
 """

@@ -1,67 +1,14 @@
-"""Execute strategies on streaming data received from the producer.
+"""Run the rules of the trade plan on the data that the producer streams.
+
+Classes
+-------
+Consumer
+    The run state and tasks of a consumer process.
 
 Functions
 ---------
-end_time
-    Record the end of every strategy's algorithm run.
-get_position
-    Return the position a trader reports for a symbol.
-execute_run_all_results
-    Execute the actions returned by run_all.
-do_strategy_all
-    Run a strategy on all its symbols and execute the result.
-cancel_lingering_orders
-    Reconcile or cancel stale open orders.
-periodic_runner
-    Run the all-symbol strategies every five minutes.
-should_cancel_order
-    Return whether an order is at least a minute old.
-save
-    Save a trade record to the database.
-do_callbacks
-    Clear stored indicators and notify a strategy of a fill.
-update_partially_filled_order
-    Apply a partial fill to the trading state.
-update_filled_order
-    Apply a complete fill and close the open order.
-handle_trade_update_for_order
-    Apply a trade update for an open order.
-handle_trade_update_wo_order
-    Log a trade update without an open order.
-handle_trade_update
-    Dispatch a trade update.
-handle_quote
-    Update the volume order imbalance from a quote.
 aggregate_bar_data
     Merge a streamed bar into the minute data.
-order_inflight
-    Reconcile or cancel a stale open order.
-submit_order
-    Submit a day order described by a strategy.
-update_trading_data
-    Register a newly submitted order.
-execute_strategy_result
-    Submit and record the order of a strategy.
-do_strategy
-    Run a strategy on one symbol.
-is_shortable
-    Return whether a symbol can be sold short.
-do_strategies
-    Run the eligible per-symbol strategies on one symbol.
-handle_aggregate
-    Process an aggregate bar and run the strategies.
-handle_data_queue_msg
-    Handle a market data message.
-queue_consumer
-    Consume and dispatch messages from the data queue.
-create_strategies_from_file
-    Create the strategies in the configuration.
-load_symbol_position
-    Return the net open positions of a portfolio.
-create_strategies_from_db
-    Create the strategies in the trade plan.
-handle_new_strategy
-    Create a strategy requested at run time.
 consumer_async_main
     Set up the consumer and run its tasks.
 consumer_main
@@ -75,658 +22,34 @@ import os
 from multiprocessing import Queue
 from queue import Empty
 from random import randint
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
-from pandas import DataFrame as df
 
-from liualgotrader.analytics.analysis import load_trades_by_portfolio
-from liualgotrader.common import clock, config, market_data, trading_data
+from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.log import configure_logging
-from liualgotrader.common.types import Order, Trade
-from liualgotrader.db.models.new_trades import NewTrade
-from liualgotrader.db.models.portfolio import Portfolio
-from liualgotrader.db.models.tradeplan import TradePlan
+from liualgotrader.common.types import Order, QueueMessageType, Trade
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.fincalcs.data_conditions import QUOTE_SKIP_CONDITIONS
-from liualgotrader.strategy.base import Strategy, StrategyType
+from liualgotrader.strategy.new_base import (Context, OrderRequest,
+                                             PortfolioRule, StrategyGraph)
+from liualgotrader.strategy.runtime import Decision, OpenOrder, RunState
 from liualgotrader.trade.base import TraderAPI
-from liualgotrader.trade.factory import get_trader_by_name, trader_factory
+from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
 
-shortable: Dict[str, bool] = {}
-symbol_data_error: Dict = {}
-rejects: Dict[str, List[str]] = {}
-time_tick: Dict[str, pd.Timestamp] = {}
-
-
-async def end_time(reason: str):
-    """Record the end of each loaded strategy's algorithm run in the database.
-
-    Parameters
-    ----------
-    reason: str
-        The end reason to store with each run.
-    """
-    for s in trading_data.strategies:
-        logger.info("updating end time for strategy %s", s.name)
-        await s.algo_run.update_end_time(end_reason=reason)
-
-
-def get_position(trader: TraderAPI, symbol: str) -> float:
-    """Return the position quantity that trader reports for symbol.
-
-    Parameters
-    ----------
-    trader: Trader
-        The trader to ask.
-    symbol: str
-        The symbol to look up.
-
-    Returns
-    -------
-    Return zero if the trader raises an exception.
-    """
-    try:
-        return trader.get_position(symbol)
-    except Exception:
-        return 0
-
-
-async def execute_run_all_results(
-    strategy: Strategy,
-    run_all_results: Dict[str, Dict],
-    trader: TraderAPI,
-    data_loader: DataLoader,
-):
-    """Execute the per-symbol actions returned by the run_all of a strategy.
-
-    Place the orders through the broker and on behalf of the external account
-    of the strategy's portfolio, when it has one.
-
-    Parameters
-    ----------
-    strategy: Strategy
-        The strategy that produced the actions.
-    run_all_results: Dict[str, Dict]
-        A mapping of symbol to action details.
-    trader: Trader
-        The trader to use unless the portfolio names a broker.
-    data_loader: DataLoader
-        The loader of market data.
-    """
-    external_account_id = None
-    if hasattr(strategy, "portfolio_id"):
-        (
-            external_account_id,
-            broker_name,
-        ) = await Portfolio.get_external_account_id(
-            strategy.portfolio_id  # type: ignore
-        )
-        if broker_name:
-            trader = get_trader_by_name(broker_name)
-
-    for symbol, what in run_all_results.items():
-        await execute_strategy_result(
-            strategy,
-            trader,
-            data_loader,
-            symbol.lower(),
-            what,
-            external_account_id,
-        )
-
-
-async def do_strategy_all(
-    data_loader: DataLoader,
-    trader: TraderAPI,
-    strategy: Strategy,
-    symbols: List[str],
-    carrier=None,
-):
-    """Run the run_all method of strategy and execute the resulting actions.
-
-    Parameters
-    ----------
-    data_loader: DataLoader
-        The loader of market data.
-    trader: Trader
-        The trader used for positions and orders.
-    strategy: Strategy
-        The strategy to run.
-    symbols: List[str]
-        The symbols to pass with their current positions.
-    carrier, default None
-        Unused.
-
-    Raises
-    ------
-    Log and re-raise any exception.
-    """
-    try:
-        now = clock.now()
-        symbols_position = {
-            symbol.lower(): (
-                trading_data.positions[symbol]
-                if symbol in trading_data.positions
-                else get_position(trader, symbol)
-            )
-            for symbol in symbols
-        }
-        do = await strategy.run_all(
-            symbols_position=symbols_position,
-            now=now,
-            portfolio_value=config.portfolio_value,
-            backtesting=True,
-            data_loader=data_loader,
-            trader=trader,
-        )
-        await execute_run_all_results(strategy, do, trader, data_loader)
-
-    except Exception as e:
-        logger.error(
-            "%s %s->%s", now, strategy, e, exc_info=config.debug_enabled
-        )
-
-        raise
-
-
-async def cancel_lingering_orders(trader: TraderAPI):
-    """Reconcile or cancel stale open orders once a minute until cancelled.
-
-    Act only while the market is open.
-
-    Parameters
-    ----------
-    trader: Trader
-        The trader used to check and cancel orders.
-    """
-    logger.info("cancel_lingering_orders() task starting")
-
-    while True:
-        await asyncio.sleep(60)
-
-        if not len(trading_data.open_orders):
-            continue
-
-        ny_now = clock.now()
-        if not trader.is_market_open(ny_now):
-            logger.info("cancel_lingering_orders() market is closed")
-            continue
-
-        t = list(trading_data.open_orders.items())
-        for symbol, order in t:
-            await order_inflight(
-                symbol=symbol,
-                existing_order=order,
-                now=ny_now,
-                trader=trader,
-            )
-
-
-async def periodic_runner(data_loader: DataLoader, trader: TraderAPI) -> None:
-    """Run the all-symbol strategies every five minutes until cancelled.
-
-    Run each strategy whose should_run_all returns True on the symbols it last
-    traded. Log exceptions and stop instead of raising them.
-
-    Parameters
-    ----------
-    data_loader: DataLoader
-        The loader of market data.
-    trader: Trader
-        The trader used for positions and orders.
-    """
-    try:
-        while True:
-            logger.info("periodic_runner() task starting")
-            # run strategies
-            tasks = []
-            for s in trading_data.strategies:
-                try:
-                    skip = not await s.should_run_all()
-                except Exception:
-                    skip = True
-                if skip:
-                    continue
-
-                symbols = [
-                    symbol.lower()
-                    for symbol in trading_data.last_used_strategy
-                    if trading_data.last_used_strategy[symbol.lower()] == s
-                ]
-
-                tasks.append(
-                    asyncio.create_task(
-                        do_strategy_all(
-                            trader=trader,
-                            data_loader=data_loader,
-                            strategy=s,
-                            symbols=symbols,
-                        )
-                    )
-                )
-
-            asyncio.gather(*tasks)
-            await asyncio.sleep(5 * 60.0)
-
-    except asyncio.CancelledError:
-        logger.info("periodic_runner() cancelled")
-    except KeyboardInterrupt:
-        logger.info("periodic_runner() - Caught KeyboardInterrupt")
-    except Exception as e:
-        logger.error("periodic_runner: %s", e, exc_info=config.debug_enabled)
-
-    logger.info("periodic_runner() task completed")
-
-
-async def should_cancel_order(
-    order: Order, market_clock: pd.Timestamp
-) -> bool:
-    """Return whether order has been outstanding for at least a minute.
-
-    Parameters
-    ----------
-    order: Order
-        The open order.
-    market_clock: pd.Timestamp
-        The current market time.
-    """
-    return market_clock - order.submitted_at >= pd.Timedelta(minutes=1)
-
-
-async def save(
-    symbol: str,
-    new_qty: float,
-    last_op: str,
-    price: float,
-    indicators: Dict[Any, Any],
-    now: pd.Timestamp,
-    trade_fee=0.0,
-) -> None:
-    """Save a trade record for symbol to the database.
-
-    Attach the record to the algorithm run of the strategy that owns the open
-    order of symbol, with the recorded stop and target prices.
-
-    Parameters
-    ----------
-    symbol: str
-        The traded symbol.
-    new_qty: float
-        The traded quantity.
-    last_op: str
-        The operation name, such as buy or sell.
-    price: float
-        The trade price.
-    indicators: Dict[Any, Any]
-        The indicators to store with the trade.
-    now: pd.Timestamp
-        The client time of the trade.
-    trade_fee, default 0.0
-        The fee charged for the trade.
-
-    Raises
-    ------
-    Raise KeyError if no such strategy is registered.
-    """
-    symbol = symbol.lower()
-    db_trade = NewTrade(
-        algo_run_id=trading_data.open_order_strategy[
-            symbol
-        ].algo_run.algo_run_id,
-        symbol=symbol,
-        qty=new_qty,
-        operation=last_op,
-        price=price,
-        indicators=indicators,
-    )
-
-    await db_trade.save(
-        now,
-        (
-            trading_data.stop_prices[symbol]
-            if symbol in trading_data.stop_prices
-            else 0.0
-        ),
-        (
-            trading_data.target_prices[symbol]
-            if symbol in trading_data.target_prices
-            else 0.0
-        ),
-        trade_fee,
-    )
-
-
-async def do_callbacks(
-    symbol: str,
-    strategy: Strategy,
-    filled_qty: float,
-    side: Order.FillSide,
-    filled_avg_price: float,
-):
-    """Clear the stored indicators of symbol and notify strategy of a fill.
-
-    Use the buy indicators and buy_callback for a buy fill, and the sell
-    counterparts otherwise.
-
-    Parameters
-    ----------
-    symbol: str
-        The filled symbol.
-    strategy: Strategy
-        The strategy to notify, or None.
-    filled_qty: float
-        The filled quantity.
-    side: Order.FillSide
-        The side of the fill.
-    filled_avg_price: float
-        The average fill price.
-    """
-    symbol = symbol.lower()
-    if side == Order.FillSide.buy:
-        trading_data.buy_indicators.pop(symbol, None)
-        if strategy:
-            await strategy.buy_callback(symbol, filled_avg_price, filled_qty)
-    else:
-        trading_data.sell_indicators.pop(symbol, None)
-        if strategy:
-            await strategy.sell_callback(symbol, filled_avg_price, filled_qty)
-
-
-async def update_partially_filled_order(
-    symbol: str,
-    strategy: Strategy,
-    filled_qty: float,
-    side: Order.FillSide,
-    filled_avg_price: float,
-    updated_at: pd.Timestamp,
-    trade_fee: float,
-) -> None:
-    """Apply a partial fill for symbol to the shared trading state.
-
-    Notify strategy, adjust the recorded position, and save the trade to the
-    database with the stored indicators.
-
-    Parameters
-    ----------
-    symbol: str
-        The filled symbol.
-    strategy: Strategy
-        The strategy that owns the order.
-    filled_qty: float
-        The filled quantity.
-    side: Order.FillSide
-        The side of the fill.
-    filled_avg_price: float
-        The average fill price.
-    updated_at: pd.Timestamp
-        The time of the fill.
-    trade_fee: float
-        The fee charged for the fill.
-    """
-    symbol = symbol.lower()
-
-    await do_callbacks(
-        symbol=symbol,
-        strategy=strategy,
-        filled_qty=filled_qty,
-        side=side,
-        filled_avg_price=filled_avg_price,
-    )
-
-    trading_data.positions[symbol] = round(
-        trading_data.positions.get(symbol, 0.0)
-        + filled_qty * (1 if side == Order.FillSide.buy else -1),
-        8,
-    )
-
-    try:
-        indicators = {
-            "buy": trading_data.buy_indicators.get(symbol, None),
-            "sell": trading_data.sell_indicators.get(symbol, None),
-        }
-    except KeyError:
-        indicators = {}
-
-    await save(
-        symbol,
-        filled_qty,
-        side.name,
-        filled_avg_price,
-        indicators,
-        updated_at,
-        trade_fee,
-    )
-
-
-async def update_filled_order(
-    symbol: str,
-    strategy: Strategy,
-    filled_qty: float,
-    side: Order.FillSide,
-    filled_avg_price: float,
-    updated_at: pd.Timestamp,
-    trade_fee: float,
-) -> None:
-    """Apply a complete fill for symbol and close its open order.
-
-    Notify strategy, adjust the recorded position, save the trade, and remove
-    the open order from the trading state.
-
-    Parameters
-    ----------
-    symbol: str
-        The filled symbol.
-    strategy: Strategy
-        The strategy that owns the order.
-    filled_qty: float
-        The filled quantity.
-    side: Order.FillSide
-        The side of the fill.
-    filled_avg_price: float
-        The average fill price.
-    updated_at: pd.Timestamp
-        The time of the fill.
-    trade_fee: float
-        The fee charged for the fill.
-
-    Raises
-    ------
-    Raise KeyError if symbol has no open order.
-    """
-    symbol = symbol.lower()
-
-    await update_partially_filled_order(
-        symbol=symbol,
-        strategy=strategy,
-        filled_qty=filled_qty,
-        side=side,
-        filled_avg_price=filled_avg_price,
-        updated_at=updated_at,
-        trade_fee=trade_fee,
-    )
-    trading_data.open_orders.pop(symbol)
-    if symbol in trading_data.open_order_strategy:
-        trading_data.open_order_strategy.pop(symbol)
-
-    logger.info(
-        "update_filled_order open order for %s popped. Position now %s",
-        symbol,
-        trading_data.positions[symbol],
-    )
-
-
-async def handle_trade_update_for_order(trade: Trade) -> bool:
-    """Apply a trade update for a symbol that has an open order.
-
-    Record partial and complete fills. For any other event, such as a
-    cancellation or rejection, discard the open order.
-
-    Parameters
-    ----------
-    trade: Trade
-        The trade update.
-
-    Returns
-    -------
-    Return True.
-    """
-    symbol = trade.symbol.lower()
-    event = trade.event
-
-    logger.info("trade update for %s with event %s", symbol, event)
-
-    if event == Order.EventType.partial_fill:
-        await update_partially_filled_order(
-            symbol=symbol,
-            strategy=trading_data.open_order_strategy[symbol],
-            filled_qty=trade.filled_qty,
-            filled_avg_price=trade.filled_avg_price,
-            side=trade.side,
-            updated_at=trade.updated_at,
-            trade_fee=trade.trade_fee,
-        )
-
-    elif event == Order.EventType.fill:
-        await update_filled_order(
-            symbol=symbol,
-            strategy=trading_data.open_order_strategy[symbol],
-            filled_qty=trade.filled_qty,
-            filled_avg_price=trade.filled_avg_price,
-            side=trade.side,
-            updated_at=trade.updated_at,
-            trade_fee=trade.trade_fee,
-        )
-
-    else:
-        trading_data.partial_fills.pop(symbol, None)
-        trading_data.partial_fills_fee.pop(symbol, None)
-        trading_data.open_orders.pop(symbol, None)
-        trading_data.open_order_strategy.pop(symbol, None)
-
-    return True
-
-
-async def handle_trade_update_wo_order(trade: Trade) -> bool:
-    """Log a trade update that has no matching open order.
-
-    Parameters
-    ----------
-    trade: Trade
-        The trade update.
-
-    Returns
-    -------
-    Return True.
-    """
-    logger.info("trade update without order for %s", trade)
-    return True
-
-
-async def handle_trade_update(trade: Trade) -> bool:
-    """Dispatch trade according to whether its symbol has an open order.
-
-    Parameters
-    ----------
-    trade: Trade
-        The trade update.
-
-    Returns
-    -------
-    Return True.
-    """
-    if trade.symbol.lower() in trading_data.open_orders:
-        return await handle_trade_update_for_order(trade)
-    else:
-        return await handle_trade_update_wo_order(trade)
-
-
-async def handle_quote(data: Dict) -> bool:
-    """Update the volume order imbalance of a symbol from a quote message.
-
-    Ignore quotes that lack a bid or ask price or carry a skipped condition.
-    Record the latest bid and ask, and keep up to ten recent imbalance values
-    for the symbol.
-
-    Parameters
-    ----------
-    data: Dict
-        The quote message.
-
-    Returns
-    -------
-    Return True.
-    """
-    if "askprice" not in data or "bidprice" not in data:
-        return True
-    if "condition" in data and data["condition"] in QUOTE_SKIP_CONDITIONS:
-        return True
-
-    symbol = data["symbol"].lower()
-    # logger.debug("quote=%s", data)
-    prev_ask = trading_data.voi_ask.get(symbol, None)
-    prev_bid = trading_data.voi_bid.get(symbol, None)
-    trading_data.voi_ask[symbol] = (
-        data["askprice"],
-        data["asksize"],
-        data["timestamp"],
-    )
-    trading_data.voi_bid[symbol] = (
-        data["bidprice"],
-        data["bidsize"],
-        data["timestamp"],
-    )
-
-    bid_delta_volume = (
-        0
-        if not prev_bid or data["bidprice"] < prev_bid[0]
-        else (
-            100 * data["bidsize"]
-            if data["bidprice"] > prev_bid[0]
-            else 100 * (data["bidsize"] - prev_bid[1])
-        )
-    )
-    ask_delta_volume = (
-        0
-        if not prev_ask or data["askprice"] > prev_ask[0]
-        else (
-            100 * data["asksize"]
-            if data["askprice"] < prev_ask[0]
-            else 100 * (data["asksize"] - prev_ask[1])
-        )
-    )
-    voi_stack = trading_data.voi.get(symbol, None)
-    if not voi_stack:
-        voi_stack = [0.0]
-    elif len(voi_stack) == 10:
-        voi_stack[0:9] = voi_stack[1:10]
-        voi_stack.pop()
-
-    k = 2.0 / (100 + 1)
-    voi_stack.append(
-        round(
-            voi_stack[-1] * (1.0 - k)
-            + k * (bid_delta_volume - ask_delta_volume),
-            2,
-        )
-    )
-    trading_data.voi[symbol] = voi_stack
-    # logger.debug("%s voi:%s", symbol, trading_data.voi[symbol])
-
-    return True
+# How long an order may stay open before the consumer cancels it.
+_STALE_ORDER_AGE = pd.Timedelta(minutes=1)
 
 
 async def aggregate_bar_data(
-    data_loader: DataLoader, data: Dict, ts: pd.Timestamp, carrier=None
+    data_loader: DataLoader, data: Dict, ts: pd.Timestamp
 ) -> None:
     """Merge a streamed bar into the minute data held by data_loader.
 
-    Let a minute aggregate replace the bar for its minute, and combine other
-    messages with the existing bar. Add the bar volume to the daily volume of
-    the symbol.
+    Let a minute bar replace the bar for its minute, and combine other
+    messages with the existing bar.
 
     Parameters
     ----------
@@ -736,14 +59,11 @@ async def aggregate_bar_data(
         The bar message.
     ts: pd.Timestamp
         The bar timestamp; its seconds are ignored.
-    carrier, default None
-        Unused.
     """
     ts = ts.replace(second=0)
     symbol = data["symbol"].lower()
 
     if not data_loader.exist(symbol):
-        # logger.debug("loading data for %s...", symbol)
         data_loader[symbol][-1]
 
     try:
@@ -751,7 +71,7 @@ async def aggregate_bar_data(
     except KeyError:
         current = None
 
-    if current is None or data["EV"] == "AM":
+    if current is None or data["EV"] == QueueMessageType.MINUTE_BAR:
         new_data = [
             data["open"],
             data["high"],
@@ -785,845 +105,361 @@ async def aggregate_bar_data(
         data_loader[symbol][-1]
         data_loader[symbol].loc[ts] = new_data
 
-    market_data.volume_today[symbol] = (
-        market_data.volume_today[symbol] + data["volume"]
-        if symbol in market_data.volume_today
-        else data["volume"]
-    )
 
+class Consumer:
+    """The run state and tasks of a consumer process.
 
-async def order_inflight(
-    symbol: str,
-    existing_order: Order,
-    now: pd.Timestamp,
-    trader: TraderAPI,
-) -> None:
-    """Reconcile or cancel an open order that has been pending too long.
-
-    Act only on orders outstanding for at least a minute. Record a fill or
-    partial fill reported by the broker, and cancel the order otherwise. Log
-    exceptions instead of raising them.
-
-    Parameters
+    Attributes
     ----------
-    symbol: str
-        The symbol of the order.
-    existing_order: Order
-        The open order.
-    now: pd.Timestamp
-        The current time.
-    trader: Trader
-        The trader used to check and cancel the order.
-    """
-    symbol = symbol.lower()
-    try:
-        if await should_cancel_order(existing_order, now):
-            if config.debug_enabled:
-                logger.info(
-                    "should_cancel_order - checking status w/ order-id %s",
-                    existing_order.order_id,
-                )
-            (
-                order_status,
-                filled_price,
-                filled_qty,
-                trade_fee,
-            ) = await trader.is_order_completed(
-                existing_order.order_id, existing_order.external_account_id
-            )
+    ctx: Context
+        The context of the run.
+    trader: TraderAPI
+        The trader of the context, which submits and cancels orders.
+    state: RunState
+        The universes, positions, open orders and owners of the run.
+    run_portfolio_rules: bool
+        Whether this consumer runs the portfolio rules.
 
-            if order_status == Order.EventType.fill:
-                logger.info(
-                    "order_id %s for %s already filled",
-                    existing_order.order_id,
-                    symbol,
+    Methods
+    -------
+    submit
+        Submit the orders that rules requested.
+    check_order
+        Reconcile a stale order with the broker and cancel it unless filled.
+    handle_market_data
+        Add a bar to the data and run the symbol rules on a minute bar.
+    queue_consumer
+        Consume and dispatch the messages of the producer.
+    portfolio_runner
+        Run a portfolio rule at its recurrence.
+    cancel_lingering_orders
+        Check the stale orders once a minute.
+    run
+        Run the tasks of the consumer.
+    """
+
+    def __init__(
+        self, ctx: Context, graph: StrategyGraph, run_portfolio_rules: bool
+    ):
+        """Initialize the consumer with an empty run state.
+
+        Parameters
+        ----------
+        ctx: Context
+            The context of the run, with a trader.
+        graph: StrategyGraph
+            The signals and rules of the trade plan.
+        run_portfolio_rules: bool
+            Whether this consumer runs the portfolio rules.
+
+        Raises
+        ------
+        Raise ValueError if the context has no trader.
+        """
+        if ctx.trader is None:
+            raise ValueError("the consumer needs a trader")
+        self.ctx = ctx
+        self.trader: TraderAPI = ctx.trader
+        self.state = RunState(graph)
+        self.run_portfolio_rules = run_portfolio_rules
+        self._time_tick: Dict[str, pd.Timestamp] = {}
+
+    async def submit(self, decisions: List[Decision]) -> None:
+        """Submit the orders that rules requested as day orders.
+
+        Parameters
+        ----------
+        decisions: List[Decision]
+            The rules and the orders they requested.
+        """
+        await self.state.submit(decisions, self._place)
+
+    async def _place(self, request: OrderRequest) -> Optional[Order]:
+        """Submit an order to the broker as a day order."""
+        order = await self.trader.submit_order(
+            symbol=request.symbol,
+            qty=request.qty,
+            side=request.side.name,
+            order_type=request.type,
+            time_in_force="day",
+            limit_price=(
+                None  # type: ignore[arg-type]
+                if request.limit_price is None
+                else str(request.limit_price)
+            ),
+        )
+        logger.info("submitted %s", order)
+        return order
+
+    async def check_order(
+        self, open_order: OpenOrder, now: pd.Timestamp
+    ) -> None:
+        """Reconcile a stale order with the broker and cancel it unless filled.
+
+        Apply the fills that the broker reports and that no trade update has
+        applied yet. Cancel an order that is not completely filled, and drop
+        it once the broker accepts. Log exceptions instead of raising them.
+
+        Parameters
+        ----------
+        open_order: OpenOrder
+            The open order.
+        now: pd.Timestamp
+            The current time.
+        """
+        order, request = open_order.order, open_order.request
+        try:
+            status, price, filled_qty, fee = (
+                await self.trader.is_order_completed(
+                    order.order_id, order.external_account_id
                 )
-                await update_filled_order(
-                    symbol=symbol,
-                    strategy=trading_data.open_order_strategy[symbol],  # type: ignore
-                    filled_avg_price=filled_price,  # type: ignore
-                    filled_qty=filled_qty,  # type: ignore
-                    side=existing_order.side,  # type: ignore
-                    updated_at=existing_order.submitted_at,  # type: ignore
-                    trade_fee=trade_fee,  # type: ignore
-                )
-            elif order_status == Order.EventType.partial_fill:
-                logger.info(
-                    "order_id %s for %s already partially_filled",
-                    existing_order.id,  # type: ignore
-                    symbol,
-                )
-                await update_partially_filled_order(
-                    symbol=symbol,
-                    strategy=trading_data.open_order_strategy[symbol],
-                    side=existing_order.side,  # type: ignore
-                    filled_avg_price=filled_price,  # type: ignore
-                    filled_qty=filled_qty,  # type: ignore
-                    updated_at=existing_order.submitted_at,
-                    trade_fee=trade_fee,  # type: ignore
-                )
-            else:
-                # Cancel it so we can try again for a fill
-                logger.info(
-                    "Cancel order id %s for %s ts=%s submission_ts=%s",
-                    existing_order.order_id,
-                    symbol,
+            )
+            unapplied = max((filled_qty or 0.0) - open_order.filled_qty, 0.0)
+            if status == Order.EventType.fill or unapplied > 0:
+                await self.state.fill_order(
+                    open_order,
+                    unapplied,
+                    price or 0.0,
+                    fee or 0.0,
                     now,
-                    existing_order.submitted_at,
+                    final=status == Order.EventType.fill,
                 )
-                if await trader.cancel_order(existing_order):
-                    trading_data.open_orders.pop(symbol)
+            if status == Order.EventType.fill:
+                return
 
-    except AttributeError:
-        logger.error(
-            "Attribute Error in symbol %s w/ %s",
-            symbol,
-            existing_order,
-            exc_info=config.debug_enabled,
-        )
-    except Exception as e:
-        logger.error(
-            "order_inflight() : %s for symbol %s w/ %s",
-            e,
-            symbol,
-            existing_order,
-            exc_info=config.debug_enabled,
-        )
-
-
-async def submit_order(
-    trader: TraderAPI, symbol: str, what: Dict, external_account_id: str = None
-) -> Order:
-    """Submit a day order for symbol as described by what.
-
-    Parameters
-    ----------
-    trader: Trader
-        The trader that submits the order.
-    symbol: str
-        The symbol to trade.
-    what: Dict
-        The order details: qty, side, type and, for a limit order, limit_price.
-    external_account_id: str, default None
-        The account to trade on behalf of, or None.
-
-    Returns
-    -------
-    Return the order returned by trader.
-    """
-    return (
-        await trader.submit_order(
-            symbol=symbol,
-            qty=what["qty"],
-            side=what["side"],
-            order_type="limit",
-            time_in_force="day",
-            limit_price=what["limit_price"],
-            on_behalf_of=external_account_id,
-        )
-        if what["type"] == "limit"
-        else await trader.submit_order(
-            symbol=symbol,
-            qty=what["qty"],
-            side=what["side"],
-            order_type=what["type"],
-            time_in_force="day",
-            on_behalf_of=external_account_id,
-        )
-    )
-
-
-async def update_trading_data(
-    symbol: str, o: Order, strategy: Strategy, buy: bool
-) -> None:
-    """Register a newly submitted order and its strategy for symbol.
-
-    Parameters
-    ----------
-    symbol: str
-        The symbol of the order.
-    o: Order
-        The submitted order.
-    strategy: Strategy
-        The strategy that requested the order.
-    buy: bool
-        True for a buy order, which also records the buy time.
-    """
-    trading_data.open_orders[symbol] = o
-    trading_data.open_order_strategy[symbol] = strategy
-    trading_data.last_used_strategy[symbol] = strategy
-    if buy:
-        trading_data.buy_time[symbol] = clock.now().replace(
-            second=0, microsecond=0, nanosecond=0
-        )
-
-
-async def execute_strategy_result(
-    strategy: Strategy,
-    trader: TraderAPI,
-    data_loader: DataLoader,
-    symbol: str,
-    what: Dict,
-    external_account_id: str = None,
-) -> bool:
-    """Submit the order requested by a strategy and record it.
-
-    Register the order in the trading state and save a placeholder trade to the
-    database.
-
-    Parameters
-    ----------
-    strategy: Strategy
-        The strategy that requested the order.
-    trader: Trader
-        The trader that submits the order.
-    data_loader: DataLoader
-        The loader of market data, used for debug logging.
-    symbol: str
-        The symbol to trade.
-    what: Dict
-        The order details.
-    external_account_id: str, default None
-        The account to trade on behalf of, or None.
-
-    Returns
-    -------
-    Return True if an order was submitted and False otherwise.
-    """
-    logger.info("execute_strategy_result for %s do %s", symbol, what)
-    symbol = symbol.lower()
-
-    o = await submit_order(trader, symbol, what, external_account_id)
-    if not o:
-        return False
-
-    await update_trading_data(symbol, o, strategy, (what["side"] == "buy"))
-    await save(
-        symbol=symbol,
-        new_qty=0,
-        last_op=str(what["side"]),
-        price=0.0,
-        indicators={},
-        now=clock.now(),
-    )
-
-    if config.debug_enabled:
-        logger.info(
-            "executed strategy %s on %s w data %s",
-            strategy.name,
-            symbol,
-            data_loader[symbol][-10:],
-        )
-
-    return True
-
-
-async def do_strategy(
-    strategy: Strategy,
-    symbol: str,
-    shortable: bool,
-    position: float,
-    data_loader: DataLoader,
-    trader: TraderAPI,
-    minute_history: df,
-    now: pd.Timestamp,
-    portfolio_value: Optional[float],
-    carrier=None,
-) -> bool:
-    """Run strategy on one symbol and execute any requested action.
-
-    Parameters
-    ----------
-    strategy: Strategy
-        The strategy to run.
-    symbol: str
-        The symbol to evaluate.
-    shortable: bool
-        Whether symbol can be sold short.
-    position: float
-        The current position in symbol.
-    data_loader: DataLoader
-        The loader of market data.
-    trader: Trader
-        The trader that submits orders.
-    minute_history: df
-        The minute bars of symbol.
-    now: pd.Timestamp
-        The current time.
-    portfolio_value: Optional[float]
-        The portfolio value, or None.
-    carrier, default None
-        Unused.
-
-    Returns
-    -------
-    Return False if a requested order is not submitted or the strategy rejects
-    symbol, and True otherwise.
-    """
-    do, what = await strategy.run(
-        symbol=symbol,
-        shortable=shortable,
-        position=position,
-        minute_history=minute_history,
-        now=now,
-        portfolio_value=portfolio_value,
-    )
-
-    return (
-        await execute_strategy_result(
-            strategy=strategy,
-            trader=trader,
-            data_loader=data_loader,
-            symbol=symbol,
-            what=what,
-        )
-        if do
-        else not what.get("reject", False)
-    )
-
-
-async def _filter_strategies(symbol: str) -> List:
-    """Return the per-symbol strategies that have not rejected symbol.
-
-    Parameters
-    ----------
-    symbol: str
-        The symbol to filter for.
-    """
-    return [
-        s
-        for s in trading_data.strategies
-        if not await s.should_run_all()
-        and symbol not in rejects.get(s.name, [])
-    ]
-
-
-async def is_shortable(trader: TraderAPI, symbol: str) -> bool:
-    """Return whether symbol can be sold short, asking trader once per symbol.
-
-    Keep the answer in shortable for later calls. Log a failed lookup and
-    treat the symbol as not shortable.
-
-    Parameters
-    ----------
-    trader: Trader
-        The trader of the broker that would sell the symbol short.
-    symbol: str
-        The symbol, in lower case.
-    """
-    if symbol not in shortable:
-        try:
-            shortable[symbol] = await trader.is_shortable(symbol)
+            logger.info(
+                "canceling order %s for %s submitted at %s",
+                order.order_id,
+                request.symbol,
+                order.submitted_at,
+            )
+            if await self.trader.cancel_order(order):
+                await self.state.cancel(order.order_id)
         except Exception:
-            logger.warning(
-                "could not check whether %s is shortable, assuming it is not",
-                symbol,
-                exc_info=True,
-            )
-            shortable[symbol] = False
-    return shortable[symbol]
+            logger.exception("check_order() failed for %s", order)
 
+    async def handle_market_data(self, data: Dict) -> None:
+        """Add a bar to the data and run the symbol rules on a minute bar.
 
-async def do_strategies(
-    trader: TraderAPI,
-    data_loader: DataLoader,
-    symbol: str,
-    position: float,
-    now: pd.Timestamp,
-    data: Dict,
-    carrier=None,
-) -> None:
-    """Run each eligible per-symbol strategy on symbol.
+        Skip a message other than a minute bar that is more than 15 seconds
+        late or repeats the previous second of its symbol. Check the stale
+        open orders of the symbol. On a minute bar, run the symbol rules with
+        now set to the time of the bar and submit the orders they request.
 
-    Exclude symbol from later runs of any strategy that rejects it. Log an
-    exception from one strategy without stopping the others.
+        Parameters
+        ----------
+        data: Dict
+            The market data message.
+        """
+        symbol = data["symbol"].lower()
+        is_minute_bar = data["EV"] == QueueMessageType.MINUTE_BAR
+        second = data["timestamp"].replace(microsecond=0, nanosecond=0)
 
-    Parameters
-    ----------
-    trader: Trader
-        The trader that submits orders.
-    data_loader: DataLoader
-        The loader of market data.
-    symbol: str
-        The symbol to evaluate.
-    position: float
-        The current position in symbol.
-    now: pd.Timestamp
-        The current time.
-    data: Dict
-        Unused.
-    carrier, default None
-        Unused.
-    """
-    # run strategies
-    strategies = await _filter_strategies(symbol)
-    if strategies:
-        symbol_shortable = await is_shortable(trader, symbol)
-    for s in strategies:
-        try:
-            if not await do_strategy(
-                strategy=s,
-                symbol=symbol,
-                shortable=symbol_shortable,
-                position=position,
-                minute_history=data_loader[symbol].symbol_data,
-                now=now.replace(second=0, microsecond=0, nanosecond=0),
-                portfolio_value=config.portfolio_value,
-                data_loader=data_loader,
-                trader=trader,
-            ):
-                if s.name not in rejects:
-                    rejects[s.name] = [symbol]
-                else:
-                    rejects[s.name].append(symbol)
-
-        except Exception as e:
-            logger.error(
-                "in do_strategies() : %s", e, exc_info=config.debug_enabled
-            )
-
-
-async def handle_aggregate(
-    trader: TraderAPI,
-    data_loader: DataLoader,
-    symbol: str,
-    ts: pd.Timestamp,
-    data: Dict,
-    carrier=None,
-) -> bool:
-    """Process an aggregate bar for symbol and run its strategies.
-
-    Also reconcile or cancel any stale open order for symbol.
-
-    Parameters
-    ----------
-    trader: Trader
-        The trader that manages orders.
-    data_loader: DataLoader
-        The loader that holds the minute data.
-    symbol: str
-        The symbol of the bar.
-    ts: pd.Timestamp
-        The bar timestamp.
-    data: Dict
-        The bar message.
-    carrier, default None
-        Unused.
-
-    Returns
-    -------
-    Return True.
-    """
-    symbol = symbol.lower()
-
-    await aggregate_bar_data(data_loader, data, ts)
-
-    # Next, check for existing orders for the stock
-    if symbol in trading_data.open_orders and await order_inflight(
-        symbol, trading_data.open_orders[symbol.lower()], ts, trader
-    ):
-        return True
-
-    await do_strategies(
-        trader=trader,
-        data_loader=data_loader,
-        symbol=symbol,
-        position=trading_data.positions.get(symbol, 0),
-        now=ts,
-        data=data,
-    )
-
-    return True
-
-
-async def handle_data_queue_msg(
-    data: Dict, trader: TraderAPI, data_loader: DataLoader, carrier=None
-) -> bool:
-    """Handle a market data message from the data queue.
-
-    Ignore a repeated timestamp for a symbol.
-
-    Parameters
-    ----------
-    data: Dict
-        The market data message.
-    trader: Trader
-        The trader that manages orders.
-    data_loader: DataLoader
-        The loader that holds the minute data.
-    carrier, default None
-        Unused.
-
-    Returns
-    -------
-    Return False for a message, other than a minute aggregate, that arrives
-    more than 15 seconds late. Return True otherwise.
-    """
-    global symbol_data_error
-    global rejects
-
-    ts = data["timestamp"].replace(second=0, microsecond=0, nanosecond=0)
-    symbol = data["symbol"].lower()
-
-    time_diff = clock.now() - data["timestamp"]
-
-    if data["EV"] != "AM" and time_diff > pd.Timedelta(seconds=15):
-        if randint(1, 100) == 1:  # nosec
-            logger.info(
-                "%s %s too out of sync w %s", data["EV"], symbol, time_diff
-            )
-        return False
-
-    if (
-        time_tick.get(symbol)
-        and data["timestamp"].replace(microsecond=0, nanosecond=0)
-        == time_tick[symbol]
-    ):
-        return True
-
-    time_tick[symbol] = data["timestamp"].replace(microsecond=0, nanosecond=0)
-    await handle_aggregate(
-        trader=trader,
-        data_loader=data_loader,
-        symbol=symbol,
-        ts=time_tick[symbol],
-        data=data,
-        carrier=None,
-    )
-
-    return True
-
-
-async def queue_consumer(
-    batch_id: str, queue: Queue, data_loader: DataLoader, trader: TraderAPI
-) -> None:
-    """Consume and dispatch messages from the data queue until cancelled.
-
-    Handle trade updates, new strategy requests and market data. On a
-    ConnectionError, reconnect trader and put the message back on queue. Log
-    other exceptions and continue.
-
-    Parameters
-    ----------
-    batch_id: str
-        The batch identifier for new strategies.
-    queue: Queue
-        The queue to read from.
-    data_loader: DataLoader
-        The loader that holds the minute data.
-    trader: Trader
-        The trader that manages orders.
-    """
-    logger.info("queue_consumer() starting")
-    try:
-        while True:
-            try:
-                data = queue.get(timeout=2)
-                if data["EV"] == "trade_update":
-                    logger.info("received trade_update: %s", data)
-                    t = Trade(**data["trade"])
-                    await handle_trade_update(t)
-                elif data["EV"] == "new_strategy":
-                    logger.info("received new_strategy: %s", data)
-                    await handle_new_strategy(
-                        batch_id=batch_id,
-                        data_loader=data_loader,
-                        portfolio_id=data["portfolio_id"],
-                        parameters=data["parameters"],
+        if not is_minute_bar:
+            time_diff = clock.now() - data["timestamp"]
+            if time_diff > pd.Timedelta(seconds=15):
+                if randint(1, 100) == 1:  # nosec
+                    logger.info(
+                        "%s %s too out of sync w %s",
+                        data["EV"],
+                        symbol,
+                        time_diff,
                     )
-                else:
-                    await handle_data_queue_msg(data, trader, data_loader)
+                return
+            if self._time_tick.get(symbol) == second:
+                return
+            self._time_tick[symbol] = second
 
-            except Empty:
-                await asyncio.sleep(0)
+        await aggregate_bar_data(self.ctx.data_loader, data, second)
+        self.ctx.invalidate(symbol)
+
+        for open_order in self.state.stale_orders(
+            second - _STALE_ORDER_AGE, symbol
+        ):
+            await self.check_order(open_order, second)
+
+        if is_minute_bar:
+            await self.submit(
+                await self.state.decide_symbol(
+                    symbol, second.replace(second=0)
+                )
+            )
+
+    async def queue_consumer(self, queue: Queue) -> None:
+        """Consume and dispatch the messages of the producer until cancelled.
+
+        Apply trade updates, add filter results to their universes and handle
+        market data; log an error for a message of unknown type. On a
+        ConnectionError, reconnect the trader and put the message back on
+        queue. Log other exceptions and continue.
+
+        Parameters
+        ----------
+        queue: Queue
+            The queue to read from.
+        """
+        logger.info("queue_consumer() starting")
+        try:
+            while True:
+                try:
+                    data = queue.get(timeout=2)
+                    match data["EV"]:
+                        case QueueMessageType.TRADE_UPDATE:
+                            logger.info("received trade_update: %s", data)
+                            await self.state.handle_trade(
+                                Trade(**data["trade"])
+                            )
+                        case QueueMessageType.FILTER_RESULT:
+                            self.state.add_symbol(
+                                data["filter_name"], data["symbol"]
+                            )
+                        case (
+                            QueueMessageType.MINUTE_BAR
+                            | QueueMessageType.SECOND_BAR
+                            | QueueMessageType.TRADE
+                            | QueueMessageType.QUOTE
+                        ):
+                            await self.handle_market_data(data)
+                        case _:
+                            logger.error(
+                                "queue_consumer(): unknown message type %s: "
+                                "%s",
+                                data["EV"],
+                                data,
+                            )
+
+                except Empty:
+                    await asyncio.sleep(0)
+                except ConnectionError:
+                    await self.trader.reconnect()
+                    # re-post back to queue
+                    queue.put(data, timeout=1)
+                    await asyncio.sleep(1)
+                except Exception:
+                    logger.exception("Exception in queue_consumer() loop")
+
+        except asyncio.CancelledError:
+            logger.info("queue_consumer() cancelled")
+        finally:
+            logger.info("queue_consumer() task done.")
+
+    async def portfolio_runner(self, rule: PortfolioRule) -> None:
+        """Run a portfolio rule at its recurrence until cancelled.
+
+        Skip runs while the market is closed. Pass the rule the time of the
+        latest completed minute bar, and submit the orders it requests. Log
+        the exceptions of a run and continue.
+
+        Parameters
+        ----------
+        rule: PortfolioRule
+            The rule.
+        """
+        logger.info("portfolio_runner(%s) task starting", rule)
+        while True:
+            await asyncio.sleep(rule.recurrence.total_seconds())
+            try:
+                now = clock.now()
+                if not self.trader.is_market_open(now):
+                    continue
+                latest_bar = now.floor("min") - pd.Timedelta(minutes=1)
+                await self.submit(
+                    await self.state.decide_portfolio(rule, latest_bar)
+                )
+            except Exception:
+                logger.exception("portfolio_runner(%s) failed", rule)
+
+    async def cancel_lingering_orders(self) -> None:
+        """Check the stale open orders once a minute until cancelled.
+
+        Act only while the market is open.
+        """
+        logger.info("cancel_lingering_orders() task starting")
+
+        while True:
+            await asyncio.sleep(60)
+
+            if not self.state.open_orders:
                 continue
-            except ConnectionError:
-                await trader.reconnect()
-                # re-post back to queue
-                queue.put(data, timeout=1)
-                await asyncio.sleep(1)
+
+            now = clock.now()
+            if not self.trader.is_market_open(now):
+                logger.info("cancel_lingering_orders() market is closed")
                 continue
-            except Exception as e:
-                logger.error(
-                    "Exception in queue_consumer(): exception of type %s with args %s inside loop",
-                    type(e).__name__,
-                    e.args,
-                    exc_info=config.debug_enabled,
-                )
 
-    except asyncio.CancelledError:
-        logger.info("queue_consumer() cancelled ")
-    except Exception as e:
-        logger.error(
-            "Exception in queue_consumer(): exception of type %s with args %s",
-            type(e).__name__,
-            e.args,
-            exc_info=config.debug_enabled,
-        )
-    finally:
-        logger.info("queue_consumer() task done.")
+            for open_order in self.state.stale_orders(now - _STALE_ORDER_AGE):
+                await self.check_order(open_order, now)
 
+    async def run(self, queue: Queue) -> None:
+        """Run the tasks of the consumer until they finish.
 
-async def create_strategies_from_file(
-    batch_id: str,
-    trader: TraderAPI,
-    data_loader: DataLoader,
-    strategies_conf: Dict,
-) -> List[Strategy]:
-    """Create the strategies defined in the configuration file.
+        Run the queue consumer and the lingering-order check, and a runner
+        for each portfolio rule if this consumer runs them. Collect task
+        exceptions instead of raising them.
 
-    Add the open positions of any configured portfolio to the trading state.
-
-    Parameters
-    ----------
-    batch_id: str
-        The batch identifier of the run.
-    trader: Trader
-        Unused.
-    data_loader: DataLoader
-        The loader passed to each strategy.
-    strategies_conf: Dict
-        A mapping of strategy name to its settings.
-
-    Returns
-    -------
-    Return the strategies that were created.
-    """
-    strategy_list = []
-    for strategy_name in strategies_conf:
-        s = await Strategy.get_strategy(
-            batch_id=batch_id,
-            strategy_name=strategy_name,
-            strategy_details=strategies_conf[strategy_name],
-            data_loader=data_loader,
-        )
-        if s:
-            strategy_list.append(s)
-
-        if "portfolio_id" in strategies_conf[strategy_name]:
-            positions = await load_symbol_position(
-                strategies_conf[strategy_name]["portfolio_id"]
-            )
-            for symbol, qty in positions.items():
-                trading_data.positions[symbol] = (
-                    trading_data.positions.get(symbol, 0.0) + qty
-                )
-            logger.info("Loaded %s positions for %s", positions, strategy_name)
-
-    return strategy_list
-
-
-async def load_symbol_position(portfolio_id: str) -> Dict[str, float]:
-    """Return the net open quantity of each symbol held by a portfolio.
-
-    Omit symbols with a net quantity of zero.
-
-    Parameters
-    ----------
-    portfolio_id: str
-        The portfolio whose trades are loaded.
-    """
-    trades = await load_trades_by_portfolio(portfolio_id)
-
-    if not len(trades):
-        return {}
-    new_df = pd.DataFrame()
-    new_df["symbol"] = trades.symbol.unique()
-    new_df["qty"] = new_df.symbol.apply(
-        lambda x: (
-            trades[
-                (trades.symbol == x) & (trades.operation == "buy")
-            ].qty.sum()
-        )
-        - trades[(trades.symbol == x) & (trades.operation == "sell")].qty.sum()
-    )
-    new_df = new_df.loc[new_df.qty != 0]
-
-    return {row.symbol: float(row.qty) for _, row in new_df.iterrows()}
-
-
-async def create_strategies_from_db(
-    batch_id: str,
-    trader: TraderAPI,
-    data_loader: DataLoader,
-) -> List[Strategy]:
-    """Create the strategies defined by the active trade plan entries.
-
-    Add the open positions of each created strategy's portfolio to the trading
-    state.
-
-    Parameters
-    ----------
-    batch_id: str
-        The batch identifier of the run.
-    trader: Trader
-        Unused.
-    data_loader: DataLoader
-        The loader passed to each strategy.
-
-    Returns
-    -------
-    Return the strategies that were created.
-    """
-    # load from tradeplan file
-    trade_plan = await TradePlan.load()
-
-    strategy_list = []
-    for trade_plan_entry in trade_plan:
-        strategy_details = trade_plan_entry.parameters
-        strategy_details["portfolio_id"] = trade_plan_entry.portfolio_id
-
-        strategy_name = strategy_details.pop("name")
-        s = await Strategy.get_strategy(
-            batch_id=batch_id,
-            strategy_name=strategy_name,
-            strategy_details=strategy_details,
-            data_loader=data_loader,
-        )
-        if s:
-            strategy_list.append(s)
-            positions = await load_symbol_position(
-                trade_plan_entry.portfolio_id
-            )
-            logger.info(
-                "Loaded %s positions for %s", len(positions), strategy_name
-            )
-            for symbol, qty in positions.items():
-                trading_data.positions[symbol] = (
-                    trading_data.positions.get(symbol, 0.0) + qty
-                )
-
-    return strategy_list
-
-
-async def handle_new_strategy(
-    batch_id: str, portfolio_id: str, parameters: dict, data_loader: DataLoader
-):
-    """Create a strategy requested at run time and add it to the active set.
-
-    Parameters
-    ----------
-    batch_id: str
-        The batch identifier of the run.
-    portfolio_id: str
-        The portfolio the strategy trades for.
-    parameters: dict
-        The strategy settings, including its name; modified in place.
-    data_loader: DataLoader
-        The loader passed to the strategy.
-    """
-    strategy_name = parameters.pop("name")
-    parameters["portfolio_id"] = portfolio_id
-    strategy = await Strategy.get_strategy(
-        batch_id=batch_id,
-        strategy_name=strategy_name,
-        strategy_details=parameters,
-        data_loader=data_loader,
-    )
-
-    if strategy:
-        trading_data.strategies.append(strategy)
+        Parameters
+        ----------
+        queue: Queue
+            The queue of messages from the producer.
+        """
+        tasks = [self.queue_consumer(queue), self.cancel_lingering_orders()]
+        if self.run_portfolio_rules:
+            tasks += [
+                self.portfolio_runner(rule)
+                for rule in self.state.graph.rules.values()
+                if isinstance(rule, PortfolioRule)
+            ]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def consumer_async_main(
-    queue: Queue,
-    unique_id: str,
-    strategies_conf: Dict,
-    file_only: bool,
-):
+    queue: Queue, tradeplan: Dict, run_portfolio_rules: bool
+) -> None:
     """Set up the consumer and run its tasks until they finish.
 
-    Create the database connection pool and add the created strategies to the
-    trading state. Collect task exceptions instead of raising them.
+    Create the database connection pool, and a context and signals and rules
+    of its own. Filters run in a separate process.
 
     Parameters
     ----------
     queue: Queue
         The queue of messages from the producer.
-    unique_id: str
-        The batch identifier of the run.
-    strategies_conf: Dict
-        A mapping of strategy name to its settings.
-    file_only: bool
-        Whether to skip the strategies in the trade plan.
+    tradeplan: Dict
+        The trade plan.
+    run_portfolio_rules: bool
+        Whether this consumer runs the portfolio rules.
     """
     await create_db_connection(str(config.dsn))
-    data_loader = DataLoader()
+    ctx = Context(DataLoader(), trader=trader_factory())
+    graph = StrategyGraph.from_tradeplan(tradeplan, ctx, with_filters=False)
+    logger.info("loaded signals %s, rules %s", graph.signals, graph.rules)
 
-    trader = trader_factory()
-
-    trading_data.strategies += await create_strategies_from_file(
-        batch_id=unique_id,
-        trader=trader,
-        data_loader=data_loader,
-        strategies_conf=strategies_conf,
-    )
-    logger.info("loaded strategies: %s", trading_data.strategies)
-    if not file_only:
-        trading_data.strategies += await create_strategies_from_db(
-            batch_id=unique_id,
-            trader=trader,
-            data_loader=data_loader,
-        )
-
-    queue_consumer_task = asyncio.create_task(
-        queue_consumer(unique_id, queue, data_loader, trader)
-    )
-
-    periodic_runner_task = asyncio.create_task(
-        periodic_runner(data_loader, trader)
-    )
-
-    cancel_lingering_orders_task = asyncio.create_task(
-        cancel_lingering_orders(trader)
-    )
-
-    await asyncio.gather(
-        queue_consumer_task,
-        periodic_runner_task,
-        cancel_lingering_orders_task,
-        return_exceptions=True,
-    )
+    await Consumer(ctx, graph, run_portfolio_rules).run(queue)
 
     logger.info("consumer_async_main() completed")
 
 
 def consumer_main(
-    queue: Queue,
-    unique_id: str,
-    conf: Dict,
+    queue: Queue, tradeplan: Dict, run_portfolio_rules: bool = False
 ) -> None:
     """Run a consumer process until its tasks complete.
 
-    Set the build label, portfolio value and risk in config. Log a keyboard
-    interrupt instead of raising it.
+    Log a keyboard interrupt instead of raising it.
 
     Parameters
     ----------
     queue: Queue
         The queue of messages from the producer.
-    unique_id: str
-        The batch identifier of the run.
-    conf: Dict
-        The configuration, with a strategies section and optional
-        portfolio_value, risk and file_only settings.
+    tradeplan: Dict
+        The trade plan.
+    run_portfolio_rules: bool, default False
+        Whether this consumer runs the portfolio rules.
     """
     configure_logging()
     logger.info("*** consumer_main() starting w pid %s ***", os.getpid())
 
-    config.portfolio_value = conf.get("portfolio_value", None)
-    if "risk" in conf:
-        config.risk = conf["risk"]
-
     try:
-        asyncio.run(
-            consumer_async_main(
-                queue,
-                unique_id,
-                conf["strategies"],
-                conf.get("file_only", False),
-            ),
-        )
+        asyncio.run(consumer_async_main(queue, tradeplan, run_portfolio_rules))
     except KeyboardInterrupt:
         logger.info("consumer_main() - Caught KeyboardInterrupt")
 

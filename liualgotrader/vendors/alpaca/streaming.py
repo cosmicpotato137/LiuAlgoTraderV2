@@ -21,7 +21,8 @@ from alpaca.data.live.websocket import DataStream
 
 from liualgotrader.common import clock
 from liualgotrader.common.list_utils import chunks
-from liualgotrader.common.types import SymbolQueueMap, WSEventType
+from liualgotrader.common.types import (QueueMessageType, SymbolQueueMap,
+                                        WSEventType)
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
 from liualgotrader.vendors.alpaca.util import (alpaca_time, crypto_pair,
@@ -216,7 +217,7 @@ class AlpacaStream(StreamingAPI):
 
     @classmethod
     async def _bar_handler(cls, msg):
-        """Convert an equity bar into an "AM" event and enqueue it.
+        """Convert an equity bar into a MINUTE_BAR event and enqueue it.
 
         In the event, average holds the volume-weighted price and vwap is NaN.
         Propagate an exception if the queue is full; log and suppress any other
@@ -240,7 +241,7 @@ class AlpacaStream(StreamingAPI):
                 "vwap": np.nan,
                 "average": msg.vwap,
                 "totalvolume": None,
-                "EV": "AM",
+                "EV": QueueMessageType.MINUTE_BAR,
             }
             cls.get_instance().queues[msg.symbol].put(event, timeout=1)
         except queue.Full as f:
@@ -260,7 +261,7 @@ class AlpacaStream(StreamingAPI):
 
     @classmethod
     async def _crypto_bar_handler(cls, msg):
-        """Convert a crypto bar into an "AM" event and enqueue it.
+        """Convert a crypto bar into a MINUTE_BAR event and enqueue it.
 
         Name the pair as it was subscribed. Otherwise behave like
         _bar_handler.
@@ -286,7 +287,7 @@ class AlpacaStream(StreamingAPI):
                 "vwap": np.nan,
                 "average": msg.vwap,
                 "totalvolume": None,
-                "EV": "AM",
+                "EV": QueueMessageType.MINUTE_BAR,
             }
             cls.get_instance().queues[symbol].put(event, timeout=1)
         except queue.Full as f:
@@ -306,7 +307,7 @@ class AlpacaStream(StreamingAPI):
 
     @classmethod
     async def _trades_handler(cls, msg):
-        """Convert an equity trade into a "T" event and enqueue it.
+        """Convert an equity trade into a TRADE event and enqueue it.
 
         Occasionally log a warning for trades more than ten seconds old.
         Propagate an exception if the queue is full; log and suppress any other
@@ -347,7 +348,7 @@ class AlpacaStream(StreamingAPI):
                 "average": np.nan,
                 "count": 1,
                 "vwap": np.nan,
-                "EV": "T",
+                "EV": QueueMessageType.TRADE,
             }
 
             cls.get_instance().queues[msg.symbol].put(event, block=False)
@@ -369,7 +370,7 @@ class AlpacaStream(StreamingAPI):
 
     @classmethod
     async def _crypto_trades_handler(cls, msg):
-        """Convert a crypto trade into a "T" event and enqueue it.
+        """Convert a crypto trade into a TRADE event and enqueue it.
 
         Name the pair as it was subscribed. Otherwise behave like
         _trades_handler.
@@ -412,7 +413,7 @@ class AlpacaStream(StreamingAPI):
                 "average": np.nan,
                 "count": 1,
                 "vwap": np.nan,
-                "EV": "T",
+                "EV": QueueMessageType.TRADE,
             }
 
             cls.get_instance().queues[symbol].put(event, block=False)

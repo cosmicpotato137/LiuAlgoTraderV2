@@ -2,6 +2,8 @@
 
 Classes
 -------
+TradierOrderType
+    Enumeration of the Tradier equity order types.
 TradierTrader
     Trader implementation for the Tradier brokerage.
 """
@@ -12,6 +14,7 @@ import logging
 import queue
 import time as time_action
 from datetime import date, time
+from enum import StrEnum
 from threading import Thread
 from typing import Dict, List, Optional, Tuple
 
@@ -21,8 +24,8 @@ import websocket
 
 from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
-from liualgotrader.common.types import (Order, SymbolQueueMap, ThreadFlags,
-                                        Trade)
+from liualgotrader.common.types import (Order, OrderType, QueueMessageType,
+                                        SymbolQueueMap, ThreadFlags, Trade)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.tradier.config import TradierConfig
 
@@ -37,6 +40,24 @@ _STATUS_EVENTS = {
     "pending": Order.EventType.pending,
     "error": Order.EventType.error,
     "open": Order.EventType.open,
+}
+
+
+class TradierOrderType(StrEnum):
+    """Enumeration of the Tradier equity order types."""
+
+    MARKET = "market"
+    LIMIT = "limit"
+    STOP = "stop"
+    STOP_LIMIT = "stop_limit"
+
+
+# The Tradier order type of each OrderType that Tradier supports.
+_TRADIER_ORDER_TYPES = {
+    OrderType.MARKET: TradierOrderType.MARKET,
+    OrderType.LIMIT: TradierOrderType.LIMIT,
+    OrderType.STOP: TradierOrderType.STOP,
+    OrderType.STOP_LIMIT: TradierOrderType.STOP_LIMIT,
 }
 
 
@@ -640,7 +661,7 @@ class TradierTrader(TraderAPI):
         symbol: str,
         qty: float,
         side: str,
-        order_type: str,
+        order_type: OrderType,
         time_in_force: str = None,
         limit_price: str = None,
         stop_price: str = None,
@@ -663,8 +684,8 @@ class TradierTrader(TraderAPI):
             The quantity, truncated to whole shares.
         side: str
             The Tradier order side, such as buy or sell.
-        order_type: str
-            The Tradier order type, such as market or limit.
+        order_type: OrderType
+            The order type, such as OrderType.MARKET or OrderType.LIMIT.
         time_in_force: str, default None
             Ignored.
         limit_price: str, default None
@@ -695,8 +716,13 @@ class TradierTrader(TraderAPI):
 
         Raises
         ------
-        Raise ValueError if the request fails or Tradier reports errors.
+        Raise ValueError if Tradier does not support the order type, the
+        request fails or Tradier reports errors.
         """
+        tradier_type = _TRADIER_ORDER_TYPES.get(order_type)
+        if tradier_type is None:
+            raise ValueError(f"unsupported Tradier order type {order_type}")
+
         url = f"{self.config.base_url}accounts/{self.config.account_number}/orders"
 
         params: Dict = {
@@ -705,7 +731,7 @@ class TradierTrader(TraderAPI):
             "side": side,
             "quantity": str(int(qty)),
             "duration": "day",
-            "type": order_type,
+            "type": tradier_type.value,
         }
 
         if limit_price:
@@ -875,7 +901,7 @@ class TradierTrader(TraderAPI):
             symbol = trade.symbol.lower()
             logger.info("TRADIER TRADING UPDATE:%s", trade)
             to_send = {
-                "EV": "trade_update",
+                "EV": QueueMessageType.TRADE_UPDATE,
                 "symbol": symbol,
                 "trade": trade.__dict__,
             }

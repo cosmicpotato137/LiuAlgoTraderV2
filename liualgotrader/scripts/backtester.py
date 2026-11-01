@@ -1,11 +1,11 @@
 """Backtest the trade plan over a range of past days.
 
 Usage: backtester from <start_date> [--asset=equity|crypto]
-    [--scanners=<name,...>] [--strats=<name,...>] [--to=<end_date>]
-    [--scale=day|minute] [--buy-fee-percentage=<fraction>]
-    [--sell-fee-percentage=<fraction>]
-Run it in the directory that holds the trade plan, tradeplan.toml. The
-defaults are equity, all scanners and strategies, today, day and no fees.
+    [--rules=<name,...>] [--to=<end_date>] [--scale=day|minute]
+    [--buy-fee-percentage=<percent>] [--sell-fee-percentage=<percent>]
+Backtest the trade plan, tradeplan.toml, read from TRADEPLAN_DIR or else the
+current directory. The defaults are equity, all rules, today, day and no
+fees. --rules selects rules, and their signals and filters come with them.
 
 Functions
 ---------
@@ -26,22 +26,13 @@ import sys
 from datetime import date
 from typing import List, Optional
 
-import pandas as pd
 import parsedatetime.parsedatetime as pdt
 import toml
-from requests.exceptions import HTTPError
 
 from liualgotrader import enhanced_backtest
-from liualgotrader.common import clock, config, market_data, trading_data
+from liualgotrader.common import clock, config
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType, TimeScale
-from liualgotrader.db.models.algo_run import AlgoRun
-from liualgotrader.db.models.new_trades import NewTrade
-from liualgotrader.db.session import create_db_connection
-from liualgotrader.fincalcs.vwap import add_daily_vwap
-from liualgotrader.scanners.base import Scanner
-from liualgotrader.scanners.momentum import Momentum
-from liualgotrader.strategy.base import Strategy, StrategyType
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +40,7 @@ logger = logging.getLogger(__name__)
 def show_usage():
     """Print the command-line usage and options of the backtester."""
     print(
-        f"\n{sys.argv[0]} from <start_date> [--asset=equity(DEFAULT)|crypto][--scanners=<scanner-name,>] [--strats=<strategy-name,>] [--to=<end_date> DEFAULT is today] [--scale=day(DEFAULT)|minute [--buy-fee-percentage=0.(DEFAULT)] [--sell-fee-percentage=0.(DEFAULT)]",
+        f"\n{sys.argv[0]} from <start_date> [--asset=equity(DEFAULT)|crypto] [--rules=<rule-name,>] [--to=<end_date> DEFAULT is today] [--scale=day(DEFAULT)|minute] [--buy-fee-percentage=0.(DEFAULT)] [--sell-fee-percentage=0.(DEFAULT)]",
     )
 
     print("\n\noptions:")
@@ -61,10 +52,13 @@ def show_usage():
     )
     print("scale\t\t\ttime-scale for loading past data for back-test-ing")
     print(
-        "buy-fee-percentage\tBroker fees as percentage from transaction. Represented as 0-1."
+        "rules\t\t\trules to back-test, with their signals and filters. DEFAULT is all rules"
     )
     print(
-        "sell-fee-percentage\tBroker fees as percentage from transaction. Represented as 0-1."
+        "buy-fee-percentage\tBroker fees as percentage from transaction, from 0 to 100."
+    )
+    print(
+        "sell-fee-percentage\tBroker fees as percentage from transaction, from 0 to 100."
     )
 
 
@@ -119,8 +113,7 @@ def dateFromString(s: str) -> date:
 def main_cli() -> None:
     """Run a backtest from the command line.
 
-    Parse the from command and its options from sys.argv, apply the
-    portfolio_value and risk settings of the configuration, run the backtest
+    Parse the from command and its options from sys.argv, run the backtest
     and exit. Print the usage text and exit on missing or invalid arguments,
     and exit if the trade plan is not found.
     """
@@ -131,6 +124,7 @@ def main_cli() -> None:
 
     config.filename = os.path.basename(__file__)
 
+    # TODO: simplify path operations across the repo by using join
     folder = (
         config.tradeplan_folder
         if config.tradeplan_folder[-1] == "/"
@@ -143,17 +137,12 @@ def main_cli() -> None:
     except FileNotFoundError:
         logger.error("could not locate tradeplan file %s", fname)
         sys.exit(0)
-    conf_dict = toml.load(config.configuration_filename)
-    config.portfolio_value = conf_dict.get("portfolio_value", None)
-    if "risk" in conf_dict:
-        config.risk = conf_dict["risk"]
 
     if sys.argv[1] == "from":
         from_date = dateFromString(sys.argv[2])
         logger.info("selected %s applied %s", sys.argv[2], from_date)
         try:
-            scanners: Optional[List] = None
-            strategies: Optional[List] = None
+            rules: Optional[List] = None
             to_date = clock.today()
             scale = TimeScale["day"]
             buy_fee_percentage = 0.0
@@ -165,18 +154,17 @@ def main_cli() -> None:
                 longopts=[
                     "to=",
                     "scale=",
-                    "scanners=",
-                    "strats=",
+                    "rules=",
                     "buy-fee-percentage=",
                     "sell-fee-percentage=",
                     "asset=",
                 ],
             )
+            # TODO: use argparse for argument handling across the repo
+            # to simplify the entrypoints as much as possible
             for opt, arg in opts:
-                if opt in ("--scanners"):
-                    scanners = arg.split(",")
-                elif opt in ("--strats"):
-                    strategies = arg.split(",")
+                if opt in ("--rules"):
+                    rules = arg.split(",")
                 elif opt in ("--to"):
                     to_date = dateFromString(arg)
                 elif opt in ("--buy-fee-percentage"):
@@ -194,6 +182,7 @@ def main_cli() -> None:
                         )
                         sys.exit(0)
                 elif opt in ("--scale"):
+                    # TODO: define enum for all available timescales across the repo
                     if arg in ("day", "minute"):
                         scale = TimeScale[arg]
                     else:
@@ -211,8 +200,7 @@ def main_cli() -> None:
             to_date=to_date,
             scale=scale,
             config=conf_dict,
-            scanners=scanners,
-            strategies=strategies,
+            rules=rules,
             asset_type=asset_type,
             buy_fee_percentage=buy_fee_percentage,
             sell_fee_percentage=sell_fee_percentage,

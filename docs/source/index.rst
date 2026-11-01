@@ -63,7 +63,7 @@ sessions w/ LiuAlgoTrader.
    Concepts
    Configuration
    Crypto
-   Scanners
+   Filters
    Strategies
    Trading
    Backtesting 

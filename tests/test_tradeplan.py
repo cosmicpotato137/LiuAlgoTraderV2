@@ -1,15 +1,11 @@
 import logging
-import uuid
 
 import pandas as pd
 import pytest
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.consumer import create_strategies_from_db
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
 
@@ -27,26 +23,6 @@ async def test_load_trade_plan_from_db():
 
     for plan in trade_plan:
         logger.info("%s", plan)
-
-    return True
-
-
-@pytest.mark.asyncio
-@pytest.mark.devtest
-@pytest.mark.requires_credentials("alpaca")
-async def test_load_testplan_from_db():
-
-    try:
-        strategy_list = await create_strategies_from_db(
-            batch_id=str(uuid.uuid4()),
-            trader=trader_factory(),
-            data_loader=DataLoader(),
-        )
-    except FileNotFoundError as e:
-        logger.info("FileNotFoundError %s", e)
-        return True
-
-    logger.info("%s", strategy_list)
 
     return True
 

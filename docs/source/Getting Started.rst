@@ -21,25 +21,25 @@ In a nutshell:
 * An Account holds cash-balance for Portfolio(s),
 * A Portfolio tracks trades over time (=batches),
 * A Batch is an execution of liu Framework during a specific trading day, 
-* During an execution of the framework, strategies trade securities as part of a daily batch.
+* During an execution of the framework, rules trade securities as part of a daily batch.
 
 Step 1.5
 --------
 
 Digging deeper, your trading day is made of two parts:
 
-1. Stock Selection, a.k.a *Scanners*, 
-2. Executing *Strategies* on picked stocks.
+1. Stock Selection, a.k.a *Filters*,
+2. Executing a strategy on picked stocks: *Signals* predict price movements of the picked stocks, and *Rules* turn signals into orders.
 
-Scanners feed Strategies a list of securities for them to act (or not act) upon. The list of stocks returned by
-Scanners can either be fixed or dynamic over time. You can define execution Windows for
-scanners, as well as their execution frequency within the selected windows.
+Filters feed Signals a list of securities for them to evaluate. The list of stocks returned by
+Filters can either be fixed or dynamic over time. You can define the execution frequency of each
+filter.
 
 Step 1.75
 ---------
 Once you understand these basics, the next step is to understand the mechanics of
 running an execution (either trading, or back-testing). `LiuAlgoTrader` uses
-JSON-like **TOML** file format to specify Scanners and Strategies for execution.
+JSON-like **TOML** file format to specify the Filters, Signals and Rules for execution, and how they link to each other.
 
 Don't Panic!
 ------------
@@ -52,10 +52,10 @@ When you are ready, below is a recommended order for reading the rest of the doc
 
 1. Read the `Configuration` section to understand more on the structure of `tradeplan.toml`,
 2. `Concepts` section is detailed-packed, recommended to skim through it in your first read,
-3. `Scanners` section comes next, followed by `Strategies`
+3. `Filters` section comes next, followed by `Strategies`
 4. When ready read the `back-testing` section (note it's marked in Bold)
 
-As a next step, it's time to start writing your first strategy/scanner and take liu for a test-drive.
+As a next step, it's time to start writing your first filter, signal and rule and take liu for a test-drive.
 
 Resources
 ---------

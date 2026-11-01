@@ -1,33 +1,25 @@
 import logging
-import uuid
 
-import pytest
+import toml
 
-from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategy.base import Strategy
+from liualgotrader.strategy.new_base import (Context, Filter, Signal,
+                                             StrategyGraph, SymbolRule)
 
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(autouse=True)
-async def db_connection():
-    await create_db_connection()
+def test_load_example_tradeplan():
+    tradeplan = toml.load("./examples/sma_crossover/tradeplan.toml")
+    graph = StrategyGraph.from_tradeplan(tradeplan, Context(None))
 
+    if not all(isinstance(f, Filter) for f in graph.filters.values()):
+        raise AssertionError(f"unexpected filters {graph.filters}")
+    if not all(isinstance(s, Signal) for s in graph.signals.values()):
+        raise AssertionError(f"unexpected signals {graph.signals}")
+    if not all(isinstance(r, SymbolRule) for r in graph.rules.values()):
+        raise AssertionError(f"unexpected rules {graph.rules}")
+    for name in graph.rules:
+        if not graph.rules_of_signal(graph.rule_signals[name][0]):
+            raise AssertionError(f"rule {name} not linked to its signal")
 
-@pytest.mark.asyncio
-async def test_get_strategy():
-    s = await Strategy.get_strategy(
-        batch_id=str(uuid.uuid4()),
-        strategy_name="MyStrategy",
-        strategy_details={
-            "filename": "./examples/skeleton-strategy/my_strategy.py",
-            "schedule": [],
-        },
-    )
-
-    if not s:
-        raise AssertionError("Failed to instantiate strategy")
-
-    logger.info("Loaded strategy %s", s.name)
-
-    return True
+    logger.info("Loaded signals %s, rules %s", graph.signals, graph.rules)

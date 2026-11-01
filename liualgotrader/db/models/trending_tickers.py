@@ -1,9 +1,9 @@
-"""Persist and load the trending symbols found by scanners.
+"""Persist and load the trending symbols found by filters.
 
 Classes
 -------
 TrendingTicker
-    Symbol found by a scanner, stored in the trending_tickers table.
+    Symbol found by a filter, stored in the trending_tickers table.
 """
 
 from typing import List, Optional, Tuple
@@ -17,7 +17,7 @@ from liualgotrader.db.session import session_scope
 
 
 class TrendingTicker(Base):
-    """Symbol found by a scanner, stored in the trending_tickers table.
+    """Symbol found by a filter, stored in the trending_tickers table.
 
     Attributes
     ----------
@@ -30,7 +30,7 @@ class TrendingTicker(Base):
     create_tstamp: Optional[pd.Timestamp]
         The time the symbol was found, set by the database when saved.
     scanner_name: str
-        The name of the scanner that found the symbol.
+        The name of the filter that found the symbol.
 
     Methods
     -------
@@ -53,7 +53,9 @@ class TrendingTicker(Base):
     )
 
     @classmethod
-    async def save_symbols(cls, batch_id: str, symbols: List[str]) -> None:
+    async def save_symbols(
+        cls, batch_id: str, symbols: List[str], scanner_name: str = "momentum"
+    ) -> None:
         """Save the trending symbols of a batch.
 
         Parameters
@@ -62,10 +64,15 @@ class TrendingTicker(Base):
             The batch identifier.
         symbols: List[str]
             The symbols to save.
+        scanner_name: str, default "momentum"
+            The name of the filter that found the symbols.
         """
         async with session_scope() as session:
             session.add_all(
-                cls(batch_id=batch_id, symbol=symbol) for symbol in symbols
+                cls(
+                    batch_id=batch_id, symbol=symbol, scanner_name=scanner_name
+                )
+                for symbol in symbols
             )
 
     @classmethod

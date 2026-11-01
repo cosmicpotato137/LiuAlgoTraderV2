@@ -13,7 +13,7 @@ installed_version
 
 import os
 from importlib.metadata import PackageNotFoundError, version
-from typing import List, Optional
+from typing import List
 
 from liualgotrader.common.types import BrokerType, DataConnectorType
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
@@ -126,10 +126,6 @@ default_db_path: str = os.path.join(
 
 # Stop limit to default to
 default_stop = 0.95
-
-# How much of our portfolio to allocate to any one position
-risk = 0.001
-portfolio_value: Optional[float] = None
 
 group_margin = 0.02
 

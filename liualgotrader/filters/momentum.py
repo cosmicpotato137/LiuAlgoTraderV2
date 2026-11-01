@@ -1,41 +1,34 @@
-"""Momentum stock scanner.
+"""Momentum stock filter.
 
 Classes
 -------
 Momentum
-    Scanner that selects stocks showing strong upward momentum.
+    Filter that selects stocks showing strong upward momentum.
 """
 
-import asyncio
 import logging
-from datetime import date
 from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
-import requests
 from sqlalchemy import select
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.types import DataConnectorType
-from liualgotrader.db.models.stock_ohlc import StockOhlc
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import session_scope
-from liualgotrader.trade.base import TraderAPI
+from liualgotrader.strategy.new_base import Filter
 from liualgotrader.vendors.alpaca.data import AlpacaData
 from liualgotrader.vendors.polygon.data import PolygonData
-
-from .base import Scanner
 
 logger = logging.getLogger(__name__)
 
 
-class Momentum(Scanner):
-    """Scanner that selects stocks showing strong upward momentum.
+class Momentum(Filter):
+    """Filter that selects stocks showing strong upward momentum.
 
-    A live scan filters the market snapshot by share price, previous day dollar
-    volume, change from the previous close and volume. A backtest scan returns
-    the symbols recorded for the scanner in the database.
+    A live run filters the market snapshot by share price, previous day dollar
+    volume, change from the previous close and volume, and needs the context
+    to have a trader. A backtest run returns the symbols that the live trader
+    recorded for a filter of the same name.
 
     Attributes
     ----------
@@ -53,8 +46,6 @@ class Momentum(Scanner):
         The from-market-open setting; stored but unused.
     max_symbols: int
         The maximum number of symbols; stored but unused.
-    trading_api: Trader
-        The trader that lists the tradeable symbols.
     trade_able_symbols
         The tradeable symbols, set by a live run.
 
@@ -62,10 +53,8 @@ class Momentum(Scanner):
     -------
     apply_filter_on_market_snapshot
         Return the snapshot tickers that pass a filter.
-    add_stock_data_for_date
-        Save a symbol's price data for a date.
     load_from_db
-        Return the symbols recorded for the scanner at a time.
+        Return the symbols recorded for the filter at a time.
     momentum_filter
         Return whether a snapshot entry meets the criteria.
     polygon_snapshot_details
@@ -73,17 +62,11 @@ class Momentum(Scanner):
     alpaca_snapshot_details
         Return the filter values of an Alpaca entry.
     run
-        Return the symbols selected by the scanner (overrides Scanner).
+        Return the symbols selected by the filter (overrides Filter).
     """
-
-    name = "momentum"
 
     def __init__(
         self,
-        recurrence: Optional[pd.Timedelta],
-        target_strategy_name: Optional[str],
-        data_loader: DataLoader,
-        trading_api: TraderAPI,
         max_share_price: float,
         min_share_price: float,
         min_last_dv: float,
@@ -91,20 +74,12 @@ class Momentum(Scanner):
         min_volume: float,
         from_market_open: float,
         max_symbols: int = config.total_tickers,
-        data_source: object = None,
+        **kwargs,
     ):
-        """Initialize the momentum scanner and its filter thresholds.
+        """Initialize the momentum filter and its thresholds.
 
         Parameters
         ----------
-        recurrence: Optional[pd.Timedelta]
-            The interval between runs, or None.
-        target_strategy_name: Optional[str]
-            The strategy that receives the results, or None.
-        data_loader: DataLoader
-            The loader used to fetch market data.
-        trading_api: Trader
-            The trader that lists the tradeable symbols.
         max_share_price: float
             The highest share price to select.
         min_share_price: float
@@ -119,9 +94,8 @@ class Momentum(Scanner):
             The from-market-open setting; stored but unused.
         max_symbols: int, default config.total_tickers
             The maximum number of symbols; stored but unused.
-        data_source: object, default None
-            An optional data source object.
         """
+        super().__init__(**kwargs)
         self.max_share_price = max_share_price
         self.min_share_price = min_share_price
         self.min_last_dv = min_last_dv
@@ -129,28 +103,21 @@ class Momentum(Scanner):
         self.today_change_percent = today_change_percent
         self.from_market_open = from_market_open
         self.max_symbols = max_symbols
-        self.trading_api = trading_api
-
-        super().__init__(
-            name=self.name,
-            recurrence=recurrence,
-            target_strategy_name=target_strategy_name,
-            data_loader=data_loader,
-            data_source=data_source,
-        )
-
-    @classmethod
-    def __str__(cls) -> str:
-        """Return the scanner name defined on the class."""
-        return cls.name
 
     async def _get_trade_able_symbols(self) -> List[str]:
-        """Return the tradeable symbols reported by the trading API."""
-        symbols = await self.trading_api.get_tradeable_symbols()
+        """Return the tradeable symbols reported by the trader of the context.
+
+        Raises
+        ------
+        Raise AssertionError if the context has no trader.
+        """
+        if self.ctx.trader is None:
+            raise AssertionError("the momentum filter needs a trader")
+        symbols = await self.ctx.trader.get_tradeable_symbols()
         logger.info(
             "loaded list of %s trade-able symbols from %s",
             len(symbols),
-            self.trading_api,
+            self.ctx.trader,
         )
         return symbols
 
@@ -164,7 +131,7 @@ class Momentum(Scanner):
         filter_func: Optional[Callable]
             The predicate that selects snapshot entries, or None.
         """
-        filtered = await self.data_loader.data_api.get_market_snapshot(
+        filtered = await self.ctx.data_loader.data_api.get_market_snapshot(
             filter_func
         )
         logger.info(
@@ -179,53 +146,8 @@ class Momentum(Scanner):
 
         return [x["ticker"] for x in filtered]
 
-    async def add_stock_data_for_date(self, symbol: str, when: date) -> None:
-        """Save a symbol's price data for a date to the database.
-
-        Save a single record with zero prices and volume if no data is
-        available.
-
-        Parameters
-        ----------
-        symbol: str
-            The symbol to save data for.
-        when: date
-            The date to save data for.
-        """
-        start = pd.Timestamp(when, tz=clock.NY)
-        end = pd.Timestamp(when + pd.Timedelta(days=1), tz=clock.NY)
-        _minute_data = self.data_loader[symbol][start:end]
-
-        await asyncio.sleep(0)
-        if _minute_data[symbol].empty:
-            daily_bar = StockOhlc(
-                symbol=symbol,
-                symbol_date=when,
-                open=0.0,
-                high=0.0,
-                low=0.0,
-                close=0.0,
-                volume=0,
-                indicators={},
-            )
-            await daily_bar.save()
-        else:
-            for index, row in _minute_data[symbol].iterrows():
-                daily_bar = StockOhlc(
-                    symbol=symbol,
-                    symbol_date=index.date(),
-                    open=row["open"],
-                    high=row["high"],
-                    low=row["low"],
-                    close=row["close"],
-                    volume=int(row["volume"]),
-                    indicators={},
-                )
-                await daily_bar.save()
-                logger.debug("saved data for %s @ %s", symbol, index)
-
     async def load_from_db(self, back_time: pd.Timestamp) -> List[str]:
-        """Return the symbols recorded for this scanner around a given time.
+        """Return the symbols recorded for this filter around a given time.
 
         For midnight, return the symbols recorded from back_time to one day
         later; otherwise, those recorded from 9:30 that day to one minute after
@@ -273,7 +195,7 @@ class Momentum(Scanner):
         ------
         Raise ValueError if the data loader uses any other data API.
         """
-        if isinstance(self.data_loader.data_api, AlpacaData):
+        if isinstance(self.ctx.data_loader.data_api, AlpacaData):
             (
                 tradable,
                 last_trade_price,
@@ -281,7 +203,7 @@ class Momentum(Scanner):
                 today_gap_up_pct,
                 today_volume,
             ) = self.alpaca_snapshot_details(snapshot)
-        elif isinstance(self.data_loader.data_api, PolygonData):
+        elif isinstance(self.ctx.data_loader.data_api, PolygonData):
             (
                 tradable,
                 last_trade_price,
@@ -291,7 +213,7 @@ class Momentum(Scanner):
             ) = self.polygon_snapshot_details(snapshot)
         else:
             raise ValueError(
-                f"Invalid data API: {type(self.data_loader.data_api)}"
+                f"Invalid data API: {type(self.ctx.data_loader.data_api)}"
             )
 
         in_price_range = (
@@ -374,29 +296,29 @@ class Momentum(Scanner):
             today_volume,
         )
 
-    async def run(self, back_time: Optional[pd.Timestamp] = None) -> List[str]:
-        """Return the symbols selected by the momentum scanner.
+    async def run(self, now: pd.Timestamp) -> List[str]:
+        """Return the symbols selected by the momentum filter at a time.
 
-        Without back_time, refresh trade_able_symbols and filter the live
-        market snapshot; with it, return the symbols recorded in the database.
+        When live, refresh trade_able_symbols and filter the market snapshot;
+        when backtesting, return the symbols recorded in the database.
 
         Parameters
         ----------
-        back_time: Optional[pd.Timestamp], default None
-            The moment to scan as of, when backtesting.
+        now: pd.Timestamp
+            The time to select as of.
         """
-        if not back_time:
+        if not self.ctx.backtesting:
             self.trade_able_symbols = await self._get_trade_able_symbols()
             return await self.apply_filter_on_market_snapshot(
                 self.momentum_filter
             )
 
-        rows = await self.load_from_db(back_time)
+        rows = await self.load_from_db(now)
 
         logger.info(
-            "Scanner %s -> back_time=%s picked %s",
+            "Filter %s -> now=%s picked %s",
             self.name,
-            back_time,
+            now,
             len(rows),
         )
         return rows

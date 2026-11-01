@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
-from liualgotrader.common.types import Order, SymbolQueueMap
+from liualgotrader.common.types import Order, OrderType, SymbolQueueMap
 from liualgotrader.db.models.algo_run import AlgoRun
 
 
@@ -255,7 +255,7 @@ class TraderAPI:
         symbol: str,
         qty: float,
         side: str,
-        order_type: str,
+        order_type: OrderType,
         time_in_force: str,
         limit_price: str = None,
         stop_price: str = None,
@@ -281,8 +281,8 @@ class TraderAPI:
             The order quantity.
         side: str
             The order direction, buy or sell.
-        order_type: str
-            The order type, such as market or limit.
+        order_type: OrderType
+            The order type, such as OrderType.MARKET or OrderType.LIMIT.
         time_in_force: str
             The order duration, such as day.
         limit_price: str, default None

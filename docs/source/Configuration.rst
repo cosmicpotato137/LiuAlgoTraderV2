@@ -16,10 +16,10 @@ Authentication details should be kept separate from the rest
 of the execution code & configuration to have better protection
 as well as support dockerized executions.
 
-Below is an example of a configuration variables script,
-which is not kept in the repository:
+Below is an example of the environment variables, which are not kept in the
+repository:
 
-.. literalinclude:: ../../examples/env_vars.sh
+.. literalinclude:: ../../examples/.env.example
   :language: bash
   :linenos:
 
@@ -29,7 +29,7 @@ Additional parameters
 LiuAlgoTrader is a multi-processing framework with
 producer-consumers design pattern. There is a
 process for interacting with the data-stream
-providers (e.g `Polygon.io`), a process for scanning
+providers (e.g `Polygon.io`), a process for filtering
 & picking stocks, and other processes specific to consumers.
 
 The number of consumer processes depends on the number of CPU cores, load average and a
@@ -73,15 +73,23 @@ By default the trader application will be looking for
 a configuration file with the name *tradeplan.toml*.
 The configuration file, as it's name implies,
 defines the trade-plan for the trader execution:
-it defines which stock-scanners to use,
-and which algorithmic strategies to applied on the
-selected stocks.
+it defines which filters select stocks under **[filters]**,
+which signals evaluate the selected stocks under **[signals]**,
+and which rules turn the signals into orders under **[rules]**.
+
+Each entry is named by its table key, and its `class`
+setting names the class to instantiate: a dotted import path,
+or a class name together with the `filename` of the Python file
+that defines it. A signal lists its filters under `filters`, and a
+rule lists its signals under `signals`. Every other setting is
+passed to the class, and a setting the class does not take raises
+an error. `recurrence` settings are in minutes.
 
 Following is a sample of TOML configuration file.
-See Scanner and Strategies section respectively
+See the Filters and Strategies sections respectively
 to learn more on the available tools, and how to extend
 them.
 
-.. literalinclude:: ../../examples/tradeplan.toml
+.. literalinclude:: ../../examples/sma_crossover/tradeplan.toml
   :language: bash
   :linenos:

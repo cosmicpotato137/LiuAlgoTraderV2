@@ -28,7 +28,7 @@ ticker_snapshot
 tradeplan
     Load the trade plan entries that assign strategies to portfolios.
 trending_tickers
-    Persist and load the trending symbols found by scanners.
+    Persist and load the trending symbols found by filters.
 """
 
 from liualgotrader.db.models.accounts import Account, AccountTransaction

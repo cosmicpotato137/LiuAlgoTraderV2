@@ -15,22 +15,35 @@ from typing import Dict, List, Optional, Union
 import pandas as pd
 from polygon import WebSocketClient
 from polygon.exceptions import AuthError
+from polygon.websocket.models import EventType as PolygonEventType
 from polygon.websocket.models import Feed, Market
 
 from liualgotrader.common import clock
-from liualgotrader.common.types import SymbolQueueMap, WSEventType
+from liualgotrader.common.types import (QueueMessageType, SymbolQueueMap,
+                                        WSEventType)
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.polygon.config import PolygonConfig
 
 logger = logging.getLogger(__name__)
 
-# Polygon websocket channel prefix of each event type
-_WS_CHANNELS: Dict[WSEventType, str] = {
-    WSEventType.SEC_AGG: "A",
-    WSEventType.MIN_AGG: "AM",
-    WSEventType.TRADE: "T",
-    WSEventType.QUOTE: "Q",
+# Polygon websocket channel of each event type
+_WS_CHANNELS: Dict[WSEventType, PolygonEventType] = {
+    WSEventType.SEC_AGG: PolygonEventType.EquityAgg,
+    WSEventType.MIN_AGG: PolygonEventType.EquityAggMin,
+    WSEventType.TRADE: PolygonEventType.EquityTrade,
+    WSEventType.QUOTE: PolygonEventType.EquityQuote,
 }
+
+# The queue message type of each Polygon event type that is forwarded
+_QUEUE_MESSAGE_TYPES: Dict[PolygonEventType, QueueMessageType] = {
+    PolygonEventType.EquityAgg: QueueMessageType.SECOND_BAR,
+    PolygonEventType.EquityAggMin: QueueMessageType.MINUTE_BAR,
+    PolygonEventType.EquityTrade: QueueMessageType.TRADE,
+    PolygonEventType.EquityQuote: QueueMessageType.QUOTE,
+}
+
+# The raw ev codes of the forwarded Polygon event types
+_FORWARDED_EVENT_CODES = {t.value for t in _QUEUE_MESSAGE_TYPES}
 
 # seconds to wait for the stream task to end after closing the websocket
 _CLOSE_TIMEOUT = 5.0
@@ -111,7 +124,7 @@ class PolygonStream(StreamingAPI):
         Return True.
         """
         args = [
-            f"{_WS_CHANNELS[event]}.{symbol.upper()}"
+            f"{_WS_CHANNELS[event].value}.{symbol.upper()}"
             for symbol in symbols
             for event in events
         ]
@@ -141,7 +154,8 @@ class PolygonStream(StreamingAPI):
         Return True.
         """
         args = [
-            f"{channel}.{symbol.upper()}" for channel in _WS_CHANNELS.values()
+            f"{channel.value}.{symbol.upper()}"
+            for channel in _WS_CHANNELS.values()
         ]
 
         logger.info("unsubscribe(): removing subscription %s", args)
@@ -217,11 +231,16 @@ class PolygonStream(StreamingAPI):
         """
         logger.debug("event: %s", event)
         try:
-            event["EV"] = event["ev"]
+            polygon_type = PolygonEventType(event["ev"])
+            event["EV"] = _QUEUE_MESSAGE_TYPES[polygon_type]
             # aggregates start at s, while trades and quotes happen at t;
             # both are Unix milliseconds, and a trade's s is its size
+            is_aggregate = polygon_type in (
+                PolygonEventType.EquityAgg,
+                PolygonEventType.EquityAggMin,
+            )
             event["timestamp"] = pd.Timestamp(
-                event["s"] if event["ev"] in ("A", "AM") else event["t"],
+                event["s"] if is_aggregate else event["t"],
                 unit="ms",
                 tz="UTC",
             ).tz_convert(clock.NY)
@@ -273,7 +292,7 @@ class PolygonStream(StreamingAPI):
         """
         payload = json.loads(message)
         for event in payload:
-            if event["ev"] in ("A", "AM", "T", "Q"):
+            if event["ev"] in _FORWARDED_EVENT_CODES:
                 cls._handle_event(event)
 
     @classmethod

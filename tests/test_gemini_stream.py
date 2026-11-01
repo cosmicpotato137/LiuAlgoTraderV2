@@ -7,13 +7,18 @@ import pandas as pd
 import pytest
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.types import SymbolQueueMap, WSEventType
+from liualgotrader.common.types import (QueueMessageType, SymbolQueueMap,
+                                        WSEventType)
 from liualgotrader.vendors.gemini.streaming import GeminiStream
 
 logger = logging.getLogger(__name__)
 
 # The (symbol, EV) pairs of the events the test waits for.
-EXPECTED = {("btcusd", "AM"), ("ethusd", "AM"), ("btcusd", "T")}
+EXPECTED = {
+    ("btcusd", QueueMessageType.MINUTE_BAR),
+    ("ethusd", QueueMessageType.MINUTE_BAR),
+    ("btcusd", QueueMessageType.TRADE),
+}
 
 
 @pytest.mark.asyncio

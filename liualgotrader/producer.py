@@ -1,23 +1,14 @@
 """Get market data from data providers and pump it to the consumers.
 
+Classes
+-------
+SymbolRouter
+    Assign symbols to consumer queues and forward filter results.
+
 Functions
 ---------
-get_new_symbols_and_queues
-    Return untracked symbols and assign queues.
-subscribe_new_symbols
-    Subscribe to market data for new symbols.
-scanners_iteration
-    Process one batch of scanner results.
-scanner_input
-    Subscribe to scanner results until cancelled.
-trade_run
-    Run the configured trader.
-dispense_strategies
-    Send trade plan entries to the consumers.
-tradeplan_scanner
-    Dispatch new trade plan entries every five minutes.
-run
-    Start the market data stream.
+filter_input
+    Route the filter results until cancelled.
 producer_async_main
     Set up the producer and run its tasks.
 producer_main
@@ -25,306 +16,175 @@ producer_main
 """
 
 import asyncio
-import inspect
 import json
 import logging
 import os
-import random
 from multiprocessing import Queue
 from queue import Empty
 from typing import Dict, List
 
-import pandas as pd
-
-from liualgotrader.common import clock, config
+from liualgotrader.common import config
 from liualgotrader.common.log import configure_logging
-from liualgotrader.common.types import SymbolQueueMap, WSEventType
-from liualgotrader.db.models.tradeplan import TradePlan
+from liualgotrader.common.types import (QueueMessageType, SymbolQueueMap,
+                                        WSEventType)
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import create_db_connection
+from liualgotrader.strategy.new_base import portfolio_filters
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.stream.factory import streaming_factory
 from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
 
-last_msg_tstamp: pd.Timestamp = clock.now()
-symbols: List[str] = []
-queue_id_hash: Dict[str, int] = {}
-symbol_strategy: Dict = {}
 
+class SymbolRouter:
+    """Assign symbols to consumer queues and forward filter results.
 
-def get_new_symbols_and_queues(
-    symbols_details: Dict, queues: List[Queue], num_consumer_processes: int
-) -> List[str]:
-    """Return the symbols not yet tracked and assign each one a queue.
+    A symbol from a portfolio filter goes to consumer 0, which runs the
+    portfolio rules; any other new symbol goes to the consumer with the
+    fewest symbols. The assignment of a symbol never changes.
 
-    Record the target strategy of each new symbol and map it to a randomly
-    chosen queue in the streaming instance. Leave the tracked list unchanged.
-
-    Parameters
+    Attributes
     ----------
-    symbols_details: Dict
-        The scanner results, each with a symbol and a target strategy name.
     queues: List[Queue]
         The consumer queues.
-    num_consumer_processes: int
-        The number of queues to choose from.
+    portfolio_filters: set[str]
+        The names of the filters that feed a portfolio rule.
+    stream: StreamingAPI
+        The market data stream.
+    assigned: Dict[str, int]
+        The consumer of each symbol, by symbol.
+
+    Methods
+    -------
+    route
+        Assign and subscribe new symbols, and forward filter results.
     """
-    global symbol_strategy
-    global symbols
 
-    new_symbols: List = []
-    for symbol_details in symbols_details:
-        symbol = symbol_details["symbol"].lower()
-        if symbol not in symbols:
-            new_symbols.append(symbol)
-            symbol_strategy[symbol] = symbol_details["target_strategy_name"]
-            StreamingAPI.get_instance().queues[symbol] = queues[
-                random.SystemRandom().randint(0, num_consumer_processes - 1)
-            ]
-
-    return new_symbols
-
-
-async def subscribe_new_symbols(new_symbols: List[str]):
-    """Subscribe the stream to aggregates and trades for new_symbols.
-
-    Parameters
-    ----------
-    new_symbols: List[str]
-        The symbols to subscribe to.
-    """
-    await StreamingAPI.get_instance().subscribe(
-        new_symbols,
-        [
-            WSEventType.SEC_AGG,
-            WSEventType.MIN_AGG,
-            WSEventType.TRADE,
-        ],
-    )
-
-
-async def scanners_iteration(
-    scanner_queue: Queue,
-    queues: List[Queue],
-    num_consumer_processes: int,
-):
-    """Subscribe to the new symbols in one batch of scanner results.
-
-    Save the new symbols to the trending tickers table and add them to the
-    tracked list.
-
-    Parameters
-    ----------
-    scanner_queue: Queue
-        The queue of scanner results.
-    queues: List[Queue]
-        The consumer queues.
-    num_consumer_processes: int
-        The number of consumer queues in use.
-
-    Raises
-    ------
-    Raise Empty if no results arrive within a second.
-    """
-    global symbols
-    symbols_details = scanner_queue.get(timeout=1)
-    if len(
-        new_symbols := get_new_symbols_and_queues(
-            symbols_details=json.loads(symbols_details),
-            queues=queues,
-            num_consumer_processes=num_consumer_processes,
-        )
+    def __init__(
+        self,
+        queues: List[Queue],
+        portfolio_filters: set[str],
+        stream: StreamingAPI,
     ):
-        await subscribe_new_symbols(new_symbols)
-        await TrendingTicker.save_symbols(config.batch_id, new_symbols)
-        symbols += new_symbols
-        logger.info(
-            "added %s:%s..%s TOTAL: %s",
-            len(new_symbols),
-            new_symbols[:20],
-            new_symbols[-20:],
-            len(symbols),
+        """Initialize the router with no symbols assigned.
+
+        Parameters
+        ----------
+        queues: List[Queue]
+            The consumer queues.
+        portfolio_filters: set[str]
+            The names of the filters that feed a portfolio rule.
+        stream: StreamingAPI
+            The market data stream.
+        """
+        self.queues = queues
+        self.portfolio_filters = portfolio_filters
+        self.stream = stream
+        self.assigned: Dict[str, int] = {}
+        self._counts = [0] * len(queues)
+
+    def _assign(self, symbol: str, filter_name: str) -> None:
+        """Assign a new symbol to a consumer queue."""
+        consumer = (
+            0
+            if filter_name in self.portfolio_filters
+            else self._counts.index(min(self._counts))
         )
-        await asyncio.sleep(1)
+        self.assigned[symbol] = consumer
+        self._counts[consumer] += 1
+        self.stream.queues[symbol] = self.queues[consumer]
+
+    async def route(self, filter_name: str, symbols: List[str]) -> None:
+        """Assign and subscribe new symbols, and forward filter results to
+        the proper queue.
+
+        Send every symbol to its consumer as a filter_result message, even
+        when the symbol is already subscribed. Then subscribe the new
+        symbols to second bars, minute bars and trades, and save them as
+        trending tickers. Warn about a portfolio filter's symbol that another
+        consumer already has, since portfolio rules never see it.
+
+        Parameters
+        ----------
+        filter_name: str
+            The name of the filter that selected the symbols.
+        symbols: List[str]
+            The symbols, in lower case.
+        """
+        new_symbols = []
+        for symbol in symbols:
+            if symbol not in self.assigned:
+                self._assign(symbol, filter_name)
+                new_symbols.append(symbol)
+            elif (
+                filter_name in self.portfolio_filters and self.assigned[symbol]
+            ):
+                logger.warning(
+                    "%s from portfolio filter %s is on consumer %s, so "
+                    "portfolio rules will not see it",
+                    symbol,
+                    filter_name,
+                    self.assigned[symbol],
+                )
+            self.queues[self.assigned[symbol]].put(
+                {
+                    "EV": QueueMessageType.FILTER_RESULT,
+                    "symbol": symbol,
+                    "filter_name": filter_name,
+                }
+            )
+
+        if not new_symbols:
+            return
+        await self.stream.subscribe(
+            new_symbols,
+            [WSEventType.SEC_AGG, WSEventType.MIN_AGG, WSEventType.TRADE],
+        )
+        await TrendingTicker.save_symbols(
+            config.batch_id, new_symbols, filter_name
+        )
+        logger.info(
+            "added %s from %s, TOTAL: %s",
+            new_symbols,
+            filter_name,
+            len(self.assigned),
+        )
 
 
-async def scanner_input(
-    scanner_queue: Queue,
-    queues: List[Queue],
-    num_consumer_processes: int,
-) -> None:
-    """Subscribe to the symbols reported by the scanners until cancelled.
+async def filter_input(filter_queue: Queue, router: SymbolRouter) -> None:
+    """Route the results that the filters report until cancelled.
 
     Wait 30 seconds when no results are available. Log other exceptions and
     continue.
 
     Parameters
     ----------
-    scanner_queue: Queue
-        The queue of scanner results.
-    queues: List[Queue]
-        The consumer queues.
-    num_consumer_processes: int
-        The number of consumer queues in use.
+    filter_queue: Queue
+        The queue of filter results, each a JSON object with a filter_name
+        and symbols.
+    router: SymbolRouter
+        The router of the results.
     """
-    logger.info("scanner_input() task starting ")
+    logger.info("filter_input() task starting")
 
     while True:
         try:
-            await scanners_iteration(
-                scanner_queue=scanner_queue,
-                queues=queues,
-                num_consumer_processes=num_consumer_processes,
-            )
+            result = json.loads(filter_queue.get(timeout=1))
+            await router.route(result["filter_name"], result["symbols"])
         except Empty:
             await asyncio.sleep(30)
         except asyncio.CancelledError:
-            logger.info("scanner_input() task task cancelled ")
+            logger.info("filter_input() task cancelled")
             break
-        except Exception as e:
-            logger.error(
-                "Exception in scanner_input(): exception of type %s with args %s",
-                type(e).__name__,
-                e.args,
-                exc_info=config.debug_enabled,
-            )
+        except Exception:
+            logger.exception("Exception in filter_input()")
 
-    logger.info("scanner_input() task completed")
-
-
-async def trade_run(qm: SymbolQueueMap) -> None:
-    """Run the configured trader.
-
-    Parameters
-    ----------
-    qm: QueueMapper
-        The queue mapper passed to the trader.
-    """
-    at = trader_factory(qm)
-    logger.info("trade_run() starting using %s trading", at)
-    await at.run()
-    logger.info("trade_run() completed")
-
-
-async def dispense_strategies(
-    consumer_queues: List[Queue], tradeplan_entries: List[TradePlan]
-) -> None:
-    """Send each trade plan entry to a randomly chosen consumer queue.
-
-    Log a failure to send an entry and continue with the rest.
-
-    Parameters
-    ----------
-    consumer_queues: List[Queue]
-        The consumer queues.
-    tradeplan_entries: List[TradePlan]
-        The trade plan entries to send.
-    """
-    for tradeplan in tradeplan_entries:
-        happy_consumer = consumer_queues[
-            random.SystemRandom().randint(0, len(consumer_queues) - 1)
-        ]
-
-        payload = {
-            "EV": "new_strategy",
-            "parameters": tradeplan.parameters,
-            "portfolio_id": tradeplan.portfolio_id,
-        }
-
-        try:
-            happy_consumer.put(payload)
-        except Exception as e:
-            logger.error(
-                "Exception in dispense_strategies: exception of type %s with args %s",
-                type(e).__name__,
-                e.args,
-                exc_info=config.debug_enabled,
-            )
-
-
-async def tradeplan_scanner(
-    consumer_queues: List[Queue],
-) -> None:
-    """Dispatch new trade plan entries to the consumers every five minutes.
-
-    Send the active entries created since the previous scan. Log exceptions and
-    continue.
-
-    Parameters
-    ----------
-    consumer_queues: List[Queue]
-        The consumer queues.
-    """
-    logger.info("tradeplan_scanner() task starting ")
-
-    last_scan = clock.now()
-    while True:
-        await asyncio.sleep(5 * 60)
-
-        logger.info(
-            "tradeplan_scanner(): check for new execution requests since %s",
-            last_scan,
-        )
-        try:
-            new_tradeplan_entries = await TradePlan.get_new_entries(
-                since=last_scan
-            )
-            last_scan = clock.now()
-
-            if new_tradeplan_entries:
-                logger.info(
-                    "found %s new tradeplan entries for execution",
-                    len(new_tradeplan_entries),
-                )
-                await dispense_strategies(
-                    consumer_queues, new_tradeplan_entries
-                )
-        except Exception as e:
-            logger.error(
-                "tradeplan_scanner() %s", e, exc_info=config.debug_enabled
-            )
-
-    logger.info("tradeplan_scanner() task completed")
-
-
-async def run(
-    queues: List[Queue],
-    qm: SymbolQueueMap,
-) -> None:
-    """Start the market data stream and subscribe to the tracked symbols.
-
-    Map each tracked symbol in qm to its assigned consumer queue.
-
-    Parameters
-    ----------
-    queues: List[Queue]
-        The consumer queues.
-    qm: QueueMapper
-        The queue mapper of the stream.
-    """
-    global queue_id_hash
-
-    ps = streaming_factory(qm)
-    await ps.run()
-    for symbol in symbols:
-        symbol = symbol.lower()
-        qm[symbol] = queues[queue_id_hash[symbol]]
-    await ps.subscribe(
-        symbols, [WSEventType.SEC_AGG, WSEventType.MIN_AGG, WSEventType.TRADE]
-    )
-
-
-"""
-process main
-"""
+    logger.info("filter_input() task completed")
 
 
 async def producer_async_main(
-    queues: List[Queue],
-    scanner_queue: Queue,
-    num_consumer_processes: int,
+    queues: List[Queue], filter_queue: Queue, tradeplan: Dict
 ):
     """Set up the producer and run its tasks until they finish.
 
@@ -335,36 +195,33 @@ async def producer_async_main(
     ----------
     queues: List[Queue]
         The consumer queues.
-    scanner_queue: Queue
-        The queue of scanner results.
-    num_consumer_processes: int
-        The number of consumer queues in use.
+    filter_queue: Queue
+        The queue of filter results.
+    tradeplan: Dict
+        The trade plan.
     """
     await create_db_connection(str(config.dsn))
+    router_filters = portfolio_filters(tradeplan)
+    logger.info("portfolio filters: %s", router_filters)
+
     qm = SymbolQueueMap(queue_list=queues)
-    await run(queues=queues, qm=qm)
+    stream = streaming_factory(qm)
+    await stream.run()
 
-    at = trader_factory(qm)
-    trade_updates_task = await at.run()
+    trade_updates_task = await trader_factory(qm).run()
 
-    scanner_input_task = asyncio.create_task(
-        scanner_input(scanner_queue, queues, num_consumer_processes),
-        name="scanner_input",
-    )
+    tasks = [
+        asyncio.create_task(
+            filter_input(
+                filter_queue, SymbolRouter(queues, router_filters, stream)
+            ),
+            name="filter_input",
+        )
+    ]
+    if trade_updates_task:
+        tasks.append(trade_updates_task)
 
-    tradeplan_scanner_task = asyncio.create_task(
-        tradeplan_scanner(queues), name="tradeplan_scanner"
-    )
-
-    async_tasks_to_gather = [scanner_input_task, tradeplan_scanner_task]
-
-    if inspect.iscoroutinefunction(trade_updates_task):
-        async_tasks_to_gather.append(trade_updates_task)  # type: ignore
-
-    await asyncio.gather(
-        *async_tasks_to_gather,
-        return_exceptions=True,
-    )
+    await asyncio.gather(*tasks, return_exceptions=True)
 
     logger.info("producer_async_main() completed")
 
@@ -372,9 +229,8 @@ async def producer_async_main(
 def producer_main(
     unique_id: str,
     queues: List[Queue],
-    conf_dict: Dict,
-    scanner_queue: Queue,
-    num_consumer_processes: int,
+    tradeplan: Dict,
+    filter_queue: Queue,
 ) -> None:
     """Run the producer process until its tasks complete.
 
@@ -387,28 +243,19 @@ def producer_main(
         The batch identifier of the run.
     queues: List[Queue]
         The consumer queues.
-    conf_dict: Dict
-        Unused.
-    scanner_queue: Queue
-        The queue of scanner results.
-    num_consumer_processes: int
-        The number of consumer queues in use.
+    tradeplan: Dict
+        The trade plan.
+    filter_queue: Queue
+        The queue of filter results.
     """
     configure_logging()
     logger.info("*** producer_main() starting w pid %s ***", os.getpid())
     try:
         config.batch_id = unique_id
-        asyncio.run(
-            producer_async_main(queues, scanner_queue, num_consumer_processes)
-        )
+        asyncio.run(producer_async_main(queues, filter_queue, tradeplan))
     except KeyboardInterrupt:
         logger.info("producer_main() - Caught KeyboardInterrupt")
-    except Exception as e:
-        logger.error(
-            "producer_main() - exception of type %s with args %s",
-            type(e).__name__,
-            e.args,
-            exc_info=config.debug_enabled,
-        )
+    except Exception:
+        logger.exception("producer_main() failed")
 
     logger.info("*** producer_main() completed ***")

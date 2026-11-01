@@ -22,8 +22,6 @@ market_data
     Market data and trading calendar lookups.
 log
     Logging set-up for the framework's processes.
-trading_data
-    Global trading state shared within a process.
 types
     Enumerations and broker-neutral data types shared by the framework.
 """

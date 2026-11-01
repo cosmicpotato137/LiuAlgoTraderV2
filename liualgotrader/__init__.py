@@ -3,13 +3,13 @@
 Modules
 -------
 consumer
-    Execute strategies on streaming data received from the producer.
+    Run the rules of the trade plan on data streamed by the producer.
 enhanced_backtest
-    Backtest scanners and strategies on past market data.
+    Backtest the filters, signals and rules of a trade plan on past data.
+filters_runner
+    Run the filters and pass new symbols to the producer.
 producer
     Get market data from data providers and pump it to the consumers.
-scanners_runner
-    Run the scanners and pass new symbols to the producer.
 
 Subpackages
 -----------
@@ -21,16 +21,16 @@ data
     Historical market data interface.
 db
     Database access through the SQLAlchemy ORM.
+filters
+    Built-in filters that select the symbols to trade.
 fincalcs
     Financial calculations for use by strategies.
 reprocess
     Recalculation of stored portfolio data.
-scanners
-    Scanners that select the symbols to trade.
 scripts
     Command-line entry points of the framework.
-strategies
-    The base class for trading strategies.
+strategy
+    Strategy components and the run state that executes them.
 stream
     Real-time market data streaming interface.
 trade

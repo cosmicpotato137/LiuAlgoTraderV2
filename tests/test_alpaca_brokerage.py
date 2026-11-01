@@ -3,6 +3,7 @@ import logging
 import pytest
 
 from liualgotrader.common import config
+from liualgotrader.common.types import OrderType
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.alpaca.trader import AlpacaTrader
 
@@ -33,7 +34,7 @@ async def test_sell_apple():
             symbol="AAPL",
             qty=2.0,
             side="sell",
-            order_type="market",
+            order_type=OrderType.MARKET,
             on_behalf_of=account_id,
         )
     except AssertionError as e:
@@ -54,7 +55,7 @@ async def test_buy_apple():
             symbol="AAPL",
             qty=2.0,
             side="buy",
-            order_type="market",
+            order_type=OrderType.MARKET,
             on_behalf_of=account_id,
         )
         logger.info("%s", order)

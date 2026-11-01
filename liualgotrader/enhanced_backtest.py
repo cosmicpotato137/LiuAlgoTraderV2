@@ -1,29 +1,20 @@
-"""Backtest scanners and strategies on past market data.
+"""Backtest the filters, signals and rules of a trade plan on past data.
+
+Classes
+-------
+Backtest
+    A backtesting session: its run state, simulated orders and fills.
 
 Functions
 ---------
-create_scanners
-    Instantiate the scanners configured in the trade plan.
-create_strategies
-    Instantiate the strategies configured in the trade plan.
-do_scanners
-    Run the scanners due at a given time and record their results.
-calculate_execution_price
-    Return the simulated execution price of an order.
-do_strategy_result
-    Simulate a strategy's order and record the trade.
-do_strategy_all
-    Run a strategy's run_all method and execute its orders.
-do_strategy_by_symbol
-    Run a strategy's run method for each symbol.
-do_strategy
-    Run a strategy through run_all or run, as should_run_all selects.
-get_day_start_end
-    Return the start and end timestamps of a trading day.
-backtest_day
-    Simulate a single trading day, one time step at a time.
-backtest_time_range
-    Run the backtest for every trading day in a range.
+select_rules
+    Return a trade plan with only some of its rules.
+trading_sessions
+    Yield the start and end of each trading day in a date range.
+net_cash_flow
+    Return the sell value minus the buy value and fees of some trades.
+write_results
+    Write the trades and the summary of a session to files.
 backtest_main
     Prepare and run a complete backtesting session.
 backtest
@@ -31,661 +22,83 @@ backtest
 """
 
 import asyncio
-import inspect
+import itertools
 import logging
 import uuid
 from datetime import date, time
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple, cast
 
 import pandas as pd
+from alpaca.trading.models import Calendar
 from alpaca.trading.requests import GetCalendarRequest
 
-from liualgotrader.common import clock, config, trading_data
+from liualgotrader.common import clock, config
 from liualgotrader.common.concurrency import get_event_loop
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.types import AssetType, TimeScale
-from liualgotrader.db.models.new_trades import NewTrade
+from liualgotrader.common.types import AssetType, Order, OrderType, TimeScale
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.scanners.base import Scanner  # type: ignore
-from liualgotrader.scanners_runner import create_momentum_scanner
-from liualgotrader.strategy.base import Strategy
-from liualgotrader.trade.base import TraderAPI
+from liualgotrader.strategy.new_base import (Component, Context, Filter,
+                                             OrderRequest, PortfolioRule,
+                                             StrategyGraph, tradeplan_links)
+from liualgotrader.strategy.runtime import OpenOrder, RunState
 from liualgotrader.trade.factory import trader_factory
 from liualgotrader.vendors.alpaca.data import AlpacaData
 
 logger = logging.getLogger(__name__)
 
-run_scanners: Dict[Scanner, pd.Timestamp] = {}
-symbol_data: Dict[str, pd.DataFrame] = {}
-portfolio_value: float = 100000
+# The columns of the trades of a session.
+TRADE_COLUMNS = ["time", "rule", "symbol", "side", "qty", "price", "fee"]
 
 
-async def create_scanners(
-    data_loader: DataLoader,
-    scanners_conf: Dict,
-    scanner_names: Optional[List],
-) -> List[Scanner]:
-    """Instantiate the scanners configured in the trade plan.
+def select_rules(tradeplan: Dict, rule_names: Optional[List[str]]) -> Dict:
+    """Return a trade plan with only some of its rules.
+
+    Keep the signals of the selected rules, and the filters of those signals.
 
     Parameters
     ----------
-    data_loader: DataLoader
-        The loader passed to every scanner.
-    scanners_conf: Dict
-        The scanner settings, keyed by scanner name; the "filename" entry of a
-        custom scanner is removed.
-    scanner_names: Optional[List]
-        The scanners to create, or None or empty for all.
-
-    Returns
-    -------
-    Return the scanners in configuration order.
-    """
-    scanners: List = []
-    for scanner_name in scanners_conf:
-        if scanner_names and scanner_name not in scanner_names:
-            continue
-        logger.info("scanner %s selected", scanner_name)
-        if scanner_name == "momentum":
-            scanners.append(
-                await create_momentum_scanner(
-                    None, data_loader, scanners_conf[scanner_name]  # type: ignore
-                )
-            )
-        else:
-            scanners.append(
-                await Scanner.get_scanner(
-                    data_loader=data_loader,
-                    scanner_name=scanner_name,
-                    scanner_details=scanners_conf[scanner_name],
-                )
-            )
-
-    return scanners
-
-
-async def create_strategies(
-    uid: str,
-    conf_dict: Dict,
-    dl: DataLoader,
-    strategy_names: Optional[List],
-) -> List[Strategy]:
-    """Instantiate the strategies configured in the trade plan.
-
-    Set config.env to "BACKTEST".
-
-    Parameters
-    ----------
-    uid: str
-        The batch identifier of the strategies.
-    conf_dict: Dict
-        The strategy settings, keyed by strategy name; each "filename" entry is
-        removed.
-    dl: DataLoader
-        The loader passed to every strategy.
-    strategy_names: Optional[List]
-        The strategies to create, or None or empty for all.
-
-    Returns
-    -------
-    Return the strategies in configuration order, with None for a strategy
-    whose create method returned False.
-    """
-    strategies = []
-    config.env = "BACKTEST"
-
-    for strategy_name in conf_dict:
-        if strategy_names and strategy_name not in strategy_names:
-            continue
-        strategy_details = conf_dict[strategy_name]
-        strategies.append(
-            await Strategy.get_strategy(
-                batch_id=uid,
-                strategy_name=strategy_name,
-                strategy_details=strategy_details,
-                data_loader=dl,
-            )
-        )
-
-    return strategies
-
-
-async def do_scanners(
-    now: pd.Timestamp, scanners: List[Scanner], symbols: Dict
-) -> Dict:
-    """Run the scanners that are due at a given time and record their results.
-
-    A scanner without a recurrence runs at most once per calendar day, and any
-    other scanner runs once its recurrence has elapsed.
-
-    Parameters
-    ----------
-    now: pd.Timestamp
-        The simulated current time.
-    scanners: List[Scanner]
-        The scanners to consider.
-    symbols: Dict
-        The scanned symbols, keyed by target strategy name or "_all"; updated
-        in place.
-
-    Returns
-    -------
-    Return symbols.
-    """
-    for scanner in scanners:
-        if scanner in run_scanners:
-            if not scanner.recurrence:
-                if now.date() == run_scanners[scanner].date():
-                    continue
-            elif (now - run_scanners[scanner]) < scanner.recurrence:
-                continue
-
-        run_scanners[scanner] = now
-        new_symbols = await scanner.run(back_time=now)
-        target_strategy_name = scanner.target_strategy_name
-
-        target_strategy_name = target_strategy_name or "_all"
-
-        symbols[target_strategy_name] = new_symbols
-
-        # list(
-        #    set(symbols.get(target_strategy_name, [])).union(set(new_symbols))
-        # )
-
-    return symbols
-
-
-async def calculate_execution_price(
-    symbol: str, data_loader: DataLoader, what: Dict, now: pd.Timestamp
-) -> float:
-    """Return the simulated execution price of an order at a given time.
-
-    Fill a market order or a limit buy at the closing price, and a limit sell
-    at its limit price.
-
-    Parameters
-    ----------
-    symbol: str
-        The symbol of the order.
-    data_loader: DataLoader
-        The loader that provides closing prices.
-    what: Dict
-        The order, with a "type" and, unless it is "market", a "side" and a
-        "limit_price".
-    now: pd.Timestamp
-        The time of execution.
+    tradeplan: Dict
+        The trade plan; it is not modified.
+    rule_names: Optional[List[str]]
+        The rules to keep, or None or empty for all.
 
     Raises
     ------
-    Raise Exception if a limit order cannot be filled at the closing price.
+    Raise ValueError if a selected rule is not in the trade plan, and the
+    exceptions of tradeplan_links.
     """
-    if what["type"] == "market":
-        return data_loader[symbol].close[now]
+    if not rule_names:
+        return tradeplan
 
-    price_limit = float(what["limit_price"])
-    if what["side"] == "buy":
-        if data_loader[symbol].close[now] <= price_limit:
-            return data_loader[symbol].close[now]
-        else:
-            raise Exception(
-                f"can not buy: limit price {price_limit} below market price {data_loader[symbol].close[now]}"
-            )
+    signal_filters, rule_signals = tradeplan_links(tradeplan)
+    if unknown := set(rule_names) - set(rule_signals):
+        raise ValueError(f"unknown rules: {sorted(unknown)}")
+    signal_names = {s for r in rule_names for s in rule_signals[r]}
+    filter_names = {f for s in signal_names for f in signal_filters[s]}
 
-    if data_loader[symbol].close[now] >= price_limit:
-        return price_limit
-    else:
-        raise Exception(
-            f"can not sell: limit price {price_limit} above market price {data_loader[symbol].close[now]}"
-        )
-
-
-async def do_strategy_result(
-    data_loader: DataLoader,
-    strategy: Strategy,
-    symbol: str,
-    now: pd.Timestamp,
-    what: Dict,
-    buy_fee_percentage: float = 0.0,
-    sell_fee_percentage: float = 0.0,
-) -> bool:
-    """Simulate the execution of a strategy's order and record the trade.
-
-    Notify the strategy through its buy or sell callback, update the positions
-    in trading_data and save the trade to the database.
-
-    Parameters
-    ----------
-    data_loader: DataLoader
-        The loader that provides prices.
-    strategy: Strategy
-        The strategy that placed the order.
-    symbol: str
-        The symbol of the order.
-    now: pd.Timestamp
-        The time of execution.
-    what: Dict
-        The order, with a "qty", a "side" and the fields required by
-        calculate_execution_price.
-    buy_fee_percentage: float, default 0.0
-        The buy fee, as a percentage of the trade value.
-    sell_fee_percentage: float, default 0.0
-        The sell fee, as a percentage of the trade value.
-
-    Returns
-    -------
-    Return True on success, or False, with no other effect, if pricing or the
-    callback fails.
-    """
-    global portfolio_value
-
-    qty = float(what["qty"])
-    sign = (
-        1
-        if (
-            what["side"] == "buy"
-            and qty > 0
-            or what["side"] == "sell"
-            and qty < 0
-        )
-        else -1
-    )
-
-    try:
-        price = await calculate_execution_price(
-            symbol=symbol, data_loader=data_loader, what=what, now=now
-        )
-        if what["side"] == "buy":
-            fee = price * qty * buy_fee_percentage / 100.0
-
-            sig = inspect.signature(strategy.buy_callback)
-            if "trade_fee" in sig.parameters:
-                await strategy.buy_callback(symbol, price, qty, now, fee)
-            else:
-                await strategy.buy_callback(symbol, price, qty, now)
-
-        elif what["side"] == "sell":
-            fee = price * qty * sell_fee_percentage / 100.0
-            sig = inspect.signature(strategy.buy_callback)
-            if "trade_fee" in sig.parameters:
-                await strategy.sell_callback(symbol, price, qty, now, fee)
-            else:
-                await strategy.sell_callback(symbol, price, qty, now)
-    except Exception as e:
-        logger.error(
-            "do_strategy_result(%s, %s, %s) failed w/ %s. operation not executed",
-            symbol,
-            what,
-            now,
-            e,
-        )
-        return False
-
-    try:
-        trading_data.positions[symbol] = (
-            trading_data.positions[symbol] + sign * qty
-        )
-    except KeyError:
-        trading_data.positions[symbol] = sign * qty
-
-    trading_data.buy_time[symbol] = now.replace(
-        second=0, microsecond=0, nanosecond=0
-    )
-    trading_data.last_used_strategy[symbol] = strategy
-
-    db_trade = NewTrade(
-        algo_run_id=strategy.algo_run.algo_run_id,
-        symbol=symbol,
-        qty=qty,
-        operation=what["side"],
-        price=price,
-        indicators={},
-    )
-
-    await db_trade.save(
-        now,
-        (
-            trading_data.stop_prices[symbol]
-            if symbol in trading_data.stop_prices
-            else 0.0
-        ),
-        (
-            trading_data.target_prices[symbol]
-            if symbol in trading_data.target_prices
-            else 0.0
-        ),
-        fee,
-    )
-
-    return True
+    plan = dict(tradeplan)
+    plan["rules"] = {name: tradeplan["rules"][name] for name in rule_names}
+    plan["signals"] = {
+        name: spec
+        for name, spec in tradeplan["signals"].items()
+        if name in signal_names
+    }
+    plan["filters"] = {
+        name: spec
+        for name, spec in tradeplan.get("filters", {}).items()
+        if name in filter_names
+    }
+    return plan
 
 
-async def do_strategy_all(
-    data_loader: DataLoader,
-    now: pd.Timestamp,
-    strategy: Strategy,
-    symbols: List[str],
-    trader: TraderAPI,
-    buy_fee_percentage: float,
-    sell_fee_percentage: float,
-):
-    """Run a strategy's run_all method once and execute the returned orders.
+def trading_sessions(
+    from_date: date, to_date: date, asset_type: AssetType
+) -> Iterator[Tuple[pd.Timestamp, pd.Timestamp]]:
+    """Yield the start and end of each trading day in a date range.
 
-    Execute all other orders before buy orders.
-
-    Parameters
-    ----------
-    data_loader: DataLoader
-        The loader passed to the strategy.
-    now: pd.Timestamp
-        The simulated current time.
-    strategy: Strategy
-        The strategy to run.
-    symbols: List[str]
-        The symbols to include in the strategy's positions.
-    trader: Trader
-        The trader passed to the strategy.
-    buy_fee_percentage: float
-        The buy fee, as a percentage of the trade value.
-    sell_fee_percentage: float
-        The sell fee, as a percentage of the trade value.
-
-    Raises
-    ------
-    Log and re-raise any exception.
-    """
-    try:
-        sig = inspect.signature(strategy.run_all)
-        param = {
-            "symbols_position": dict(
-                {symbol: 0 for symbol in symbols}, **trading_data.positions
-            ),
-            "now": now,
-            "portfolio_value": portfolio_value,
-            "backtesting": True,
-            "data_loader": data_loader,
-            "trader": trader,
-        }
-        if "fee_buy_percentage" in sig.parameters:
-            param["fee_buy_percentage"] = buy_fee_percentage
-        if "fee_sell_percentage" in sig.parameters:
-            param["fee_sell_percentage"] = sell_fee_percentage
-        do = await strategy.run_all(**param)
-        items = list(do.items())
-        items.sort(key=lambda x: int(x[1]["side"] == "buy"))
-        for symbol, what in items:
-            await do_strategy_result(
-                data_loader,
-                strategy,
-                symbol,
-                now,
-                what,
-                buy_fee_percentage,
-                sell_fee_percentage,
-            )
-
-    except Exception as e:
-        logger.exception("%s %s->%s", now, strategy, e)
-        raise
-
-
-async def do_strategy_by_symbol(
-    data_loader: DataLoader,
-    now: pd.Timestamp,
-    strategy: Strategy,
-    symbols: List[str],
-):
-    """Run a strategy's run method for each symbol and execute its orders.
-
-    Execute orders without trading fees.
-
-    Parameters
-    ----------
-    data_loader: DataLoader
-        The loader that provides symbol data.
-    now: pd.Timestamp
-        The simulated current time.
-    strategy: Strategy
-        The strategy to run.
-    symbols: List[str]
-        The symbols to run the strategy on.
-
-    Raises
-    ------
-    Log and skip a symbol that raises ValueError, and log and re-raise any
-    other exception.
-    """
-    global portfolio_value
-    for symbol in symbols:
-        try:
-            _ = data_loader[symbol][now - pd.Timedelta(days=1) : now]
-            do, what = await strategy.run(
-                symbol=symbol,
-                shortable=True,
-                position=trading_data.positions.get(symbol, 0.0),
-                now=now,
-                portfolio_value=portfolio_value,
-                backtesting=True,
-                minute_history=data_loader[symbol].symbol_data[:now],  # type: ignore
-            )
-
-            if do:
-                await do_strategy_result(
-                    data_loader, strategy, symbol, now, what
-                )
-        except ValueError:
-            logger.info(
-                "symbol %s for now have data in the range %s-%s",
-                symbol,
-                now - pd.Timedelta(days=1),
-                now,
-            )
-        except Exception as e:
-            logger.error(
-                "%s %s(%s):`%s`",
-                now,
-                strategy,
-                symbol,
-                e,
-                exc_info=config.debug_enabled,
-            )
-            raise
-
-
-async def do_strategy(
-    data_loader: DataLoader,
-    now: pd.Timestamp,
-    strategy: Strategy,
-    symbols: List[str],
-    trader: TraderAPI,
-    buy_fee_percentage: float,
-    sell_fee_percentage: float,
-):
-    """Run a strategy through run_all or run, as its should_run_all selects.
-
-    Parameters
-    ----------
-    data_loader: DataLoader
-        The loader that provides symbol data.
-    now: pd.Timestamp
-        The simulated current time.
-    strategy: Strategy
-        The strategy to run.
-    symbols: List[str]
-        The symbols to run the strategy on.
-    trader: Trader
-        The trader, used only by run_all.
-    buy_fee_percentage: float
-        The buy fee percentage, used only by run_all.
-    sell_fee_percentage: float
-        The sell fee percentage, used only by run_all.
-    """
-    if await strategy.should_run_all():
-        await do_strategy_all(
-            data_loader,
-            now,
-            strategy,
-            symbols,
-            trader,
-            buy_fee_percentage,
-            sell_fee_percentage,
-        )
-    else:
-        await do_strategy_by_symbol(data_loader, now, strategy, symbols)
-
-
-def get_day_start_end(asset_type, day):
-    """Return the start and end timestamps of a trading day.
-
-    A US equities day spans market hours and a crypto day spans the whole date,
-    both in New York time.
-
-    Parameters
-    ----------
-    asset_type
-        The type of asset traded.
-    day
-        A market calendar entry for US equities, or a date for crypto.
-
-    Raises
-    ------
-    Raise AssertionError for any other asset type.
-    """
-    if asset_type == AssetType.US_EQUITIES:
-        # Calendar.open and Calendar.close are naive New York times
-        day_start = pd.Timestamp(day.open).tz_localize(clock.NY)
-        day_end = pd.Timestamp(day.close).tz_localize(clock.NY)
-    elif asset_type == AssetType.CRYPTO:
-        day_start = pd.Timestamp(day, tz=clock.NY)
-        day_end = pd.Timestamp.combine(day, time.max).tz_localize(clock.NY)
-    else:
-        raise AssertionError(
-            f"get_day_start_end(): asset type {asset_type} not yet supported"
-        )
-
-    return day_start, day_end
-
-
-async def backtest_day(
-    day,
-    scanners,
-    symbols,
-    strategies,
-    scale,
-    data_loader,
-    asset_type: AssetType,
-    trader: TraderAPI,
-    buy_fee_percentage: float,
-    sell_fee_percentage: float,
-):
-    """Simulate a single trading day, one time step at a time.
-
-    At each step, run the due scanners and run each strategy on the symbols
-    scanned for it or for all strategies.
-
-    Parameters
-    ----------
-    day
-        The day, as accepted by get_day_start_end.
-    scanners
-        The scanners to run.
-    symbols
-        The scanned symbols, keyed by target strategy name or "_all"; updated
-        in place.
-    strategies
-        The strategies to run.
-    scale
-        The time step of the simulation.
-    data_loader
-        The loader that provides symbol data.
-    asset_type: AssetType
-        The type of asset traded.
-    trader: Trader
-        The trader passed to the strategies.
-    buy_fee_percentage: float
-        The buy fee, as a percentage of the trade value.
-    sell_fee_percentage: float
-        The sell fee, as a percentage of the trade value.
-
-    Raises
-    ------
-    Log and re-raise TypeError if a scanner result is not a list of symbols.
-    """
-    day_start, day_end = get_day_start_end(asset_type, day)
-    logger.debug("%s %s", day_start, day_end)
-    current_time = day_start
-    prefetched: List[str] = []
-    while current_time < day_end:
-        symbols = await do_scanners(current_time, scanners, symbols)
-        trading_data.positions = {
-            symbol: trading_data.positions[symbol]
-            for symbol in trading_data.positions
-            if trading_data.positions[symbol] != 0
-        }
-
-        prefetch = [
-            item
-            for sublist in symbols.values()
-            for item in sublist
-            if item not in prefetched
-        ]
-        for symbol in prefetch:
-            logger.info(
-                "Prefetch data for %s@%s-%s", symbol, day_start, day_end
-            )
-
-            data_loader[symbol][day_start:day_end]
-            prefetched.append(symbol)
-
-        for strategy in strategies:
-            try:
-                trading_data.positions |= {
-                    symbol: 0
-                    for symbol in symbols.get(strategy.name, [])
-                    + symbols.get("_all", [])
-                    if symbol not in trading_data.positions
-                }
-
-            except TypeError as e:
-                logger.error(
-                    "%s (hint: check scanner(s) return list of symbols?)",
-                    e,
-                    exc_info=config.debug_enabled,
-                )
-                raise
-
-            strategy_symbols = list(
-                set(symbols.get("_all", [])).union(
-                    set(symbols.get(strategy.name, []))
-                )
-            )
-            await do_strategy(
-                data_loader,
-                current_time,
-                strategy,
-                strategy_symbols,
-                trader,
-                buy_fee_percentage,
-                sell_fee_percentage,
-            )
-
-        current_time += pd.Timedelta(seconds=scale.value)
-
-
-async def backtest_time_range(
-    from_date: date,
-    to_date: date,
-    scale: TimeScale,
-    data_loader: DataLoader,
-    buy_fee_percentage: float,
-    sell_fee_percentage: float,
-    asset_type: AssetType,
-    scanners: Optional[List] = None,
-    strategies: Optional[List] = None,
-):
-    """Run the backtest for every trading day in a date range.
-
-    Use the Alpaca market calendar for US equities and every calendar day for
-    crypto.
+    A US equities day spans the market hours of the Alpaca market calendar,
+    and a crypto day spans the whole of every calendar day, both in New York
+    time.
 
     Parameters
     ----------
@@ -693,52 +106,320 @@ async def backtest_time_range(
         The first day of the range.
     to_date: date
         The last day of the range.
-    scale: TimeScale
-        The time step of the simulation.
-    data_loader: DataLoader
-        The loader that provides symbol data.
-    buy_fee_percentage: float
-        The buy fee, as a percentage of the trade value.
-    sell_fee_percentage: float
-        The sell fee, as a percentage of the trade value.
     asset_type: AssetType
         The type of asset traded.
-    scanners: Optional[List], default None
-        The scanners to run.
-    strategies: Optional[List], default None
-        The strategies to run.
 
     Raises
     ------
     Raise AssertionError for any other asset type.
     """
     if asset_type == AssetType.US_EQUITIES:
-        trade_api = AlpacaData(config.alpaca).trading_client
-        calendars = trade_api.get_calendar(
-            GetCalendarRequest(start=from_date, end=to_date)
+        calendar = cast(
+            List[Calendar],
+            AlpacaData(config.alpaca).trading_client.get_calendar(
+                GetCalendarRequest(start=from_date, end=to_date)
+            ),
         )
+        for day in calendar:
+            # Calendar.open and Calendar.close are naive New York times
+            yield (
+                pd.Timestamp(day.open).tz_localize(clock.NY),
+                pd.Timestamp(day.close).tz_localize(clock.NY),
+            )
     elif asset_type == AssetType.CRYPTO:
-        calendars = [
-            t.date() for t in pd.date_range(from_date, to_date).to_list()
-        ]
+        for day in pd.date_range(from_date, to_date):
+            yield (
+                pd.Timestamp(day.date(), tz=clock.NY),
+                pd.Timestamp.combine(day.date(), time.max).tz_localize(
+                    clock.NY
+                ),
+            )
     else:
         raise AssertionError(f"Asset type {asset_type} not supported yet")
 
-    symbols: Dict = {}
 
-    for day in calendars:
-        await backtest_day(
-            day=day,
-            scanners=scanners,
-            symbols=symbols,
-            strategies=strategies,
-            scale=scale,
-            data_loader=data_loader,
-            asset_type=asset_type,
-            trader=trader_factory(),
-            buy_fee_percentage=buy_fee_percentage,
-            sell_fee_percentage=sell_fee_percentage,
+class Backtest:
+    """A backtesting session: its run state, simulated orders and fills.
+
+    Each step of a day runs at the time of a bar. A step fills the orders of
+    the previous step at the open of its bar, runs the filters that are due,
+    then asks the rules for orders exactly as the live consumer does.
+
+    Attributes
+    ----------
+    ctx: Context
+        The context of the session.
+    state: RunState
+        The universes, positions, open orders and owners of the session.
+    scale: TimeScale
+        The time between steps.
+    buy_fee_percentage: float
+        The buy fee, as a percentage of the trade value.
+    sell_fee_percentage: float
+        The sell fee, as a percentage of the trade value.
+    trades: List[Dict]
+        The fills, with the fields of TRADE_COLUMNS.
+
+    Methods
+    -------
+    run
+        Simulate every trading day in a date range.
+    run_day
+        Simulate a trading day.
+    step
+        Simulate one step of a day.
+    """
+
+    def __init__(
+        self,
+        ctx: Context,
+        graph: StrategyGraph,
+        scale: TimeScale,
+        buy_fee_percentage: float = 0.0,
+        sell_fee_percentage: float = 0.0,
+    ):
+        """Initialize a session with no positions or orders.
+
+        Parameters
+        ----------
+        ctx: Context
+            The context of the session, with backtesting set.
+        graph: StrategyGraph
+            The components of the trade plan.
+        scale: TimeScale
+            The time between steps.
+        buy_fee_percentage: float, default 0.0
+            The buy fee, as a percentage of the trade value.
+        sell_fee_percentage: float, default 0.0
+            The sell fee, as a percentage of the trade value.
+        """
+        self.ctx = ctx
+        self.state = RunState(graph)
+        self.scale = scale
+        self.buy_fee_percentage = buy_fee_percentage
+        self.sell_fee_percentage = sell_fee_percentage
+        self.trades: List[Dict] = []
+        self._order_ids = itertools.count(1)
+        self._last_run: Dict[Component, pd.Timestamp] = {}
+
+    def _steps(
+        self, day_start: pd.Timestamp, day_end: pd.Timestamp
+    ) -> pd.DatetimeIndex:
+        """Return the bar times of a day: one per minute, or one per day."""
+        if self.scale == TimeScale.day:
+            return pd.DatetimeIndex([day_start.normalize()])
+        return pd.date_range(
+            day_start, day_end, freq=f"{self.scale.value}s", inclusive="left"
         )
+
+    def _due(
+        self, component: Filter | PortfolioRule, now: pd.Timestamp
+    ) -> bool:
+        """Return whether a filter or rule runs at now, and record it if so.
+
+        A filter without a recurrence runs once a day.
+        """
+        last = self._last_run.get(component)
+        recurrence = component.recurrence
+        due = (
+            last is None
+            or (recurrence is None and last.date() != now.date())
+            or (recurrence is not None and now - last >= recurrence)
+        )
+        if due:
+            self._last_run[component] = now
+        return due
+
+    async def run(
+        self, from_date: date, to_date: date, asset_type: AssetType
+    ) -> None:
+        """Simulate every trading day in a date range.
+
+        Parameters
+        ----------
+        from_date: date
+            The first day of the range.
+        to_date: date
+            The last day of the range.
+        asset_type: AssetType
+            The type of asset traded.
+        """
+        for day_start, day_end in trading_sessions(
+            from_date, to_date, asset_type
+        ):
+            await self.run_day(day_start, day_end)
+
+    async def run_day(
+        self, day_start: pd.Timestamp, day_end: pd.Timestamp
+    ) -> None:
+        """Simulate a trading day.
+
+        Start with empty filter universes, so that only the rules' own
+        symbols carry over from the previous day. Compute indicators and
+        signals through the end of the day on first use, which their causal
+        compute allows, so that later steps read them from the cache. With
+        minute steps, cancel the orders still open at the end of the day, as
+        day orders expire at the close; with daily steps, they fill at the
+        next day's open.
+
+        Parameters
+        ----------
+        day_start: pd.Timestamp
+            The start of the day.
+        day_end: pd.Timestamp
+            The end of the day.
+        """
+        self.state.universes.clear()
+        self.ctx.compute_through = day_end
+        for now in self._steps(day_start, day_end):
+            await self.step(now)
+        if self.scale != TimeScale.day:
+            for order_id in list(self.state.open_orders):
+                await self.state.cancel(order_id)
+
+    async def step(self, now: pd.Timestamp) -> None:
+        """Simulate the step of a day at the time of a bar.
+
+        Fill the orders of the previous step and run the filters that are
+        due. Then ask the symbol rules for orders on every symbol in a
+        universe or owned by a rule, and the portfolio rules whose recurrence
+        elapsed, and place the orders, sells before buys.
+
+        Parameters
+        ----------
+        now: pd.Timestamp
+            The time of the bar.
+        """
+        await self._fill_open_orders(now)
+
+        for name, selector in self.state.graph.filters.items():
+            if self._due(selector, now):
+                for symbol in await selector.select(now):
+                    self.state.add_symbol(name, symbol)
+
+        decisions = []
+        for symbol in sorted(self.state.symbols()):
+            decisions += await self.state.decide_symbol(symbol, now)
+        for rule in self.state.graph.rules.values():
+            if isinstance(rule, PortfolioRule) and self._due(rule, now):
+                decisions += await self.state.decide_portfolio(rule, now)
+
+        async def place(request: OrderRequest) -> Order:
+            return Order(
+                order_id=str(next(self._order_ids)),
+                symbol=request.symbol,
+                event=Order.EventType.open,
+                submitted_at=now,
+                price=request.limit_price,
+                side=request.side,
+            )
+
+        await self.state.submit(decisions, place)
+
+    async def _fill_open_orders(self, now: pd.Timestamp) -> None:
+        """Fill the open orders at the open of the bar at now.
+
+        Leave an order open while its symbol has no bar at now. Cancel a limit
+        order that the bar does not trade through.
+        """
+        for order_id, open_order in list(self.state.open_orders.items()):
+            bars = self.ctx.bars(open_order.request.symbol, now, now)
+            if bars.empty:
+                continue
+            price = _execution_price(open_order.request, bars.iloc[-1])
+            if price is None:
+                await self.state.cancel(order_id)
+            else:
+                await self._fill(open_order, price, now)
+
+    async def _fill(
+        self, open_order: OpenOrder, price: float, now: pd.Timestamp
+    ) -> None:
+        """Fill an open order completely at a price, and record the trade."""
+        request = open_order.request
+        is_buy = request.side == Order.FillSide.buy
+        fee = (
+            price
+            * request.qty
+            * (self.buy_fee_percentage if is_buy else self.sell_fee_percentage)
+            / 100.0
+        )
+        self.trades.append(
+            {
+                "time": now,
+                "rule": open_order.rule.name,
+                "symbol": request.symbol,
+                "side": request.side.name,
+                "qty": request.qty,
+                "price": price,
+                "fee": fee,
+            }
+        )
+        await self.state.fill_order(open_order, request.qty, price, fee, now)
+
+
+def _execution_price(request: OrderRequest, bar: pd.Series) -> Optional[float]:
+    """Return the price at which a bar fills an order, or None.
+
+    Fill a market order at the open. Fill a limit order at the open if the
+    open is at or better than the limit, at the limit if the bar trades
+    through it later, and not at all otherwise.
+    """
+    if request.type == OrderType.MARKET:
+        return float(bar["open"])
+    limit = float(request.limit_price)  # type: ignore
+    if request.side == Order.FillSide.buy:
+        return min(float(bar["open"]), limit) if bar["low"] <= limit else None
+    return max(float(bar["open"]), limit) if bar["high"] >= limit else None
+
+
+def write_results(
+    batch_id: str, trades: pd.DataFrame, positions: Dict[str, Dict]
+) -> None:
+    """Write the trades and the summary of a session to files.
+
+    Write the trades to <batch_id>-trades.csv, and the net cash flow, the
+    number of trades and the open positions of each rule to
+    <batch_id>-summary.txt, both in the current directory.
+
+    Parameters
+    ----------
+    batch_id: str
+        The batch identifier of the session.
+    trades: pd.DataFrame
+        The trades, with the columns of TRADE_COLUMNS.
+    positions: Dict[str, Dict]
+        The open positions of each rule, by rule name and symbol.
+    """
+    trades.to_csv(f"{batch_id}-trades.csv", index=False)
+
+    lines = [f"batch-id: {batch_id}"]
+    for rule, rule_positions in positions.items():
+        rule_trades = trades[trades.rule == rule]
+        lines += [
+            f"rule {rule}:",
+            f"  net cash flow: {net_cash_flow(rule_trades):.2f}",
+            f"  trades: {len(rule_trades)}",
+            f"  open positions: {rule_positions}",
+        ]
+    with open(f"{batch_id}-summary.txt", "w") as summary:
+        summary.write("\n".join(lines) + "\n")
+
+
+def net_cash_flow(trades: pd.DataFrame) -> float:
+    """Return the sell value minus the buy value and fees of some trades.
+
+    Parameters
+    ----------
+    trades: pd.DataFrame
+        The trades, with the columns of TRADE_COLUMNS.
+    """
+    value = trades.price * trades.qty
+    return float(
+        value[trades.side == "sell"].sum()
+        - value[trades.side == "buy"].sum()
+        - trades.fee.sum()
+    )
 
 
 async def backtest_main(
@@ -750,13 +431,13 @@ async def backtest_main(
     buy_fee_percentage: float,
     sell_fee_percentage: float,
     asset_type: AssetType,
-    scanners: Optional[List] = None,
-    strategies: Optional[List] = None,
-) -> None:
+    rules: Optional[List[str]] = None,
+) -> pd.DataFrame:
     """Prepare and run a complete backtesting session.
 
-    Connect to the database, and set the module-level portfolio value from the
-    trade plan when it has one.
+    Connect to the database, which the momentum filter reads, and create the
+    components of the trade plan with a context of their own. Write the
+    results with write_results.
 
     Parameters
     ----------
@@ -769,18 +450,20 @@ async def backtest_main(
     scale: TimeScale
         The time scale of the simulation.
     tradeplan: Dict
-        The trade plan, with a "strategies" section and an optional "scanners"
-        section and "portfolio_value" setting.
+        The trade plan.
     buy_fee_percentage: float
         The buy fee, as a percentage of the trade value.
     sell_fee_percentage: float
         The sell fee, as a percentage of the trade value.
     asset_type: AssetType
         The type of asset traded.
-    scanners: Optional[List], default None
-        The names of the scanners to create, or None for all.
-    strategies: Optional[List], default None
-        The names of the strategies to create, or None for all.
+    rules: Optional[List[str]], default None
+        The names of the rules to backtest, with their signals and filters,
+        or None for all.
+
+    Returns
+    -------
+    Return the trades, with the columns of TRADE_COLUMNS.
     """
     logger.info(
         "Starting back-test from %s to %s with time scale %s",
@@ -788,41 +471,28 @@ async def backtest_main(
         to_date,
         scale,
     )
-    if scanners:
-        logger.info("with scanners:%s", scanners)
-    if strategies:
-        logger.info("with strategies:%s", strategies)
-
-    if "portfolio_value" in tradeplan:
-        global portfolio_value
-        portfolio_value = tradeplan["portfolio_value"]
+    if rules:
+        logger.info("with rules:%s", rules)
 
     await create_db_connection()
 
-    data_loader = DataLoader(scale)
+    ctx = Context(DataLoader(scale), trader_factory(), backtesting=True)
+    graph = StrategyGraph.from_tradeplan(select_rules(tradeplan, rules), ctx)
+    logger.info(
+        "filters %s, signals %s, rules %s",
+        list(graph.filters),
+        list(graph.signals),
+        list(graph.rules),
+    )
 
-    scanners = (
-        await create_scanners(data_loader, tradeplan["scanners"], scanners)
-        if "scanners" in tradeplan
-        else []
+    session = Backtest(
+        ctx, graph, scale, buy_fee_percentage, sell_fee_percentage
     )
-    logger.info("instantiated %s scanners", len(scanners))
-    strategies = await create_strategies(
-        uid, tradeplan["strategies"], data_loader, strategies
-    )
-    logger.info("instantiated %s strategies", len(strategies))
+    await session.run(from_date, to_date, asset_type)
 
-    await backtest_time_range(
-        from_date=from_date,
-        to_date=to_date,
-        scale=scale,
-        data_loader=data_loader,
-        buy_fee_percentage=buy_fee_percentage,
-        sell_fee_percentage=sell_fee_percentage,
-        asset_type=asset_type,
-        scanners=scanners,
-        strategies=strategies,
-    )
+    trades = pd.DataFrame(session.trades, columns=TRADE_COLUMNS)
+    write_results(uid, trades, session.state.positions)
+    return trades
 
 
 def backtest(
@@ -830,8 +500,7 @@ def backtest(
     to_date: date,
     scale: TimeScale,
     config: Dict,
-    scanners: Optional[List],
-    strategies: Optional[List],
+    rules: Optional[List[str]],
     asset_type: AssetType,
     buy_fee_percentage: float,
     sell_fee_percentage: float,
@@ -851,10 +520,8 @@ def backtest(
         The time scale of the simulation.
     config: Dict
         The trade plan.
-    scanners: Optional[List]
-        The names of the scanners to create, or None for all.
-    strategies: Optional[List]
-        The names of the strategies to create, or None for all.
+    rules: Optional[List[str]]
+        The names of the rules to backtest, or None for all.
     asset_type: AssetType
         The type of asset traded.
     buy_fee_percentage: float
@@ -877,8 +544,7 @@ def backtest(
                 buy_fee_percentage,
                 sell_fee_percentage,
                 asset_type,
-                scanners,
-                strategies,
+                rules,
             )
         )
     except KeyboardInterrupt:

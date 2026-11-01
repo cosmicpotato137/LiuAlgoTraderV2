@@ -19,7 +19,8 @@ import pandas as pd
 import websocket
 
 from liualgotrader.common import clock
-from liualgotrader.common.types import SymbolQueueMap, WSEventType
+from liualgotrader.common.types import (QueueMessageType, SymbolQueueMap,
+                                        WSEventType)
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
 
@@ -224,13 +225,13 @@ class GeminiStream(StreamingAPI):
                 "average": np.nan,
                 "count": 1,
                 "vwap": np.nan,
-                "EV": "T",
+                "EV": QueueMessageType.TRADE,
             }
         )
 
     @classmethod
     def _bar_handler(cls, symbol: str, candle: List):
-        """Put a Gemini minute bar on the queue of its symbol as an "AM" event.
+        """Put a Gemini minute bar on its symbol's queue as a MINUTE_BAR event.
 
         Parameters
         ----------
@@ -254,7 +255,7 @@ class GeminiStream(StreamingAPI):
                 "vwap": np.nan,
                 "average": np.nan,
                 "totalvolume": None,
-                "EV": "AM",
+                "EV": QueueMessageType.MINUTE_BAR,
             }
         )
 
