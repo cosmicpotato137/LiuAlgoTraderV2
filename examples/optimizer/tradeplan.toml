@@ -1,15 +1,24 @@
 # This is a TOML configuration file.
-portfolio_value = 25000
 
-[strategies]
+[filters.sp500]
+class = "MyIndexFilter"
+filename = "strats/trendfollow.py"
+index = "SP500"
 
-[strategies.TrendFollow]
-debug = true
-filename = "/Users/amichayoren/dev/trades/strats/trendfollow.py"
-index = 'SP500'
-portfolio_id = "2b94a5c6-4ccf-480c-91cd-71cdeacf158c"
+[signals.trend]
+class = "TrendSignal"
+filename = "strats/trendfollow.py"
+filters = ["sp500"]
 rank_days = 90
-rebalance_rate = "daily"
+
+# a PortfolioRule must have a recurrence, in minutes
+[rules.trend_follow]
+class = "TrendFollowRule"
+filename = "strats/trendfollow.py"
+signals = ["trend"]
+recurrence = 1440
+portfolio_id = "2b94a5c6-4ccf-480c-91cd-71cdeacf158c"
+portfolio_value = 25000.0
 reinvest = true
 stock_count = 10
 
@@ -17,8 +26,14 @@ stock_count = 10
 end_date = '2021-06-19'
 start_date = '2021-01-01'
 
-[optimizer.parameters.strategies.TrendFollow]
+# parameters get a new value for every backtest, such as a new portfolio
+[optimizer.parameters.rules.trend_follow]
 portfolio_id = {param_type = 'portfolio', size = 10000, credit = 1000}
 
-[optimizer.hyperparameters.strategies.TrendFollow]
+# hyperparameters take every combination of their values
+[optimizer.hyperparameters.rules.trend_follow]
 stock_count = {param_type = 'int', min = 5, max = 15}
+
+# filters and signals take hyperparameters the same way
+# [optimizer.hyperparameters.signals.trend]
+# rank_days = {param_type = 'int', min = 80, max = 100}

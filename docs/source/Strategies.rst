@@ -5,12 +5,21 @@ Strategies
 
 Developing a Strategy is core for using `LiuAlgoTrader` framework.
 
+A strategy is not a single class. The trade plan wires four kinds of
+component into a strategy graph: filters select the symbols to trade,
+indicators compute values from market data, signals turn indicator values
+into predictions of price movement, and rules turn signals and positions
+into orders. The base classes are in `liualgotrader.strategy.new_base`_.
+
+.. _liualgotrader.strategy.new_base:
+    https://github.com/amor71/LiuAlgoTrader/blob/master/liualgotrader/strategy/new_base.py
+
 Assumptions
 -----------
 This section assumes the audience has:
 
 1. Carefully read and understood the `Concepts` section,
-2. Read the `Scanners` section and has a working setup of the framework with at least one Scanner.
+2. Read the `Filters` section and has a working setup of the framework with at least one Filter.
 
 
 No Liability Disclaimer
@@ -19,224 +28,313 @@ Any example, or sample is provided for training purposes only.
 You may choose to use it, modify it or completely
 disregard it - `LiuAlgoTrader` and its authors bare
 no responsibility to any possible loses from using
-a scanner, strategy, or any other part of `LiuAlgoTrader` (on the other hand, they also won't
+a filter, signal, rule, or any other part of `LiuAlgoTrader` (on the other hand, they also won't
 share your profits, if there are any).
 
 
 The Basics
 ----------
-* As with Scanners, each strategy should have it's own unique name,
-* `LiuAlgoTrader` supports both *long* and *short* strategies,
-* `LiuAlgoTrader` support two strategy types:
 
-  +------------------+-----------------------------------------------+
-  | Name             | Description                                   |
-  +------------------+-----------------------------------------------+
-  | DAY_TRADING      | Held positions will be automatically          |
-  |                  | liquidated at the end of the trading day.     |
-  +------------------+-----------------------------------------------+
-  | SWING            | No automatic liquidation.                     |
-  +------------------+-----------------------------------------------+
++------------------+----------------------------------+--------------------------------------+
+| Component        | Reads                            | Returns                              |
++------------------+----------------------------------+--------------------------------------+
+| `Filter`         | the market at `now`              | symbols to watch                     |
++------------------+----------------------------------+--------------------------------------+
+| `Indicator`      | one symbol's bars through `now`  | DataFrame indexed by bar time        |
++------------------+----------------------------------+--------------------------------------+
+| `Signal`         | one symbol's indicators          | float Series: the sign is the        |
+|                  | through `now`                    | direction, the magnitude (up to 1)   |
+|                  |                                  | is the confidence, NaN means no      |
+|                  |                                  | prediction                           |
++------------------+----------------------------------+--------------------------------------+
+| `SymbolRule`     | the signals that fired for one   | `OrderRequest` list                  |
+|                  | symbol, and its position in it   |                                      |
++------------------+----------------------------------+--------------------------------------+
+| `PortfolioRule`  | the latest signal values for all | `OrderRequest` list                  |
+|                  | its symbols, and its positions   |                                      |
++------------------+----------------------------------+--------------------------------------+
 
-* The framework supports trading windows (=time frame for buying) per
-  strategy out of the box, however they are not enforced.
+* Each component in the trade plan has its own unique name,
+* `LiuAlgoTrader` supports both *long* and *short* positions: a rule's position is negative when short,
+* Rules never call the broker. They return `OrderRequest` objects, which the
+  framework submits when trading and simulates when back-testing, so the same
+  rule runs unchanged in both,
+* A position in a symbol belongs to the rule that opened it until the position
+  is flat again. Meanwhile, no other rule is asked to decide on that symbol,
+* A `SymbolRule` acts on a single symbol at a time, while a `PortfolioRule`
+  acts on a collection of symbols (e.g. SP500), for rebalancing and other
+  decisions that compare symbols.
 
-* A Strategy may act on a single symbol, or can act on a collection of symbols (e.g. SP500)
+Time
+****
+Times are time zone-aware `pd.Timestamp` values in New York time. The `now`
+passed to a component is the timestamp of the latest completed bar, and a
+component must not read data stamped after it. `self.ctx.bars(symbol, start,
+now)` returns a symbol's bars from `start` through `now`, and never a bar
+stamped after `now`, even when back-testing.
+
+Context
+*******
+Each run (a consumer process, the filter process or a back-test) creates one
+`Context` and passes it to every component, as `self.ctx`. It holds:
+
+* `data_loader`: the `DataLoader` of market data,
+* `trader`: the broker, for read-only queries, or `None`,
+* `backtesting`: whether the run is a back-test,
+* `bars()`: the bars of a symbol from a start time through `now`,
+* `is_shortable()`: whether a symbol can be sold short; the answer is cached per symbol, and always `True` when back-testing.
 
 Configuration
 -------------
-Strategies are declared in the *trade_plan* Database table, or in the *tradeplan.toml*
-configuration file under the section:
+Components are declared in the *tradeplan.toml* configuration file under the
+sections:
 
 .. code-block:: bash
 
-    [strategies]
+    [filters]
+    [signals]
+    [rules]
 
-tradeplan.toml
-**************
+Each table key is the instance name, and `class` names the class. With a
+`filename`, `class` is the name of a class in that file. Without one, it is a
+dotted import path such as `liualgotrader.filters.momentum.Momentum`. Each file
+is loaded once, and a class that cannot be loaded raises an exception.
 
-Strategies may run concurrently. The order
-of execution is based on the order in which strategies are presented in the *tradeplan* file.
+Links between components are settings too:
 
-Each strategy should have its own entry point in the
-`tradeplan.toml` configuration file. With `filename` pointing to the
-full path to the python file containing the strategy to be executed,
-and at least one trading window.
+* a signal lists one or more filters under `filters`, and evaluates every
+  symbol they select,
+* a rule lists one or more signals under `signals`,
+* indicators are not in the trade plan: a signal creates the ones it needs.
+
+Every other setting is passed to the class's `__init__()` as a keyword
+argument, so a misspelled setting raises `TypeError` instead of being
+ignored. `recurrence` is in minutes, and a `PortfolioRule` must have one.
 
 For example:
 
 .. code-block:: bash
 
-    [strategies]
-        [strategies.MyStrategy]
-            filename = "/home/liu/strategies/my_strategy.py"
+    [filters.momentum1]
+    class = "liualgotrader.filters.momentum.Momentum"
+    min_volume = 30000
+    today_change_percent = 3.5
+    min_last_dv = 500000
+    max_share_price = 20.0
+    min_share_price = 2.0
+    from_market_open = 15
+    recurrence = 5
 
-            [[strategies.MyStrategy.schedule]]
-                start = 15
-                duration = 150
+    [signals.breakout]
+    class = "MySignal"
+    filename = "/home/liu/strategies/my_strategy.py"
+    filters = ["momentum1"]
 
-Trading windows are not enforced by the framework, the Strategy
-developer may elect to ignore them.
+    [rules.breakout_long]
+    class = "MyRule"
+    filename = "/home/liu/strategies/my_strategy.py"
+    signals = ["breakout"]
+    risk = 0.001
 
-Strategies are instantiated inside `consumer` processes, immediately
-proceeding the creation of the scanners and producer processes.
+    [rules.rebalance]
+    class = "MyRebalance"
+    filename = "/home/liu/strategies/my_strategy.py"
+    signals = ["breakout"]
+    recurrence = 5
 
-A Strategy may have any number of parameters, once instanticated, the Framework will 
-pass all the parameters from the `.toml` file to the strategy. 
-Exception will be raised if parameters are missing. Always make sure to called
-`super()` to ensure proper setting of basic parameters.
+Position sizing, such as a portfolio value or risk per trade, belongs to the
+rules, as rule settings.
 
-trade-plan table
-****************
-See *Concepts* section from further details
-
-Developing a Strategy
+Developing Components
 ---------------------
 
-To inherit from the Strategy based class:
+To inherit from the base classes:
 
 .. code-block:: python
 
-    from liualgotrader.strategies.base import Strategy, StrategyType
+    from liualgotrader.strategy.new_base import (Filter, Indicator,
+                                                 OrderRequest, PortfolioRule,
+                                                 Signal, SymbolRule)
 
-Creating a strategy involves:
-
-1. Declaring a class object, inherited from the `Strategy` base_ class,
-2. Overwrite both the `__init__()` and `run()` functions. __init__() is called during initialization, and is passed the configuration parameters from the `tradeplan.toml` file.`run()` is called when the framework is ready to execute the scanner.
-
-.. _base:
-    https://github.com/amor71/LiuAlgoTrader/blob/master/liualgotrader/strategies/base.py
-
-`__init__()` function
-*********************
-
-The `__init__()` function is called by the framework
-with a **batch_id** and configuration parameters declared in the
-configuration file. Declaring a trading window is a must, and
-the framework will throw an Exception if they are not present.
-
-The function is expected to call the base-class
-`__init__()` function with a unique name, type
-(e.g. swing or day trading) and trading window. Name and type are
-normally static in the strategy object and not passed
-from the configuration file.
-
-Please review the base class for furthe details.
-
-`run()` and `run_all()` functions
-*********************************
-
-`run()` is called per picked symbol, per event. That would normally mean at least once per second, 
-per stock. `run_al()` is called once, every one minute, with list of all open positions and a
-DataLoader. The Platform decides which function to call, based on the value returned by 
-`should_run_all()`. See `base.py` for further details.
-
-
-`run()` Actions
-***************
-
-The functions returns a tuple of a boolean and dictionary.
-The functions may return one of the below combinations:
+Every component takes its trade plan settings as keyword arguments and passes
+the remaining keyword arguments on to the base-class initializer, which sets
+`self.ctx` and `self.name`:
 
 .. code-block:: python
 
-    return False, {}
+    def __init__(self, window: int = 20, **kwargs):
+        super().__init__(**kwargs)
+        self.window = window
 
---> No action will be taken by the framework,
+See the `Filters` section for developing filters.
 
-.. code-block:: python
-
-    return True, {
-        "side": "buy",
-        "qty": str(10),
-        "type": "limit",
-        "limit_price": "4.4",
-    }
-
---> Requesting the framework to execute a limit order for quantity 10 and limit price $4.4,
-
-.. code-block:: python
-
-    return True, {
-         "side": "buy",
-         "qty": str(5),
-         "type": "market",
-    }
-
---> Purchase at market. Similarly for **sell** side,
+Indicators
+**********
+An indicator implements `compute()`, which returns a DataFrame indexed by bar
+timestamp for a symbol through `now`. `compute()` must be causal: the value of
+each row may depend only on data stamped at or before that row, so that
+computing through a later time yields the same earlier rows. The back-tester
+relies on this to compute a whole day at once.
 
 .. code-block:: python
 
-    return False, {"reject": True}
+    class SMA(Indicator):
+        def __init__(self, window: int = 20, **kwargs):
+            super().__init__(**kwargs)
+            self.window = window
 
---> Mark the symbol as `rejected` by the strategy, ensuring `run()` will not be called again with the symbol during this trading session.
+        def compute(self, symbol: str, now: pd.Timestamp) -> pd.DataFrame:
+            bars = self.ctx.bars(symbol, now - pd.Timedelta(days=5), now)
+            return bars[["close"]].rolling(self.window).mean()
 
-`buy_callback()`
-****************
-Called by the framework post completion of a buy ask. Partial fills won't trigger the callback,
-only the final complete will trigger. Partial trades will still be persisted on the database.
-
-`sell_callback()`
-*****************
-Called by the framework post completion of the sell ask. Partial fills won't trigger the callback,
-only the final complete will trigger.
-
-Trading windows
-***************
-Trading windows are list of time-frames during which a strategy may look
-for a signal to open positions. The framework does not enforce the
-windows, but rather provides useful functions on the base class that may
-be overwritten by the strategy developer.
-
-`is_buy_time()`
-^^^^^^^^^^^^^^^
-This function, implemented by the Strategy base-class, looks at the configured
-schedule and will return `True` if current time is over `start` minutes
-from the market open and below `start`+`duration` time from market open.
-
-`is_sell_time()`
-^^^^^^^^^^^^^^^^
-Returns `True` if at least 15 minutes passed since the market open, AND the buy window elapsed.
-
-It is up to the Strategy developer if to use these functions or not.
-
-Data Persistence
-****************
-`LiuAlgoTrader` framework stores successful
-operations. This data serves well the analysis tools provided by the
-framework: Notebooks and Streamlit applications.
-
-To persist the reasoning behind each operation, the strategy developer is ask to fill 4 **Global Variables**:
+Signals and other indicators get an indicator with `create()`, which returns
+one shared instance per context, class and parameters, so each indicator is
+computed once per symbol whichever signals use it:
 
 .. code-block:: python
 
-    from liualgotrader.common.trading_data import (
-        buy_indicators,
-        sell_indicators,
-        stop_prices,
-        target_prices,
+    sma = SMA.create(self.ctx, window=20)
+    values = sma.get(symbol, now)
+
+`get()` returns the cached values, and computes them again only when the cache
+does not cover `now` or the symbol's bars changed.
+
+Signals
+*******
+A signal creates its indicators in its initializer, and implements
+`compute()`, which returns a float Series indexed by bar timestamp. A positive
+value predicts a rise and a negative value a fall, and the magnitude, at most
+1, is the confidence. NaN means no prediction. A row with a value is an event
+that the framework passes to the rules of the signal, so a signal that holds a
+value on every bar makes its rules decide on every bar. Like indicators,
+signals must be causal and are cached. A signal does not know about positions
+or orders.
+
+.. code-block:: python
+
+    class AboveSMA(Signal):
+        def __init__(self, window: int = 20, **kwargs):
+            super().__init__(**kwargs)
+            self.sma = SMA.create(self.ctx, window=window)
+
+        def compute(self, symbol: str, now: pd.Timestamp) -> pd.Series:
+            close = self.ctx.bars(symbol, now - pd.Timedelta(days=5), now).close
+            sma = self.sma.get(symbol, now).close
+            crossed = (close > sma) & (close.shift() <= sma.shift())
+            return crossed.astype(float).where(crossed)
+
+`signal.at(symbol, now)` returns the value stamped `now`, or NaN.
+
+Order requests
+**************
+Rules return a list of `OrderRequest` objects:
+
+.. code-block:: python
+
+    from liualgotrader.common.types import Order, OrderType
+
+    OrderRequest(symbol, Order.FillSide.buy, qty=10)
+
+--> Purchase 10 shares at market,
+
+.. code-block:: python
+
+    OrderRequest(
+        symbol,
+        Order.FillSide.buy,
+        qty=10,
+        type=OrderType.LIMIT,
+        limit_price=4.4,
     )
 
-* stop_prices[symbol] = <selected stop price>
-* target_prices[symbol] = <selected target price>
-* buy_indicators[symbol] is dictionary persisted as JSON including the strategy indicators and reasoning for buying.
-* sell_indicators[symbol] is dictionary persisted as JSON including the strategy indicators and reasoning for selling.
+--> Requesting the framework to execute a limit order for quantity 10 and limit price $4.4. Similarly for the **sell** side.
 
-The variables can be left out (some strategies, simply do not have stop
-prices) though its highly recommended to have them included.
+The quantity must be positive, the type is `OrderType.MARKET` (the default) or
+`OrderType.LIMIT`, and `limit_price` is set for limit orders only; otherwise
+`OrderRequest` raises `ValueError`. Orders are day orders, and within one step
+the framework submits sells before buys. Return an empty list to take no
+action.
+
+Symbol rules
+************
+A `SymbolRule` implements `decide()`:
+
+.. code-block:: python
+
+    async def decide(
+        self,
+        symbol: str,
+        now: pd.Timestamp,
+        position: float,
+        fired: dict[str, float],
+    ) -> list[OrderRequest]:
+
+The framework calls `decide()` once per bar for each symbol on which one of
+the rule's signals fired, or in which the rule holds a position, so the rule
+can also exit on stops, targets or the time of day. `fired` holds the value of
+each of the rule's signals that fired at `now`, by signal name, and is empty
+if none did. The framework does not call `decide()` while the rule has an open
+order for the symbol, or while another rule owns the symbol.
+
+Portfolio rules
+***************
+A `PortfolioRule` takes a `recurrence`, and implements `decide()`, which the
+framework calls once per recurrence:
+
+.. code-block:: python
+
+    async def decide(
+        self,
+        now: pd.Timestamp,
+        positions: dict[str, float],
+        signals: pd.DataFrame,
+    ) -> list[OrderRequest]:
+
+`positions` holds the rule's position in each symbol it holds. `signals`
+holds the latest value at or before `now` of each of the rule's signals, with
+a row per symbol in their filters and a column per signal name, and NaN where
+a signal has no value. When trading, the first consumer process runs every
+portfolio rule, and receives every symbol of their filters.
+
+Fills and cancellations
+***********************
+A rule hears about its own orders through two callbacks, which do nothing in
+the base class:
+
+* `on_fill(trade)` is called after a full or partial fill, once the framework
+  updated the rule's position. `trade` is a `Trade` from
+  `liualgotrader.common.types`, with the side, quantity, price and fee of the
+  execution,
+* `on_cancel(order)` is called when an order is canceled, rejected or expires
+  without a full fill, including when the framework cancels a stale order.
+
+Persisting state
+****************
+Components keep their state in their own attributes, which last for the run.
+To persist values across runs, for example for swing trading across batches,
+use the key-value store in `liualgotrader.db.models.keystore`:
+
+.. code-block:: python
+
+    from liualgotrader.db.models.keystore import KeyStore
+
+    await KeyStore.save("my_key", "my value")
+    value = await KeyStore.load("my_key")
 
 
 Example
 -------
-Putting it all together in a generic Strategy:
+Putting it all together in a momentum strategy, whose signal fires when a
+fast simple moving average of the close crosses a slow one, and whose rule is
+long from a bullish crossover to the next bearish one:
 
-.. literalinclude:: ../../examples/skeleton-strategy/my_strategy.py
+.. literalinclude:: ../../examples/sma_crossover/strategy.py
   :language: python
   :linenos:
 
 Sample `tradeplan.toml` configuration file:
 
-.. literalinclude:: ../../examples/skeleton-strategy/tradeplan.toml
+.. literalinclude:: ../../examples/sma_crossover/tradeplan.toml
   :language: bash
   :linenos:
 
@@ -244,81 +342,40 @@ Sample `tradeplan.toml` configuration file:
 
 Behind the scenes
 -----------------
-Actually a lot is happening behind the scenes! upon setting up the
-scanner and producer processes, consumer processes are spawned.
-The number of processes is either pre-determined by an environment
+Actually a lot is happening behind the scenes! The `trader` application
+spawns consumer processes, a producer process and a filter process.
+The number of consumer processes is either pre-determined by an environment
 variable, or estimated based on the OS & hardware capabilities.
 
-When the consumer processes are spawned, the existing profile in Alpaca is
-examined to try and figure if the `trader` app crashed and strategies
-should resume. Once existing positions are loaded, they are matched with
-instantiated strategies, events of picked stocks start to pour and the `run()`
-functions are called.
+Each consumer process creates its `Context` and the signals and rules of the
+trade plan. The producer assigns each symbol that a filter selects to one
+consumer, and the assignment never changes. For each minute bar of a symbol,
+the consumer:
 
-Once a strategy decides to purchase a symbol,
-the framework will place the buy (or sell) order with
-Alpaca, start follow it and persist the
-transactions to the `new_trades` table. Both partial and complete orders are stored, and tracked.
+1. gets the value of each signal whose filters selected the symbol; a value other than NaN means the signal fired,
+2. calls `decide()` on each `SymbolRule` that is linked to a fired signal or owns the symbol, unless the rule has an open order for the symbol or another rule owns it,
+3. submits the returned orders, sells before buys. The order that opens a position makes its rule the symbol's owner.
 
-If an update for a strategy operation is not received within a
-pre-configured windows of time (default is 60 seconds), the framework
-will check if the order was completed w/o a notification, and if so,
-will simulate a complete event. However if the operation did not
-conclude, it will be cancelled, and open order will be cleared, and the
-strategy may re-trigger an operating based on signals.
+When an order update arrives from the broker, the consumer updates the rule's
+position, releases the symbol once the position is flat, and calls the rule's
+`on_fill()` or `on_cancel()`.
+
+If an order is still open a minute after it was submitted, the framework
+checks whether it was completed without a notification, and if so applies the
+fill. Otherwise the order is cancelled, the rule's `on_cancel()` is called,
+and the rule may re-trigger an operation based on signals.
 
 The framework works behind the scenes to free the
 strategy developer from worrying about broker
 (Alpaca.Markets) and data provider (Polygon.io) integrations.
 
-Global Vars
-***********
-While each strategy may keep track of it's own variables,
-the framework is tracking global variables. The variables
-can be access by importing **liualgotrader.common.trading_data** module.
-
-Parameters include:
-
-+----------------------+----------------------------------------------------------+
-| Parameter            | Description                                              |
-+----------------------+----------------------------------------------------------+
-| open_orders          | dictionary, with `symbol` as index and holdin a tuple    |
-|                      | Order object w/ "buy" or "sell" side.                    |
-+----------------------+----------------------------------------------------------+
-|open_order_strategy   | dictionary, with `symbol` as index and holding reference |
-|                      | to the Strategy w/ an open order.                        |
-+----------------------+----------------------------------------------------------+
-| buy_time             | dictionary, with `symbol` as index and pd.Timestamp of   |
-|                      | order request time in New York time.                     |
-+----------------------+----------------------------------------------------------+
-| minute_history       | dictionary, with `symbol` as index and DataFrame with    |
-|                      | OHLC, Volume, vwap and average, per minute.              |
-+----------------------+----------------------------------------------------------+
-| positions            | dictionary of open positions.                            |
-+----------------------+----------------------------------------------------------+
-| last_used_strategy   | dictionary w/ reference to last strategy with completed  |
-|                      | order, per symbol.                                       |
-+----------------------+----------------------------------------------------------+
-
-**IMPORTANT NOTE**:
-
-The global variables are there for a purpose: suppose you run two strategies
-in parallel, both `run()` functions would be hit with symbol events.
-Let's assume you hold a position in the symbol. One strategy may identify a sell
-signal, while the other does not. Depending on the strategy combination and
-architecture, it might be wise for a strategy to confirm it was actually
-the one initiating the original buy by consulting **last_used_strategy[symbol]**
-
-Key-store
-*********
-
-The platform implement a key-value store, per strategy (see base.py for implementation details). 
-key-value allows for strategies to persist state across executions. 
-This feature is specifically helpful for `swing` strategies that run across different batches. 
+**Note**: live trades are not recorded in the `new_trades` table for now, and
+positions held from an earlier session are not owned by any rule after a
+restart.
 
 
 Additional Configurations
-^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------
 
 `LiuAlgoTrader` framework has quite a few knobs & levers to
 configure the behaviour of the platform and the strategies.
@@ -331,4 +388,3 @@ The best place to check out all possibilities is here_.
 Some of the configurations are documented in the tradeplan.toml file,
 some are in environment variables, and some may be over-written by the
 strategy developer.
-

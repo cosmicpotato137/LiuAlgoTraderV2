@@ -1,32 +1,17 @@
 # This is a TOML configuration file.
 
-# set max portfolio_value
-# portfolio_value = 25000.0
-
-# set risk factor per trade
-# risk = 0.001
-
-# how many minutes, before end of the trading day to enforce liqudation
+# how many minutes, before end of the trading day to enforce liquidation
 # market_liquidation_end_time_minutes = 15
 
-# if set, only scanners would run, w/o running consumer or producers
-# useful for debugging new scanners
-# test_scanners = true
-
-events = ["second", "minute", "trade", "quote"]
-
-# ticket scanners, may have several
-# scanners during the day
-[scanners]
-[scanners.momentum]
-# check documentation for supported providers
-provider = 'polygon'
+# symbol filters, may have several
+[filters.momentum]
+class = "liualgotrader.filters.momentum.Momentum"
 
 # scan for tickers with minimal volume since day start
 min_volume = 30000
 
-# minimum daily percentage gap
-min_gap = 3.5
+# minimum daily percentage change
+today_change_percent = 3.5
 
 # minimum last day dollar volume
 min_last_dv = 500000
@@ -34,20 +19,27 @@ min_last_dv = 500000
 max_share_price = 20.0
 min_share_price = 2.0
 
-# How many minutes from market open, to start running scanner
+# how many minutes from market open to start running the filter
 from_market_open = 15
 
+# minutes between runs
 recurrence = 5
 
-# target_strategy_name = ""
-
-# trading strategies, can have several *strategy* blocks
-[strategies]
-# strategy class name, must implement Strategy class
-
-[strategies.MomentumLongV3]
+# signals; each one evaluates the symbols of the filters it lists
+[signals.breakout]
+class = "MomentumSignal"
 filename = "./momentum_long_simplified.py"
+filters = ["momentum"]
+# length of the opening range, in minutes
+breakout_minutes = 15
 
-[[strategies.MomentumLongV3.schedule]]
-duration = 60
-start = 15
+# rules; each one decides on the signals it lists
+[rules.momentum_long]
+class = "MomentumLongRule"
+filename = "./momentum_long_simplified.py"
+signals = ["breakout"]
+# position sizing belongs to the rule
+portfolio_value = 25000.0
+risk = 0.001
+# how many minutes after the open to buy at market
+morning_rush_minutes = 30

@@ -2,6 +2,8 @@
 
 Classes
 -------
+GeminiOrderType
+    Enumeration of the Gemini order types that this trader submits.
 GeminiTrader
     Trader implementation for the Gemini cryptocurrency exchange.
 """
@@ -15,6 +17,7 @@ import queue
 import ssl
 import time
 from datetime import date
+from enum import StrEnum
 from threading import Thread
 from typing import Dict, List, Optional, Tuple
 
@@ -24,12 +27,18 @@ import websocket
 
 from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
-from liualgotrader.common.types import (Order, SymbolQueueMap, ThreadFlags,
-                                        Trade)
+from liualgotrader.common.types import (Order, OrderType, QueueMessageType,
+                                        SymbolQueueMap, ThreadFlags, Trade)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
 
 logger = logging.getLogger(__name__)
+
+
+class GeminiOrderType(StrEnum):
+    """Enumeration of the Gemini order types that this trader submits."""
+
+    EXCHANGE_LIMIT = "exchange limit"
 
 
 class GeminiTrader(TraderAPI):
@@ -553,7 +562,7 @@ class GeminiTrader(TraderAPI):
                 symbol = trade.symbol.lower()
                 logger.info("GEMINI TRADING UPDATE:%s", trade)
                 to_send = {
-                    "EV": "trade_update",
+                    "EV": QueueMessageType.TRADE_UPDATE,
                     "symbol": symbol,
                     "trade": trade.__dict__,
                 }
@@ -718,7 +727,7 @@ class GeminiTrader(TraderAPI):
         symbol: str,
         qty: float,
         side: str,
-        order_type: str,
+        order_type: OrderType,
         time_in_force: str = None,
         limit_price: str = None,
         stop_price: str = None,
@@ -743,7 +752,7 @@ class GeminiTrader(TraderAPI):
             The quantity, rounded to the precision of the asset.
         side: str
             Buy or sell.
-        order_type: str
+        order_type: OrderType
             The order type; market orders are rejected.
         time_in_force: str, default None
             Ignored.
@@ -779,7 +788,7 @@ class GeminiTrader(TraderAPI):
         minimum or an error from Gemini, and ValueError for an unknown asset.
         """
         symbol = symbol.lower()
-        if order_type == "market":
+        if order_type == OrderType.MARKET:
             raise AssertionError(
                 "GEMINI does not support market orders, use limit orders"
             )
@@ -797,13 +806,17 @@ class GeminiTrader(TraderAPI):
             "symbol": symbol,
             "amount": str(qty),
             "price": (
-                limit_price if order_type == "limit" else str(60000.0 * qty)
+                limit_price
+                if order_type == OrderType.LIMIT
+                else str(60000.0 * qty)
             ),
             "side": side,
-            "type": "exchange limit",
+            "type": GeminiOrderType.EXCHANGE_LIMIT.value,
             "client_order_id": client_order_id,
             "options": (
-                ["immediate-or-cancel"] if order_type == "market" else []
+                ["immediate-or-cancel"]
+                if order_type == OrderType.MARKET
+                else []
             ),
         }
 

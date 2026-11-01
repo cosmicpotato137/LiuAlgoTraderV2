@@ -56,8 +56,9 @@ Having issues installation? check out the [installation FAQ page](https://liualg
 and follow the installation wizard instructions. The wizard checks your
 Alpaca credentials, creates the database and downloads the samples.
 
-LiuAlgoTrader keeps track of your trading in a SQLite database at
-`~/.liualgotrader/liu.db`, so there is nothing else to install. To use a
+LiuAlgoTrader keeps its data, such as portfolios and the stocks picked by
+filters, in a SQLite database at `~/.liualgotrader/liu.db`, so there is
+nothing else to install. To use a
 PostgreSQL server instead, install the `postgres` extra and point the `DSN`
 environment variable at it:
 
@@ -86,7 +87,7 @@ LiuAlgoTraders articles are published on [Medium](https://amor71.medium.com/):
 
 ## Back-testing
 
-While Liu is first and foremost a trading platform, it comes equipped with full back-testing capabilities, providing command-line tool & jupyter notebook for analysis, and a browser-based UI covering both functionalities.
+While Liu is first and foremost a trading platform, it comes equipped with full back-testing capabilities. A strategy is built from filters, signals and rules, and the `backtester` command-line tool runs the same components that trade live, simulating their orders and writing the trades and a per-rule summary to files.
 ## Machine Learning 
 
 These features are still work in process:

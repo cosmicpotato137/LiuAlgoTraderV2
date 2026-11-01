@@ -12,6 +12,10 @@ WSEventType
     Enumeration of the event kinds received over a data web socket.
 WSConnectState
     Enumeration of the connection states of a web-socket session.
+QueueMessageType
+    Enumeration of the message types sent to consumer queues.
+OrderType
+    Enumeration of the order types that a trader can submit.
 AssetType
     Enumeration of the asset classes that can be traded.
 Order
@@ -25,7 +29,7 @@ QueueMapper
 """
 
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum, StrEnum, auto
 from multiprocessing import Queue
 from typing import Dict, List, Optional
 
@@ -64,6 +68,35 @@ class WSEventType(Enum):
     QUOTE = auto()
     MIN_AGG = auto()
     SEC_AGG = auto()
+
+
+class QueueMessageType(StrEnum):
+    """Enumeration of the message types sent to consumer queues.
+
+    A queue message is a dict whose "EV" key holds its type. Each data stream
+    maps the event types of its vendor to these.
+    """
+
+    TRADE_UPDATE = "trade_update"
+    FILTER_RESULT = "filter_result"
+    MINUTE_BAR = "minute_bar"
+    SECOND_BAR = "second_bar"
+    TRADE = "trade"
+    QUOTE = "quote"
+
+
+class OrderType(StrEnum):
+    """Enumeration of the order types that a trader can submit.
+
+    Strategies may give an order type as its value, such as "limit". Each
+    trader maps these to the order types of its broker.
+    """
+
+    MARKET = "market"
+    LIMIT = "limit"
+    STOP = "stop"
+    STOP_LIMIT = "stop_limit"
+    TRAILING_STOP = "trailing_stop"
 
 
 class WSConnectState(Enum):

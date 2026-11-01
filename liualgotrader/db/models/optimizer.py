@@ -32,6 +32,9 @@ class OptimizerRun(Base):
         The creation time, set by the database when the record is saved.
     parameters: str
         The parameters used for the batch.
+    score: Optional[float]
+        The net cash flow of the batch, or None for batches recorded before
+        the score was.
 
     Methods
     -------
@@ -50,10 +53,15 @@ class OptimizerRun(Base):
         server_default=CurrentTimestamp()
     )
     parameters: Mapped[str] = mapped_column(server_default="")
+    score: Mapped[Optional[float]]
 
     @classmethod
     async def save(
-        cls, optimizer_session_id: str, batch_id: str, parameters: str
+        cls,
+        optimizer_session_id: str,
+        batch_id: str,
+        parameters: str,
+        score: Optional[float] = None,
     ) -> None:
         """Record a batch run as part of an optimizer session.
 
@@ -65,6 +73,8 @@ class OptimizerRun(Base):
             The batch identifier.
         parameters: str
             The parameters used for the batch.
+        score: Optional[float], default None
+            The score of the batch.
         """
         async with session_scope() as session:
             session.add(
@@ -72,6 +82,7 @@ class OptimizerRun(Base):
                     optimizer_session_id=optimizer_session_id,
                     batch_id=batch_id,
                     parameters=parameters,
+                    score=score,
                 )
             )
 

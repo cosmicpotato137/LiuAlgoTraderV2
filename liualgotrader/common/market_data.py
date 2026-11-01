@@ -31,7 +31,6 @@ from liualgotrader.fincalcs.vwap import add_daily_vwap
 
 logger = logging.getLogger(__name__)
 
-volume_today: Dict[str, int] = {}
 quotes: Dict[str, df] = {}
 
 

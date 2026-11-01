@@ -19,7 +19,8 @@ To use the `optimizer` application, a new section should be added to the `tradep
 
 * Note the [optimizer] section is added to the `tradeplan.toml` file,
 * `start_date` & `end_date` specify the time-window for back-testing,
-* The `optimizer` always runs in daily time-scale,
+* The `optimizer` always runs in daily time-scale, on US equities and without fees,
+* Parameters and hyper-parameters are named by the trade plan entry they apply to, as `filters.<name>.<setting>`, `signals.<name>.<setting>` or `rules.<name>.<setting>`. For example, `[optimizer.hyperparameters.rules.trend_follow]` lists the hyper-parameters of the `trend_follow` rule,
 
 
 Parameters and Hyper-parameters
@@ -28,7 +29,7 @@ Parameters and Hyper-parameters
 The `optimizer` application supports two different 
 types of configuration-space constructs: Parameters and Hyper-Parameters.
 
-Parameters are meta-instructions for generating configurations for strategies,
+Parameters are meta-instructions for generating configurations for filters, signals and rules,
 that are calculated per back-testing step. In contrast, Hyper-Parameters is a 
 configuration space spanning a product of all possible values for each Hyper-Parameter.
 
@@ -48,12 +49,15 @@ Model
 Each `optimizer` execution generates a UUID representing a unique execution identification.
 Each back-test will generate its own `batch-id`.
 The relationship between the optimizer execution id, batch-ids and the hyper-parameters configurations
-is stored in the **OPTIMIZER_RUN** database table.
+is stored in the **OPTIMIZER_RUN** database table, together with the `score` of each back-test: its net cash flow.
+Back-tests do not write their trades to the database, so compare configurations by their score, or by the
+files that each back-test writes (see the `Back-testing` section).
 
 Analysis
 ********
 A dedicated Jupyter Notebook (see the `analysis` section) allows loading and comparing
-performance of different configurations.
+performance of different configurations. The notebook reads the trades from the database,
+so it shows only optimizer sessions of earlier releases.
 
 Parallel execution
 ******************

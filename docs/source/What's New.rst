@@ -3,6 +3,18 @@ What's New
 +------------------+----------------------------------------------+
 | Release          | Notes                                        |
 +------------------+----------------------------------------------+
+| Unreleased       | 1. Strategies are built from filters,        |
+|                  |    indicators, signals and rules             |
+|                  |    (`strategy/new_base.py`), wired by the    |
+|                  |    `[filters]`, `[signals]` and `[rules]`    |
+|                  |    trade plan sections, which replace        |
+|                  |    `[scanners]` and `[strategies]`,          |
+|                  | 2. `backtester --rules` replaces the         |
+|                  |    `--scanners` and `--strats` options;      |
+|                  |    back-tests write their trades and a       |
+|                  |    summary to files,                         |
+|                  | 3. Optimizer runs record a score.            |
++------------------+----------------------------------------------+
 | 0.4.35           | 1. Switch to PDM for depency management      |
 |                  |    and build.                                |
 |                  | 2. Support 3.11                              |

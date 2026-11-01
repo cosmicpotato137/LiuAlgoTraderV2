@@ -1,4 +1,4 @@
-"""Optimize strategy hyperparameters by backtesting their combinations.
+"""Optimize trade plan hyperparameters by backtesting their combinations.
 
 Usage: optimizer [--concurrency=<processes>]
 Backtest each hyperparameter combination in the optimizer section of the
@@ -74,24 +74,21 @@ def show_usage():
 def create_parameters(parameters: Dict) -> List[Parameter]:
     """Return the parameters defined in a parameter configuration.
 
-    Name each parameter by its dotted path, strategies.<strategy>.<name>.
+    Name each parameter by its dotted path in the trade plan, such as
+    rules.<rule>.<name>.
 
     Parameters
     ----------
     parameters: Dict
-        The configuration, with a "strategies" section that maps each strategy
-        to its parameter settings.
+        The configuration, with optional "filters", "signals" and "rules"
+        sections that map each component to its parameter settings.
     """
-    params = []
-
-    for strategy in parameters["strategies"]:
-        for name in parameters["strategies"][strategy]:
-            params.append(
-                Parameter(
-                    f"strategies.{strategy}.{name}",
-                    **parameters["strategies"][strategy][name],
-                )
-            )
+    params = [
+        Parameter(f"{section}.{component}.{name}", **settings)
+        for section in ("filters", "signals", "rules")
+        for component, component_params in parameters.get(section, {}).items()
+        for name, settings in component_params.items()
+    ]
 
     logger.info("created %s parameters", len(params))
     return params

@@ -7,7 +7,8 @@ import pytest
 
 from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.types import DataConnectorType, Order, TimeScale
+from liualgotrader.common.types import (DataConnectorType, Order, OrderType,
+                                        TimeScale)
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.tradier.trader import TradierTrader
 
@@ -137,7 +138,7 @@ async def test_aapl_order_market_long():
     logger.info("Open position in Apple is %s", open_position)
     try:
         order = await tradier_trader.submit_order(
-            symbol="AAPL", qty=10, side="buy", order_type="market"
+            symbol="AAPL", qty=10, side="buy", order_type=OrderType.MARKET
         )
     except ValueError as e:
         logger.info("ValueError Exception : %s", e)
@@ -159,7 +160,7 @@ async def test_aapl_order_market_long():
 
     try:
         order = await tradier_trader.submit_order(
-            symbol="AAPL", qty=10, side="sell", order_type="market"
+            symbol="AAPL", qty=10, side="sell", order_type=OrderType.MARKET
         )
     except ValueError as e:
         logger.info("ValueError Exception : %s", e)
@@ -205,7 +206,7 @@ async def test_aapl_order_limit_long():
             symbol="AAPL",
             qty=10,
             side="buy",
-            order_type="limit",
+            order_type=OrderType.LIMIT,
             limit_price=last_price,
         )
     except ValueError as e:
@@ -235,7 +236,7 @@ async def test_aapl_order_limit_long():
                 symbol="AAPL",
                 qty=10,
                 side="sell",
-                order_type="limit",
+                order_type=OrderType.LIMIT,
                 limit_price=last_price,
             )
         except ValueError as e:
@@ -278,7 +279,10 @@ async def test_tsla_order_market_short():
 
     try:
         order = await tradier_trader.submit_order(
-            symbol="TSLA", qty=10, side="sell_short", order_type="market"
+            symbol="TSLA",
+            qty=10,
+            side="sell_short",
+            order_type=OrderType.MARKET,
         )
     except ValueError as e:
         logger.info("ValueError Exception : %s", e)
@@ -307,7 +311,10 @@ async def test_tsla_order_market_short():
 
         try:
             order = await tradier_trader.submit_order(
-                symbol="TSLA", qty=10, side="buy_to_cover", order_type="market"
+                symbol="TSLA",
+                qty=10,
+                side="buy_to_cover",
+                order_type=OrderType.MARKET,
             )
         except ValueError as e:
             logger.info("ValueError Exception : %s", e)
@@ -346,7 +353,7 @@ async def test_tsla_cancel_order():
 
     try:
         order = await tradier_trader.submit_order(
-            symbol="AAPL", qty=10, side="buy", order_type="market"
+            symbol="AAPL", qty=10, side="buy", order_type=OrderType.MARKET
         )
     except ValueError as e:
         logger.info("ValueError Exception : %s", e)
@@ -385,7 +392,7 @@ async def test_aapl_order_limit_long_websocket():
             symbol="AAPL",
             qty=10,
             side="buy",
-            order_type="limit",
+            order_type=OrderType.LIMIT,
             limit_price=last_price,
         )
 

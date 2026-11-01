@@ -12,10 +12,12 @@ This section explains the concepts and architecture of `LiuAlgoTrader` framework
 
 Building Blocks
 ---------------
-The framework executes two components in parallel: Scanners and Strategies.
+A trading strategy is made of four kinds of components, which the trade plan wires together:
 
-* Scanners, or stock screeners as called by some platforms, is run periodically to search for stocks from the stock universe that adhere to criteria of choice. Users can easily create and deploy scanners, with only few lines of Python code. Scanners determines the time to `subscribe` for events of a specific stock. Events could be price changes, quotes or trades in a predefined window, e.g. per second/ per minute.
-* Strategies receive stock events from stocks selected by the scanners and then analyse the stock movement by a wide range of indicators to decide the action on the selected equities. A Strategy may act on movement of a single stock or a collection of stocks. A Strategy could also `reject` a stock and `unsubscribe` for its further events. The framework supports both long and short positions to equities. The framework is designed to be capable of concurrently handling hundreds of stocks as a portfolio with numerous strategies. Scanner could decide to address stock events with a specific strategy or all strategies.
+* Filters, or stock screeners as called by some platforms, run periodically to search for stocks from the stock universe that adhere to criteria of choice. Users can easily create and deploy filters, with only few lines of Python code. Filters determine the time to `subscribe` for events of a specific stock. Events could be price changes or trades in a predefined window, e.g. per second/ per minute.
+* Indicators compute values, such as moving averages, from the market data of a symbol. Indicators are shared: each one is computed once per symbol, whichever signals use it.
+* Signals turn indicator values into a prediction of price movement for each symbol selected by the filters they are linked to. The sign of a signal value is the direction, and its magnitude the confidence.
+* Rules turn signals and positions into order requests. A `SymbolRule` acts on a single stock, and a `PortfolioRule` on a collection of stocks. Rules never call the broker: the framework submits their orders when trading, and simulates them when back-testing. The framework supports both long and short positions to equities, and is designed to be capable of concurrently handling hundreds of stocks with numerous rules. A position belongs to the rule that opened it until it is flat again.
 
 Data Propagation 
 ----------------
@@ -31,18 +33,23 @@ or updated in real-time using web-sockets.
 DataLoader class
 ****************
 
-The DataLoader class is fundamental in creating a strategy using LiuAlgoTrader. It allows access to data without the need to pay attention to any connectivity details and is consistent among the different data providers. The Framework is responsibility for constantly maintaing an updated DataLoader class, which is passed a long to the strategy during its execution. 
+The DataLoader class is fundamental in creating a strategy using LiuAlgoTrader. It allows access to data without the need to pay attention to any connectivity details and is consistent among the different data providers. The Framework is responsibility for constantly maintaing an updated DataLoader class, which components reach through the `Context` of their run, as `self.ctx.data_loader`.
+
+Context class
+*************
+
+Each run, which is a consumer process, the filter process or a back-test, creates one `Context` and passes it to every component. The context holds the `DataLoader`, an optional trader for read-only queries, and the shared indicators and caches, so separate runs in the same process do not share state.
 
 
 Usage Fundamentals
 ------------------
 
-The framework consists of 2 `base classes`: `Scanner` and `Strategy`, for basic trading activities.
-The framework comes with a generic `Scanner`, though we recommend to treat it as a reference.
+The framework's `base classes` are in `liualgotrader.strategy.new_base`: `Filter`, `Indicator`, `Signal`, `SymbolRule` and `PortfolioRule`.
+The framework comes with a generic momentum `Filter`, though we recommend to treat it as a reference.
 
-To get start with the framework, you should create your custom scanners and strategies, inheriting from base classes `Scanner` and `Strategy`. Once the building blocks are in place, you can instruct the framework which scanners & strategies to instantiate in `tradeplan.toml` file, together with configuration parameters that you would like to pass for each.
+To get start with the framework, you should create your custom filters, signals and rules, inheriting from these base classes. Once the building blocks are in place, you can instruct the framework which components to instantiate in `tradeplan.toml` file, how they link to each other, and the configuration parameters that you would like to pass for each.
 
-All your trading activities are stored in a database. You can then use a multitude of notebooks for further analysis and improving the performance of your algo trading strategies.
+Back-tests write their trades and a summary to files, which you can analyze to improve the performance of your algo trading strategies.
 
 Hands-free framework
 --------------------
@@ -92,15 +99,17 @@ The producer's role is to receive updates from the WebSocket,
 post them into the relevant consumer's Queue, and return to
 process the next message.
 
-Each consumer reads events from the Queue, parses them the
-calls the strategies selected in the `tradeplan` configuration
-file.
+Each consumer reads events from the Queue, parses them, then
+evaluates the signals and rules of the `tradeplan` configuration
+file on each minute bar.
 
-Upon running the `trader` application, scanners would run and
-stock would be picked. Based on the number of stock, and the
-available CPUs consumer processes would be spawn. As they
-start, the producer process is spawned, and the communication
-with the data-stream provider is initiated.
+Upon running the `trader` application, consumer processes are
+spawned, based on the available CPUs. The producer process is
+spawned next, and the communication with the data-stream provider
+is initiated. Then the filters run in their own process, and
+stocks are picked. The producer assigns each picked stock to a
+consumer: the first consumer for the filters of portfolio rules,
+and otherwise the consumer with the fewest stocks.
 
 Performance
 ***********
@@ -118,8 +127,8 @@ be written to the log:
 
 When you see such a message repetitively, it may mean that either:
 
-- The `Strategy` being used takes too long to calculate compared to the number of stocks handled by that single process. It will be a good idea to double-check the Strategy code, and check if performance improvements are possible,
-- It is possible that the `Strategy` writes too much log that causes delays,
+- The signals and rules being used take too long to calculate compared to the number of stocks handled by that single process. It will be a good idea to double-check their code, and check if performance improvements are possible,
+- It is possible that the signals or rules write too much log that causes delays,
 - The number of stocks traded is too high for the hardware setup. In that case it would be best to reduce the max number of stocks (environment variable)
 - The consumer process listen to second message, as well as trade and quote messages, depending on the strategy and hardware capacity it might be best to reduce the event types that the producer is sending to the consumers (change the `tradeplan` configuration file),
 
@@ -164,8 +173,7 @@ files for a future developer.
     |   |   ├── config.py
     |   |   ├── market_data.py
     |   |   ├── log.py
-    |   |   ├── data_loader.py
-    |   |   └── trading_data.py
+    |   |   └── data_loader.py
     |   ├── data
     |   |   ├── data_base.py
     |   |   └── data_factory.py
@@ -198,15 +206,14 @@ files for a future developer.
     |   |        ├── base.py
     |   |        ├── algo_run.py
     |   |        └── ...
-    │   ├── scanners
-    |   |    ├── base.py
+    │   ├── filters
     |   |    └── momentum.py
-    │   ├── strategies
-    |   |    ├── base.py
-    |   |    └── momentum_long.py
+    │   ├── strategy
+    |   |    └── new_base.py
     │   ├── consumer.py
-    │   ├── scanners_runner.py
-    │   └── polygon_producer.py
+    │   ├── filters_runner.py
+    │   ├── enhanced_backtest.py
+    │   └── producer.py
     |
     ├── examples
     ├── tools
@@ -214,13 +221,16 @@ files for a future developer.
 
 common
 ******
-The `common` folder contains 5 important files that the developer should be aware of:
+The `common` folder contains 4 important files that the developer should be aware of:
 
 - `config.py` is a file for global configuration. The file includes internal constants which are not accessible via the environment variables of the configuration file for now,
 - `types.py` includes various enums/classes used throughout the framework,
 - `log.py` configures the standard Python `logging` module to write log entries to STDOUT, at the level set by the `LIU_LOG_LEVEL` environment variable,
-- `data_loader.py` explained above,
-- `trading_data` includes global variables that are shared between the strategies and the consumer infrastructure. This file should be viewed in details to understand data passing.
+- `data_loader.py` explained above.
+
+strategy
+********
+`strategy/new_base.py` holds the base classes of the strategy components, the `Context` and the `StrategyGraph` that the trade plan is loaded into. See the `Strategies` section.
 
 fincalcs
 ********
@@ -285,15 +295,15 @@ The main database tables are as follows:
 |                     | back-testing.                                 |
 +---------------------+-----------------------------------------------+
 | trending_tickers    | Tracks of selected stocks per `batch_id`,     |
-|                     | including time-stamp.                         |
+|                     | including time-stamp and filter name.         |
 +---------------------+-----------------------------------------------+
 | algo_run            | Strategy execution log, per `batch_id` and    |
-|                     | consumer process. More details below.         |
+|                     | consumer process, of earlier releases. More   |
+|                     | details below.                                |
 +---------------------+-----------------------------------------------+
 | new_trades          | Tracks of each executed order                 |
-|                     | (including partial), per `algo_run`, including|
-|                     | whatever reasoning is persisted by the        |
-|                     | executed strategy.                            |
+|                     | (including partial), per `algo_run`, of       |
+|                     | earlier releases.                             |
 +---------------------+-----------------------------------------------+
 | portfolio           | Tracks of securities value over time.         |
 +---------------------+-----------------------------------------------+
@@ -323,9 +333,10 @@ The table holds daily OHLC values, per stock, including indicators.
 `algo_run` table
 ^^^^^^^^^^^^^^^^
 
-The table entry is created by the `consumer` process, upon and
+Earlier releases created a table entry in the `consumer` process, upon an
 execution of a strategy. Therefore, each line in the table
 represents an executed strategy, per process, per `batch_id`.
+The `trader` and `backtester` applications do not write it for now.
 
 The table tracks a collection of information that helps to
 reconstruct the trading day and analysis it post-analysis and
@@ -340,8 +351,12 @@ back-testing:
 ^^^^^^^^^^^^^^^^^^
 
 the table persists each trading operation
-(including partial fills), each trade is linked to an
-`algo_run_id` (a unique-id per `algo_run` row).
+(including partial fills) of earlier releases, each trade is linked to an
+`algo_run_id` (a unique-id per `algo_run` row). The `trader` and
+`backtester` applications do not write it for now: back-tests write their
+trades to a file instead (see the `Back-testing` section), and the analysis
+notebooks and the `portfolio` application show only the trades recorded
+earlier.
 
 The table tracks:
 
@@ -350,7 +365,7 @@ The table tracks:
 - `algo_run_id`
 - database time-stamp and client time-stamp: the executed time-stamp of order.
 - target/stop price (if available)
-- indicators - a JSON construct that may be filled by the strategy in any way fitting post analysis.
+- indicators - a JSON construct for post analysis.
 
 
 

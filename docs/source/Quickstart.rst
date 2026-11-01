@@ -53,26 +53,20 @@ from within the samples directory:
 
     backtester from 2026-09-01
 
-The backtester prints the batch-id of the session. Then run the back-test UI:
+The backtester prints the batch-id of the session when it completes.
 
-.. code-block:: bash
-
-    streamlit run https://raw.github.com/amor71/LiuAlgoTrader/master/analysis/backtester_ui.py
-
-Once executed, your screen should look like this:
-
-.. image:: /images/liu-firsttime.png
-    :width: 800
-    :align: left
-    :alt: liu first time use
-
-
-Select the `Analyzer` app on the upper-right drop-down and enter the batch-id
-of your back-test.
+**NOTE**: the samples that the wizard downloads may still use the
+`[scanners]` and `[strategies]` trade plan sections of earlier
+releases. If the `backtester` rejects them, use the samples in the
+`examples` folder of the GitHub repository, which use the
+`[filters]`, `[signals]` and `[rules]` sections explained in the
+`Strategies` section.
 
 `Voila!`
 ^^^^^^^^
-You should see your back-test session, loaded from your local database.
+You should find your back-test session in two files in the current
+directory: `<batch-id>-trades.csv`, with one row per trade, and
+`<batch-id>-summary.txt`, with the results of each rule.
 You're all set now.
 
 **NOTE**
@@ -83,8 +77,9 @@ may take minutes to an hour depending on your connection type.
 The Database
 ------------
 
-LiuAlgoTrader keeps track of your trading in a SQLite database at
-`~/.liualgotrader/liu.db`, and creates its tables on first use. See
+LiuAlgoTrader keeps its data, such as portfolios and the stocks picked by
+filters, in a SQLite database at `~/.liualgotrader/liu.db`, and creates its
+tables on first use. See
 `Database Setup`_ for using a PostgreSQL server instead.
 
 .. _Database Setup: https://liualgotrader-v2.readthedocs.io/en/latest/(Advanced)%20Setup.html#database-setup
@@ -92,4 +87,4 @@ LiuAlgoTrader keeps track of your trading in a SQLite database at
 What's Next?
 ------------
 
-Read through the rest of the documentation, starting with the 'Getting Started' section. Understand the framework concepts, create your own strategies and run a trading session.
+Read through the rest of the documentation, starting with the 'Getting Started' section. Understand the framework concepts, create your own filters, signals and rules, and run a trading session.

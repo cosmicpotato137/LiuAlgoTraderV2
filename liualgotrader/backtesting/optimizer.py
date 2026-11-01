@@ -26,7 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 async def save_optimizer_session(
-    optimizer_session_id: str, batch_id: str, hypers: Hyperparameters
+    optimizer_session_id: str,
+    batch_id: str,
+    hypers: Hyperparameters,
+    score: float,
 ):
     """Record a back-test batch as part of an optimizer session.
 
@@ -38,8 +41,10 @@ async def save_optimizer_session(
         The back-test batch identifier.
     hypers: Hyperparameters
         The hyper-parameter values, saved in string form.
+    score: float
+        The score of the batch.
     """
-    await OptimizerRun.save(optimizer_session_id, batch_id, str(hypers))
+    await OptimizerRun.save(optimizer_session_id, batch_id, str(hypers), score)
 
 
 def backtest_iteration(
@@ -51,9 +56,9 @@ def backtest_iteration(
 ):
     """Run one daily US-equities back-test and record it in the session.
 
-    Intended as the target of a separate process. Record the batch only if the
-    back-test succeeds, log any exception instead of raising it, and log the
-    new batch identifier.
+    Intended as the target of a separate process. Record the batch, scored by
+    its net cash flow, only if the back-test succeeds. Log any exception
+    instead of raising it, and log the new batch identifier.
 
     Parameters
     ----------
@@ -81,7 +86,7 @@ def backtest_iteration(
         get_event_loop().close()
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(asyncio.new_event_loop())
-        loop.run_until_complete(
+        trades = loop.run_until_complete(
             enhanced_backtest.backtest_main(
                 uid,
                 start_date,
@@ -103,7 +108,12 @@ def backtest_iteration(
         )
     else:
         loop.run_until_complete(
-            save_optimizer_session(optimizer_session_id, uid, hypers)
+            save_optimizer_session(
+                optimizer_session_id,
+                uid,
+                hypers,
+                enhanced_backtest.net_cash_flow(trades),
+            )
         )
     finally:
         logger.info("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")

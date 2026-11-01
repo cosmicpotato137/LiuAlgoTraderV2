@@ -17,7 +17,9 @@ import pandas as pd
 import requests
 from alpaca.common.enums import BaseURL
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import AssetStatus, PositionSide
+from alpaca.trading.enums import AssetStatus
+from alpaca.trading.enums import OrderType as AlpacaOrderType
+from alpaca.trading.enums import PositionSide
 from alpaca.trading.models import Asset, Calendar
 from alpaca.trading.models import Order as AlpacaOrder
 from alpaca.trading.models import Position, TradeUpdate
@@ -30,12 +32,18 @@ from alpaca.trading.stream import TradingStream
 from requests.auth import HTTPBasicAuth
 
 from liualgotrader.common import clock
-from liualgotrader.common.types import Order, SymbolQueueMap, Trade
+from liualgotrader.common.types import (Order, OrderType, QueueMessageType,
+                                        SymbolQueueMap, Trade)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
 from liualgotrader.vendors.alpaca.util import alpaca_time
 
 logger = logging.getLogger(__name__)
+
+# How many times to try putting a trade update on a full consumer queue, and
+# how many seconds to sleep between tries.
+_QUEUE_PUT_ATTEMPTS = 3
+_QUEUE_FULL_RETRY_SECONDS = 2
 
 
 def _enum_value(field: Union[Enum, str, None]) -> str:
@@ -75,6 +83,15 @@ _TRADE_EVENTS = {
     "rejected": Order.EventType.rejected,
     "fill": Order.EventType.fill,
     "partial_fill": Order.EventType.partial_fill,
+}
+
+# The Alpaca order type of each OrderType.
+_ALPACA_ORDER_TYPES = {
+    OrderType.MARKET: AlpacaOrderType.MARKET,
+    OrderType.LIMIT: AlpacaOrderType.LIMIT,
+    OrderType.STOP: AlpacaOrderType.STOP,
+    OrderType.STOP_LIMIT: AlpacaOrderType.STOP_LIMIT,
+    OrderType.TRAILING_STOP: AlpacaOrderType.TRAILING_STOP,
 }
 
 
@@ -688,7 +705,7 @@ class AlpacaTrader(TraderAPI):
         symbol: str,
         qty: float,
         side: str,
-        order_type: str,
+        order_type: OrderType,
         time_in_force: str,
         limit_price: str = None,
         stop_price: str = None,
@@ -713,8 +730,8 @@ class AlpacaTrader(TraderAPI):
             The order quantity.
         side: str
             The order direction, buy or sell.
-        order_type: str
-            The order type: market, limit, stop, stop_limit or trailing_stop.
+        order_type: OrderType
+            The order type.
         time_in_force: str
             The order duration, such as day.
         limit_price: str, default None
@@ -763,17 +780,17 @@ class AlpacaTrader(TraderAPI):
             "stop_loss": StopLossRequest(**stop_loss) if stop_loss else None,
         }
         request: OrderRequest
-        if order_type == "market":
+        if order_type == OrderType.MARKET:
             request = MarketOrderRequest(**fields)
-        elif order_type == "limit":
+        elif order_type == OrderType.LIMIT:
             request = LimitOrderRequest(**fields, limit_price=limit_price)
-        elif order_type == "stop":
+        elif order_type == OrderType.STOP:
             request = StopOrderRequest(**fields, stop_price=stop_price)
-        elif order_type == "stop_limit":
+        elif order_type == OrderType.STOP_LIMIT:
             request = StopLimitOrderRequest(
                 **fields, stop_price=stop_price, limit_price=limit_price
             )
-        elif order_type == "trailing_stop":
+        elif order_type == OrderType.TRAILING_STOP:
             request = TrailingStopOrderRequest(
                 **fields, trail_price=trail_price, trail_percent=trail_percent
             )
@@ -933,7 +950,7 @@ class AlpacaTrader(TraderAPI):
         symbol: str,
         qty: float,
         side: str,
-        order_type: str,
+        order_type: OrderType,
         time_in_force: str,
         limit_price: str = None,
         stop_price: str = None,
@@ -956,8 +973,8 @@ class AlpacaTrader(TraderAPI):
             The order quantity.
         side: str
             The order direction, buy or sell.
-        order_type: str
-            The order type, such as market or limit.
+        order_type: OrderType
+            The order type, such as OrderType.MARKET or OrderType.LIMIT.
         time_in_force: str
             The order duration, such as day.
         limit_price: str, default None
@@ -987,9 +1004,14 @@ class AlpacaTrader(TraderAPI):
 
         Raises
         ------
-        Raise AssertionError if the Broker API base URL is not configured or
-        the request fails.
+        Raise ValueError if the order type is not supported, and
+        AssertionError if the Broker API base URL is not configured or the
+        request fails.
         """
+        alpaca_type = _ALPACA_ORDER_TYPES.get(order_type)
+        if alpaca_type is None:
+            raise ValueError(f"unsupported Alpaca order type {order_type}")
+
         if not self.config.broker_api_base_url:
             raise AssertionError(
                 "order_on_behalf can't be called, if brokerage configs incomplete"
@@ -1002,7 +1024,7 @@ class AlpacaTrader(TraderAPI):
             "symbol": symbol.upper(),
             "qty": qty,
             "side": side,
-            "type": order_type,
+            "type": alpaca_type.value,
         }
 
         if limit_price:
@@ -1022,7 +1044,7 @@ class AlpacaTrader(TraderAPI):
         symbol: str,
         qty: float,
         side: str,
-        order_type: str,
+        order_type: OrderType,
         time_in_force: str = "day",
         limit_price: str = None,
         stop_price: str = None,
@@ -1049,8 +1071,8 @@ class AlpacaTrader(TraderAPI):
             The order quantity.
         side: str
             The order direction, buy or sell.
-        order_type: str
-            The order type: market, limit, stop, stop_limit or trailing_stop.
+        order_type: OrderType
+            The order type.
         time_in_force: str, default "day"
             The order duration.
         limit_price: str, default None
@@ -1081,7 +1103,8 @@ class AlpacaTrader(TraderAPI):
 
         Raises
         ------
-        For the configured account, raise ValueError if the arguments do not
+        Raise ValueError if the order type is not supported. For the
+        configured account, also raise ValueError if the arguments do not
         form a valid order and alpaca.common.exceptions.APIError if Alpaca
         rejects it. For an external account, raise AssertionError if the
         request fails.
@@ -1177,8 +1200,9 @@ class AlpacaTrader(TraderAPI):
 
         Raises
         ------
-        Re-raise queue.Full if a queue stays full for one second; log and
-        suppress any other exception.
+        Re-raise queue.Full if a queue is still full after
+        _QUEUE_PUT_ATTEMPTS tries, sleeping _QUEUE_FULL_RETRY_SECONDS between
+        tries; log and suppress any other exception.
         """
         try:
             # cls.get_instance().queues[symbol].put(
@@ -1189,17 +1213,31 @@ class AlpacaTrader(TraderAPI):
                 return
 
             to_send = {
-                "EV": "trade_update",
+                "EV": QueueMessageType.TRADE_UPDATE,
                 "symbol": trade.symbol,
                 "trade": trade.__dict__,
             }
             for q in cls.get_instance().queues.get_allqueues():
-                q.put(to_send, timeout=1)
+                for attempt in range(1, _QUEUE_PUT_ATTEMPTS + 1):
+                    try:
+                        q.put(to_send, timeout=1)
+                        break
+                    except queue.Full as f:
+                        if attempt == _QUEUE_PUT_ATTEMPTS:
+                            raise
+                        logger.error(
+                            "process_message(): queue for %s is FULL:%s, sleeping for %s seconds and re-trying.",
+                            data.order.symbol,
+                            f,
+                            _QUEUE_FULL_RETRY_SECONDS,
+                        )
+                        await asyncio.sleep(_QUEUE_FULL_RETRY_SECONDS)
 
         except queue.Full as f:
             logger.error(
-                "process_message(): queue for %s is FULL:%s, sleeping for 2 seconds and re-trying.",
+                "process_message(): queue for %s is still FULL after %s attempts:%s",
                 data.order.symbol,
+                _QUEUE_PUT_ATTEMPTS,
                 f,
             )
             raise

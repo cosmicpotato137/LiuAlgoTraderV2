@@ -27,8 +27,8 @@ from liualgotrader.common import config
 from liualgotrader.common.concurrency import calc_num_consumer_processes
 from liualgotrader.common.log import configure_logging
 from liualgotrader.consumer import consumer_main
+from liualgotrader.filters_runner import main as filters_main
 from liualgotrader.producer import producer_main
-from liualgotrader.scanners_runner import main
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +56,10 @@ def motd(filename: str, version: str, unique_id: str) -> None:
 def main_cli():
     """Run the live trading processes from the command line and exit.
 
-    Start the consumer and producer processes, and a scanners process when the
-    trade plan has a scanners section, and wait for them to finish. Stop them
-    all on a keyboard interrupt. Exit if the trade plan is not found.
+    Start the consumer, producer and filter processes and wait for them to
+    finish. Only the first consumer runs the portfolio rules. Stop them all on
+    a keyboard interrupt. Exit if the trade plan is not found or has no
+    filters section.
     """
     configure_logging()
     config.filename = os.path.basename(__file__)
@@ -82,6 +83,10 @@ def main_cli():
         logger.error("could not locate tradeplan file %s", fname)
         sys.exit(0)
 
+    if not conf_dict.get("filters"):
+        logger.error("tradeplan file %s has no [filters] section", fname)
+        sys.exit(1)
+
     # Consumers first
     num_consumer_processes = calc_num_consumer_processes()
     logger.info("Starting %s consumer processes", num_consumer_processes)
@@ -89,7 +94,7 @@ def main_cli():
     consumers = [
         mp.Process(
             target=consumer_main,
-            args=(queues[i], uid, conf_dict),
+            args=(queues[i], conf_dict, i == 0),
         )
         for i in range(num_consumer_processes)
     ]
@@ -97,45 +102,28 @@ def main_cli():
         # p.daemon = True
         p.start()
 
-    scanner_queue: mp.Queue = mp.Queue()
+    filter_queue: mp.Queue = mp.Queue()
     producer = mp.Process(
         target=producer_main,
-        args=(
-            uid,
-            queues,
-            conf_dict,
-            scanner_queue,
-            num_consumer_processes,
-        ),
+        args=(uid, queues, conf_dict, filter_queue),
     )
     producer.start()
 
-    scanner = None
-    if "scanners" in conf_dict:
-        logger.info("Starting scanners process")
-        scanner = mp.Process(
-            target=main,
-            args=(
-                conf_dict,
-                scanner_queue,
-            ),
-        )
-        scanner.start()
+    logger.info("Starting filters process")
+    filters = mp.Process(target=filters_main, args=(conf_dict, filter_queue))
+    filters.start()
 
     # wait for completion and hope everyone plays nicely
     try:
         producer.join()
-        if scanner:
-            scanner.join()
+        filters.join()
 
         for p in consumers:
             p.join()
 
     except KeyboardInterrupt:
         producer.kill()
-
-        if scanner:
-            scanner.terminate()
+        filters.terminate()
 
         for p in consumers:
             p.terminate()
