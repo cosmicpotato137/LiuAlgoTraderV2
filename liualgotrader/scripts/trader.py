@@ -69,12 +69,9 @@ def main_cli():
     motd(filename=config.filename, version=config.build_label, unique_id=uid)
 
     # load configuration
-    folder = (
-        config.tradeplan_folder
-        if config.tradeplan_folder[-1] == "/"
-        else f"{config.tradeplan_folder}/"
+    fname = os.path.join(
+        config.tradeplan_folder, config.configuration_filename
     )
-    fname = f"{folder}{config.configuration_filename}"
     try:
         conf_dict = copy.deepcopy(toml.load(fname))
         logger.debug("configuration: %s", conf_dict)

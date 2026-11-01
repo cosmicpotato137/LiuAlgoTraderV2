@@ -21,7 +21,6 @@ backtest
     Run a backtesting session and return its batch identifier.
 """
 
-import asyncio
 import itertools
 import logging
 import uuid
@@ -33,7 +32,7 @@ from alpaca.trading.models import Calendar
 from alpaca.trading.requests import GetCalendarRequest
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.concurrency import get_event_loop
+from liualgotrader.common.concurrency import reset_event_loop
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType, Order, OrderType, TimeScale
 from liualgotrader.db.session import create_db_connection
@@ -531,9 +530,7 @@ def backtest(
     """
     uid = str(uuid.uuid4())
     try:
-        get_event_loop().close()
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(asyncio.new_event_loop())
+        loop = reset_event_loop()
         loop.run_until_complete(
             backtest_main(
                 uid,
