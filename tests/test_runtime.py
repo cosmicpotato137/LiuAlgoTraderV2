@@ -22,7 +22,6 @@ from liualgotrader.consumer import Consumer
 from liualgotrader.enhanced_backtest import (
     Backtest,
     net_cash_flow,
-    select_rules,
     write_results,
 )
 from liualgotrader.strategy.new_base import (
@@ -34,6 +33,7 @@ from liualgotrader.strategy.new_base import (
     StrategyGraph,
     SymbolRule,
     portfolio_filters,
+    select_rules,
 )
 from liualgotrader.strategy.runtime import RunState, sells_first
 

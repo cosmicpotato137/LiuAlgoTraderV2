@@ -39,7 +39,7 @@ import pandas as pd
 from liualgotrader.common import config
 from liualgotrader.common.types import DataConnectorType, TimeScale
 from liualgotrader.data.base import DataAPI
-from liualgotrader.data.factory import data_loader_factory
+from liualgotrader.data.factory import data_api_factory
 
 logger = logging.getLogger(__name__)
 
@@ -1092,7 +1092,7 @@ class DataLoader:
         Raise Exception if connector is not supported, and AssertionError if no
         data source is created.
         """
-        self.data_api = data_loader_factory(connector)
+        self.data_api = data_api_factory(connector)
         self.data: Dict[str, SymbolData] = {}
         self.scale = scale
         self.concurrency = concurrency

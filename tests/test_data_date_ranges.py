@@ -9,7 +9,7 @@ from hypothesis import strategies as st
 
 from liualgotrader.common import clock
 from liualgotrader.common.types import DataConnectorType, TimeScale
-from liualgotrader.data.factory import data_loader_factory
+from liualgotrader.data.factory import data_api_factory
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ pytestmark = pytest.mark.requires_credentials("alpaca")
 
 def test_alpaca_num_trading_day():
     logger.info("test_alpaca_num_trading_days_positive")
-    alpaca_dl = data_loader_factory(DataConnectorType.alpaca)
+    alpaca_dl = data_api_factory(DataConnectorType.alpaca)
     if (
         alpaca_dl.num_trading_days(
             symbol="AAPL", start=date(2022, 1, 6), end=date(2022, 1, 7)
@@ -80,7 +80,7 @@ def test_alpaca_num_trading_day():
 
 def test_alpaca_concurrency_ranges_min():
     logger.info("test_alpaca_concurrency_ranges_min")
-    alpaca_dl = data_loader_factory(DataConnectorType.alpaca)
+    alpaca_dl = data_api_factory(DataConnectorType.alpaca)
 
     t = time.time()
     if (
@@ -121,7 +121,7 @@ def test_alpaca_concurrency_ranges_min():
     end=st.dates(min_value=date(2018, 1, 1), max_value=date(2022, 1, 1)),
 )
 def test_hpy_alpaca_concurrency_ranges_min(start: date, end: date):
-    alpaca_dl = data_loader_factory(DataConnectorType.alpaca)
+    alpaca_dl = data_api_factory(DataConnectorType.alpaca)
 
     t = time.time()
     r = alpaca_dl.data_concurrency_ranges(
