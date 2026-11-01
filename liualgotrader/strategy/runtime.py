@@ -22,7 +22,7 @@ sells_first
 import logging
 import math
 from dataclasses import dataclass, replace
-from typing import Awaitable, Callable, Optional, TypeVar
+from typing import Awaitable, Callable, Iterable, Optional, TypeVar
 
 import pandas as pd
 
@@ -96,8 +96,8 @@ class RunState:
 
     Methods
     -------
-    add_symbol
-        Add a symbol to the universe of a filter.
+    set_universe
+        Replace the universe of a filter.
     symbols
         Return the symbols that rules may decide on.
     position
@@ -141,17 +141,17 @@ class RunState:
         self.owners: dict[str, str] = {}
         self._symbol_orders: dict[str, dict[str, OpenOrder]] = {}
 
-    def add_symbol(self, filter_name: str, symbol: str) -> None:
-        """Add a symbol to the universe of a filter.
+    def set_universe(self, filter_name: str, symbols: Iterable[str]) -> None:
+        """Replace the universe of a filter with the symbols it selected.
 
         Parameters
         ----------
         filter_name: str
-            The name of the filter that selected symbol.
-        symbol: str
-            The symbol.
+            The name of the filter that selected symbols.
+        symbols: Iterable[str]
+            The symbols.
         """
-        self.universes.setdefault(filter_name, set()).add(symbol)
+        self.universes[filter_name] = set(symbols)
 
     def symbols(self) -> set[str]:
         """Return the symbols in a universe or owned by a rule."""
