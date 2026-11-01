@@ -5,7 +5,7 @@
 groups = ["default", "dev", "docs", "postgres"]
 strategy = []
 lock_version = "4.5.1"
-content_hash = "sha256:7908398e25de6e6e9e7d1536d406ba3bd06e14d5a2c8891dc95ccd91f34d2dec"
+content_hash = "sha256:1eeef3a2b26d62104f89f5d52ddd45b92a9302d6c0663cb36a56fbeb3ccd58f2"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -3307,6 +3307,16 @@ dependencies = [
 files = [
     {file = "python_discovery-1.6.1-py3-none-any.whl", hash = "sha256:d43fcdef879fe795352bd13ccf8d185ba5a9f86f36cfcd00529f596e737442b3"},
     {file = "python_discovery-1.6.1.tar.gz", hash = "sha256:cf87d3627dfb4412437fdd5b13eae402607722998d21567993aedbc59b23c15e"},
+]
+
+[[package]]
+name = "python-dotenv"
+version = "1.2.4"
+requires_python = ">=3.10"
+summary = "Read key-value pairs from a .env file and set them as environment variables"
+files = [
+    {file = "python_dotenv-1.2.4-py3-none-any.whl", hash = "sha256:42269a8a5b3fd54ffa6f3d84b18abed50064717576b4ecf03dc4a55d8aa04fdc"},
+    {file = "python_dotenv-1.2.4.tar.gz", hash = "sha256:f0d53e69935a851c0dcc78f3ab7aaccd8cabef0b92382b576b824212902873c0"},
 ]
 
 [[package]]
