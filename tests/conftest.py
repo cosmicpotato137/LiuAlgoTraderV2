@@ -6,6 +6,9 @@ import warnings
 from collections import Counter
 
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Unless DSN names a database, run the tests against a new SQLite database
 # rather than the default one. Set before liualgotrader.common.config reads it.
