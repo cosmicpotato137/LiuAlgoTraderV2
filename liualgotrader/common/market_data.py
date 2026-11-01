@@ -39,7 +39,7 @@ def get_symbol_data(
     start_date: date,
     end_date: date,
     data_loader=None,
-    scale="minute",
+    scale: TimeScale = TimeScale.minute,
 ) -> df:
     """Return a symbol's market data between two dates.
 
@@ -53,11 +53,11 @@ def get_symbol_data(
         The last date of the range.
     data_loader, default None
         The loader to use, or None to create one.
-    scale, default "minute"
-        The TimeScale name used when creating a loader.
+    scale: TimeScale, default TimeScale.minute
+        The time scale used when creating a loader.
     """
     if not data_loader:
-        data_loader = DataLoader(TimeScale[scale])
+        data_loader = DataLoader(scale)
 
     start = pd.Timestamp(start_date, tz=clock.NY)
     end = pd.Timestamp(end_date, tz=clock.NY)

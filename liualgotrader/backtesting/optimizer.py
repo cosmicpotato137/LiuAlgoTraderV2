@@ -8,7 +8,6 @@ backtest_iteration
     Run one daily US-equities back-test and record it.
 """
 
-import asyncio
 import logging
 import uuid
 from datetime import date
@@ -16,7 +15,7 @@ from typing import Dict
 
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import config
-from liualgotrader.common.concurrency import get_event_loop
+from liualgotrader.common.concurrency import reset_event_loop
 from liualgotrader.common.hyperparameter import Hyperparameters
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType, TimeScale
@@ -83,9 +82,7 @@ def backtest_iteration(
     uid = str(uuid.uuid4())
 
     try:
-        get_event_loop().close()
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(asyncio.new_event_loop())
+        loop = reset_event_loop()
         trades = loop.run_until_complete(
             enhanced_backtest.backtest_main(
                 uid,

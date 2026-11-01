@@ -9,8 +9,6 @@ Functions
 ---------
 motd
     Log the welcome banner.
-show_usage
-    Print the command-line usage of the optimizer.
 create_parameters
     Return the parameters defined in a configuration.
 create_hyperparameters
@@ -27,8 +25,8 @@ main_cli
     Run the hyperparameter optimizer from the command line and exit.
 """
 
+import argparse
 import copy
-import getopt
 import logging
 import multiprocessing as mp
 import os
@@ -62,13 +60,6 @@ def motd(filename: str, version: str) -> None:
     logger.info("%s %s starting", filename, version)
     logger.info("----------------------------------------------------------")
     logger.info("----------------------------------------------------------")
-
-
-def show_usage():
-    """Print the command-line usage of the optimizer."""
-    print(
-        f"usage:\n{sys.argv[0]}  [--concurrency=<int> DEFAULT 4]",
-    )
 
 
 def create_parameters(parameters: Dict) -> List[Parameter]:
@@ -258,35 +249,26 @@ def main_cli() -> None:
     unparsable dates.
     """
     configure_logging()
+
+    parser = argparse.ArgumentParser(
+        description="Optimize trade plan hyperparameters by backtesting their combinations."
+    )
+    parser.add_argument(
+        "-c",
+        "--concurrency",
+        type=int,
+        default=4,
+        help="maximum number of concurrent backtests. DEFAULT 4",
+    )
+    concurrency: int = parser.parse_args().concurrency
+
     mp.set_start_method("spawn")
-
-    if len(sys.argv) > 2:
-        show_usage()
-        sys.exit(0)
-
-    concurrency: int = 4
-    try:
-        opts, args = getopt.getopt(
-            sys.argv[1:],
-            "c",
-            ["concurrency="],
-        )
-        for opt, arg in opts:
-            if opt in ("--concurrency", "-c"):
-                concurrency = int(arg)
-    except getopt.GetoptError as e:
-        print(f"Error parsing options:{e}\n")
-        show_usage()
-        sys.exit(0)
     config.filename = os.path.basename(__file__)
     motd(filename=config.filename, version=config.build_label)
     logger.info("using concurrency %s", concurrency)
-    folder = (
-        config.tradeplan_folder
-        if config.tradeplan_folder[-1] == "/"
-        else f"{config.tradeplan_folder}/"
+    fname = os.path.join(
+        config.tradeplan_folder, config.configuration_filename
     )
-    fname = f"{folder}{config.configuration_filename}"
     conf_dict = load_configuration(fname)
 
     if "optimizer" not in conf_dict:

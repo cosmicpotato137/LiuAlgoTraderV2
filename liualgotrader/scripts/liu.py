@@ -7,10 +7,6 @@ creates a portfolio of a positive amount and optional positive credit line.
 
 Functions
 ---------
-show_version
-    Print the name of the framework with its build label.
-show_usage
-    Print the version banner and the command-line usage of liu.
 setup_db
     Create or upgrade the database schema.
 setup_samples
@@ -25,7 +21,7 @@ main_cli
     Run the liu command-line interface and exit.
 """
 
-import getopt
+import argparse
 import os
 import pathlib
 import sys
@@ -40,26 +36,6 @@ from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.portfolio import Portfolio
 from liualgotrader.db.session import (create_db_connection, database_url,
                                       upgrade_schema)
-
-
-def show_version():
-    """Print the name of the framework together with its build label."""
-    print(f"Liu Algo Trading Framework v{config.build_label}")
-
-
-def show_usage():
-    """Print the version banner and the command-line usage of liu."""
-    show_version()
-
-    print()
-    print("usage:")
-    print("\t liu quickstart")
-    print("\t OR")
-    print("\t liu create portfolio <amount> [--credit=<credit>]")
-    print("\n")
-    print("options:")
-    print("\t--credit\tAccount credit line")
-    print()
 
 
 def _database_location() -> str:
@@ -117,8 +93,6 @@ def setup_samples(samples_location: str) -> None:
         p = pathlib.Path(samples_location)
         if not p.exists():
             p.mkdir()
-        if samples_location[-1] != "/":
-            samples_location += "/"
 
         base_url = "https://raw.github.com/amor71/LiuAlgoTrader/master/examples/quickstart/"
         files = [
@@ -130,7 +104,7 @@ def setup_samples(samples_location: str) -> None:
         for file in files:
             print(f"Downloading {base_url}{file} to {samples_location}...")
             r = requests.get(f"{base_url}{file}")
-            with open(f"{samples_location}{file}", "w") as f:
+            with open(os.path.join(samples_location, file), "w") as f:
                 f.write(r.text)
                 f.write("")
 
@@ -216,13 +190,13 @@ def quickstart():
     samples = not len(i) or i.lower() in ("y", "yes")
     sample_location = None
     if samples:
-        pwd = pathlib.Path().absolute()
-        print(f"Select location for sample files [{pwd}/liu_samples]:")
+        default_location = os.path.join(
+            pathlib.Path().absolute(), "liu_samples"
+        )
+        print(f"Select location for sample files [{default_location}]:")
         sample_location = input()
         sample_location = (
-            f"{pwd}/liu_samples"
-            if not len(sample_location)
-            else sample_location
+            default_location if not len(sample_location) else sample_location
         )
 
     print()
@@ -315,52 +289,47 @@ def main_cli() -> None:
 
     Support the quickstart command, which runs the setup wizard, and the create
     portfolio command, which takes a positive amount and an optional positive
-    credit line. Print the usage text for a missing or unknown command.
+    credit line. Exit with the usage text for a missing or unknown command.
     """
     configure_logging()
     config.filename = os.path.basename(__file__)
 
-    if len(sys.argv) < 2:
-        show_usage()
-        exit(0)
+    parser = argparse.ArgumentParser(
+        description=f"Liu Algo Trading Framework v{config.build_label}"
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("quickstart", help="run the setup wizard")
+    create_parser = commands.add_parser("create", help="create a portfolio")
+    resources = create_parser.add_subparsers(dest="resource", required=True)
+    portfolio_parser = resources.add_parser(
+        "portfolio", help="create a portfolio"
+    )
+    portfolio_parser.add_argument("amount", type=float, help="Portfolio size")
+    portfolio_parser.add_argument(
+        "--credit", type=float, help="Account credit line"
+    )
+    args = parser.parse_args()
 
-    if sys.argv[1] == "quickstart":
+    if args.command == "quickstart":
         try:
             quickstart()
         except KeyboardInterrupt:
             print("Oops... exiting gracefully")
-    elif sys.argv[1] == "create":
+    elif args.resource == "portfolio":
+        if args.amount <= 0.0:
+            print(
+                "Oops.. account size must be positive. Always think positive w/ Liu"
+            )
+            exit(0)
+        if args.credit is not None and args.credit <= 0.0:
+            print(
+                "Oops.. creditamount must be positive. Always think positive w/ Liu"
+            )
+            exit(0)
+
         try:
-            if sys.argv[2] == "portfolio":
-                if float(sys.argv[3]) <= 0.0:
-                    print(
-                        "Oops.. account size must be positive. Always think positive w/ Liu"
-                    )
-                    exit(0)
-                amount = float(sys.argv[3])
-
-                credit = 0.0
-                opts, args = getopt.getopt(
-                    sys.argv[4:],
-                    shortopts="",
-                    longopts=[
-                        "credit=",
-                    ],
-                )
-                for opt, arg in opts:
-                    if opt in ("--credit"):
-                        credit = float(arg)
-                        if credit <= 0.0:
-                            print(
-                                "Oops.. creditamount must be positive. Always think positive w/ Liu"
-                            )
-                            exit(0)
-
-                create_portfolio(amount, credit)
+            create_portfolio(args.amount, args.credit or 0.0)
         except Exception as e:
             print(f"[ERROR] {e}")
-            show_usage()
-    else:
-        show_usage()
 
     exit(0)

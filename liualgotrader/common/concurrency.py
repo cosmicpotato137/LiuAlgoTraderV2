@@ -4,6 +4,8 @@ Functions
 ---------
 calc_num_consumer_processes
     Return how many consumer processes to launch.
+reset_event_loop
+    Close the current thread's event loop and return a new current one.
 get_event_loop
     Return the current thread's event loop, creating one if needed.
 """
@@ -41,6 +43,18 @@ def calc_num_consumer_processes() -> int:
     logger.info("Total CPU Load:%s, num_cpu:%s", load_pct, num_cpu)
 
     return int(5.0 * (1 - load_pct / 100.0) * num_cpu)
+
+
+def reset_event_loop() -> asyncio.AbstractEventLoop:
+    """Close the current thread's event loop and return a new current one.
+
+    Set the new loop as the current loop, so later calls to get_event_loop in
+    the same thread return it. Do not call it from asynchronous code.
+    """
+    get_event_loop().close()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop
 
 
 def get_event_loop() -> asyncio.AbstractEventLoop:
