@@ -2,7 +2,7 @@
 
 There are two parts of configuration for the **trader**
 application: OS level environment variables,
-and TOML configuration file read by the trader application.
+and TOML strategy files read by the trader application.
 
 ## Environment variables
 
@@ -45,10 +45,10 @@ use a pre-defined number of consumer processes.
 To do so you can assign a positive integer
 to the environment variable `NUM_CONSUMERS`.
 
-`TRADEPLAN_DIR` specifies the location of
-the `tradeplan.toml` configuration file.
-It's used by both the `trader` and `backtester`
-applications.
+`TRADEPLAN_DIR` specifies the folder of the
+trade plan's strategy files, by default the
+current folder. It's used by the `trader`,
+`backtester` and `optimizer` applications.
 
 `DSN` holds the URL of the database, such as
 `postgresql://user:password@host/db`. Leave it unset
@@ -60,32 +60,45 @@ entries written to STDOUT by all `LiuAlgoTrader`
 applications: `DEBUG`, `INFO` (default), `WARNING`
 or `ERROR`.
 
-## TOML configuration file
-the **trader** & **backtester** applications expect a TOML configuration file.
+`LIU_HALT_ON_COLLISION` sets what happens when a
+strategy requests a symbol that another strategy
+owns: `0` (default) deactivates the strategy with
+a warning, and `1` stops the `trader`,
+`backtester` or `optimizer` run with an error.
+
+## TOML strategy files
+the **trader**, **backtester** & **optimizer** applications expect a trade plan:
+a folder of TOML strategy files.
 Click [here](https://toml.io/en/) to learn more on the TOML file format.
 
-By default the trader application will be looking for
-a configuration file with the name *tradeplan.toml*.
-The configuration file, as it's name implies,
-defines the trade-plan for the trader execution:
-it defines which filters select stocks under **[filters]**,
-which signals evaluate the selected stocks under **[signals]**,
-and which rules turn the signals into orders under **[rules]**.
+By default the applications read the trade plan from
+the current folder, or from the `TRADEPLAN_DIR` folder
+if it is set. They read every `*.toml` file in the folder,
+in file name order, so the folder should hold strategy files
+only. Each strategy file describes one strategy completely:
+its `name`, which is unique within the trade plan,
+the filter that selects stocks under **[filter]**,
+the signal that evaluates the selected stocks under **[signal]**,
+and the rule that turns the signal into orders under **[rule]**.
+The filter, the signal and the rule take the name of the strategy.
 
-Each entry is named by its table key, and its `class`
-setting names the class to instantiate: a dotted import path,
-or a class name together with the `filename` of the Python file
-that defines it. A signal lists its filters under `filters`, and a
-rule lists its signals under `signals`. Every other setting is
+The `class` setting of each table names the class to instantiate:
+a dotted import path, or a class name together with the `filename`
+of the Python file that defines it. Every other setting is
 passed to the class, and a setting the class does not take raises
-an error. `recurrence` settings are in minutes.
+an error. `recurrence` settings are in minutes. A strategy file
+with a top-level setting other than `name`, `filter`, `signal`,
+`rule` and `optimizer`, without a `name`, or without one of the
+three tables or their `class`, raises an error at startup, and so
+do two strategy files with the same `name`. The optional
+`[optimizer]` table is read by the `optimizer` application only.
 
-Following is a sample of TOML configuration file.
+Following is a sample strategy file.
 See the Filters and Strategies sections respectively
 to learn more on the available tools, and how to extend
 them.
 
-```{literalinclude} ../../examples/sma_crossover/tradeplan.toml
-:language: bash
+```{literalinclude} ../../examples/sma_crossover/sma_cross_long.toml
+:language: toml
 :linenos:
 ```

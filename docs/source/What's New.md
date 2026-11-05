@@ -8,15 +8,35 @@
 * - Unreleased
   - 1. Strategies are built from filters,
        indicators, signals and rules
-       (`strategy/new_base.py`), wired by the
-       `[filters]`, `[signals]` and `[rules]`
-       trade plan sections, which replace
-       `[scanners]` and `[strategies]`,
-    2. `backtester --rules` replaces the
-       `--scanners` and `--strats` options;
-       back-tests write their trades and a
-       summary to files,
-    3. Optimizer runs record a score.
+       (`strategy/new_base.py`), and replace
+       scanners and strategies. The trade
+       plan is the folder `TRADEPLAN_DIR` (by
+       default the current folder), and each
+       TOML file in it describes one strategy,
+       with a `name` and a `[filter]`,
+       `[signal]` and `[rule]` table, in place
+       of `tradeplan.toml`,
+    2. `backtester` drops the `--scanners`
+       and `--strats` options and back-tests
+       the whole trade plan; back-tests write
+       their trades and a summary to files,
+    3. Optimizer runs record a score. The
+       `[optimizer]` section is part of a
+       strategy file, and the `optimizer`
+       back-tests each strategy that has one
+       alone, with its own dates,
+    4. `trader`, `backtester` and `optimizer`
+       raise `ValueError` at startup, naming
+       the file, on an invalid strategy file,
+       or on two strategies with the same
+       name,
+    5. Strategies own symbols. A strategy
+       that requests a symbol that another
+       strategy owns is deactivated, which
+       stops its rule, signal and filter, or
+       stops the run if
+       `LIU_HALT_ON_COLLISION=1`; back-test
+       results are reported by strategy.
 * - 0.4.35
   - 1. Switch to PDM for depency management
        and build.

@@ -8,17 +8,18 @@ The `optimizer` application is a tool for back-testing strategy with different p
 
 ### How-To
 
-To use the `optimizer` application, a new section should be added to the `tradeplan.toml` file:
+To use the `optimizer` application, a new section should be added to the strategy file of the strategy to optimize:
 
-```{literalinclude} ../../examples/optimizer/tradeplan.toml
+```{literalinclude} ../../examples/optimizer/trend_follow.toml
 :language: toml
 :linenos:
 ```
 
-* Note the [optimizer] section is added to the `tradeplan.toml` file,
+* Note the [optimizer] section is added to the strategy file, with `parameters` and `hyperparameters` tables,
 * `start_date` & `end_date` specify the time-window for back-testing,
 * The `optimizer` always runs in daily time-scale, on US equities and without fees,
-* Parameters and hyper-parameters are named by the trade plan entry they apply to, as `filters.<name>.<setting>`, `signals.<name>.<setting>` or `rules.<name>.<setting>`. For example, `[optimizer.hyperparameters.rules.trend_follow]` lists the hyper-parameters of the `trend_follow` rule,
+* Parameters and hyper-parameters are named by the table of the strategy file they apply to: `filter`, `signal` or `rule`. For example, `[optimizer.hyperparameters.rule]` lists the hyper-parameters of the strategy's rule, and `[optimizer.hyperparameters.signal]` those of its signal,
+* The `optimizer` optimizes each strategy file of the trade plan that has an [optimizer] section, one strategy after the other, each with its own dates. It back-tests each strategy alone, without the other strategies of the trade plan.
 
 
 ### Parameters and Hyper-parameters
@@ -38,10 +39,10 @@ To run the `optimizer` application, simply type:
 optimizer
 ```
 
-The application will read the `tradeplan.toml` file and spawn process for back-testing the different configurations.
+The application will read the strategy files of the trade plan, in the `TRADEPLAN_DIR` folder or the current folder, and spawn processes for back-testing the different configurations of each strategy that has an [optimizer] section. It logs an error and exits if no strategy file has one.
 
 ### Model
-Each `optimizer` execution generates a UUID representing a unique execution identification.
+Each `optimizer` execution generates a UUID for each strategy that it optimizes, representing a unique execution identification.
 Each back-test will generate its own `batch-id`.
 The relationship between the optimizer execution id, batch-ids and the hyper-parameters configurations
 is stored in the **OPTIMIZER_RUN** database table, together with the `score` of each back-test: its net cash flow.

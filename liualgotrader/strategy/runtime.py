@@ -1,15 +1,15 @@
 """Run state shared by the live consumer and the backtester.
 
-The runtime keeps one RunState per run. It tracks what the components of a
-StrategyGraph do not track themselves: the universe of each filter, the
-positions of each rule, the open orders, and the rule that owns each symbol.
-The consumer and the backtester both decide through it, so a rule behaves the
-same live and in a backtest.
+The runtime keeps one RunState per run. It tracks what the strategies of a
+trade plan do not track themselves: the universe of each filter, the
+positions of each strategy, the open orders, and the strategy that owns each
+symbol. The consumer and the backtester both decide through it, so a strategy
+behaves the same live and in a backtest.
 
 Classes
 -------
 OpenOrder
-    An order that a rule placed and that has not ended yet.
+    An order that a strategy placed and that has not ended yet.
 RunState
     The universes, positions, open orders and owners of a run.
 
@@ -20,22 +20,21 @@ sells_first
 """
 
 import logging
-import math
 from dataclasses import dataclass, replace
-from typing import Awaitable, Callable, Iterable, Optional, TypeVar
+from typing import Awaitable, Callable, Iterable, Optional, cast
 
 import pandas as pd
 
+from liualgotrader.common.exceptions import OwnershipCollision
 from liualgotrader.common.types import Order, Trade
-from liualgotrader.strategy.new_base import (OrderRequest, PortfolioRule, Rule,
-                                             StrategyGraph, SymbolRule)
+from liualgotrader.common.utils import notify
+from liualgotrader.strategy.new_base import (OrderRequest, PortfolioRule,
+                                             Strategy, SymbolRule)
 
 logger = logging.getLogger(__name__)
 
-A = TypeVar("A")
-
-# A rule and an order that it requested.
-Decision = tuple[Rule, OrderRequest]
+# A strategy and an order that its rule requested.
+StrategyOrderRequest = tuple[Strategy, OrderRequest]
 
 # The order events that end an order without a full fill.
 _END_EVENTS = (Order.EventType.canceled, Order.EventType.rejected)
@@ -44,14 +43,14 @@ _FILL_EVENTS = (Order.EventType.partial_fill, Order.EventType.fill)
 
 @dataclass
 class OpenOrder:
-    """An order that a rule placed and that has not ended yet.
+    """An order that a strategy placed and that has not ended yet.
 
     Attributes
     ----------
     order: Order
         The order as submitted.
-    rule: Rule
-        The rule that requested the order.
+    strategy: Strategy
+        The strategy whose rule requested the order.
     request: OrderRequest
         The request that the order executes.
     filled_qty: float
@@ -59,12 +58,12 @@ class OpenOrder:
     """
 
     order: Order
-    rule: Rule
+    strategy: Strategy
     request: OrderRequest
     filled_qty: float = 0.0
 
 
-def sells_first(decisions: list[Decision]) -> list[Decision]:
+def sells_first(decisions: list[StrategyOrderRequest]) -> list[StrategyOrderRequest]:
     """Return decisions with the sell orders before the buy orders.
 
     Keep the order of decisions on the same side.
@@ -72,7 +71,7 @@ def sells_first(decisions: list[Decision]) -> list[Decision]:
     Parameters
     ----------
     decisions: list[Decision]
-        The rules and the orders they requested.
+        The strategies and the orders that their rules requested.
     """
     return sorted(decisions, key=lambda d: d[1].side == Order.FillSide.buy)
 
@@ -82,36 +81,40 @@ class RunState:
 
     Attributes
     ----------
-    graph: StrategyGraph
-        The components of the trade plan.
+    strategies: dict[str, Strategy]
+        The strategies of the trade plan, by name.
     universes: dict[str, set[str]]
-        The symbols that each filter selected, by filter name.
+        The symbols that the filter of each strategy selected, by strategy
+        name, which is also the name of the filter.
     positions: dict[str, dict[str, float]]
-        The open positions of each rule, by rule name and symbol; negative
-        when short.
+        The open positions of each strategy, by strategy name and symbol;
+        negative when short.
     open_orders: dict[str, OpenOrder]
         The open orders, by order ID.
-    owners: dict[str, str]
-        The name of the rule that owns each symbol.
+    symbol_owners: dict[str, str]
+        The name of the strategy that owns each symbol.
+    halt_on_collision: bool
+        Whether a strategy that requests a symbol another strategy owns raises
+        OwnershipCollision, rather than being deactivated with a warning.
 
     Methods
     -------
     set_universe
-        Replace the universe of a filter.
+        Replace the universe of a strategy.
     symbols
-        Return the symbols that rules may decide on.
+        Return the symbols that strategies may decide on.
     position
-        Return the position of a rule in a symbol.
+        Return the position of a strategy in a symbol.
     decide_symbol
         Return the orders that the symbol rules request for a symbol.
     decide_portfolio
-        Return the orders that a portfolio rule requests.
+        Return the orders that the portfolio rule of a strategy requests.
     submit
-        Place the orders that rules requested and record them.
+        Place the orders that strategies requested and record them.
     add_open_order
-        Record an order submitted for a rule.
+        Record an order submitted for a strategy.
     release_if_idle
-        Release a symbol that a rule no longer trades.
+        Release a symbol that a strategy no longer trades.
     stale_orders
         Return the open orders submitted before a time.
     handle_trade
@@ -124,138 +127,137 @@ class RunState:
         Drop an open order and notify its rule.
     """
 
-    def __init__(self, graph: StrategyGraph):
+    def __init__(
+        self, strategies: dict[str, Strategy], halt_on_collision: bool = False
+    ):
         """Initialize an empty run state.
 
         Parameters
         ----------
-        graph: StrategyGraph
-            The components of the trade plan.
+        strategies: dict[str, Strategy]
+            The strategies of the trade plan, by name.
+        halt_on_collision: bool, default False
+            Whether a strategy that requests a symbol another strategy owns
+            raises OwnershipCollision, rather than being deactivated with a
+            warning.
         """
-        self.graph = graph
+        self.strategies = strategies
         self.universes: dict[str, set[str]] = {}
         self.positions: dict[str, dict[str, float]] = {
-            name: {} for name in graph.rules
+            name: {} for name in strategies
         }
         self.open_orders: dict[str, OpenOrder] = {}
-        self.owners: dict[str, str] = {}
-        self._symbol_orders: dict[str, dict[str, OpenOrder]] = {}
+        self.symbol_owners: dict[str, str] = {}
+        self.halt_on_collision = halt_on_collision
+        self._symbol_orders: dict[str, dict[str, OpenOrder]] = {} # TODO: open_orders: dict[str, OpenOrder] should be a field in Strategy
 
-    def set_universe(self, filter_name: str, symbols: Iterable[str]) -> None:
-        """Replace the universe of a filter with the symbols it selected.
+    def set_universe(self, name: str, symbols: Iterable[str]) -> None:
+        """Replace the universe of a strategy with the symbols that its
+        filter selected.
+
+        Ignore an inactive strategy, whose universe nothing reads.
 
         Parameters
         ----------
-        filter_name: str
-            The name of the filter that selected symbols.
+        name: str
+            The name of the strategy, which is also the name of its filter.
         symbols: Iterable[str]
             The symbols.
         """
-        self.universes[filter_name] = set(symbols)
+        strategy = self.strategies.get(name)
+        if strategy is None or strategy.active:
+            self.universes[name] = set(symbols)
 
     def symbols(self) -> set[str]:
-        """Return the symbols in a universe or owned by a rule."""
-        return set(self.owners).union(*self.universes.values())
+        """Return the symbols in a universe or owned by a strategy."""
+        return set(self.symbol_owners).union(*self.universes.values())
 
-    def position(self, rule: Rule, symbol: str) -> float:
-        """Return the position of a rule in a symbol, negative when short.
+    def position(self, strategy: Strategy, symbol: str) -> float:
+        """Return the position of a strategy in a symbol, negative when short.
 
         Parameters
         ----------
-        rule: Rule
-            The rule.
+        strategy: Strategy
+            The strategy.
         symbol: str
             The symbol.
         """
-        return self.positions[rule.name].get(symbol, 0.0)
+        return self.positions[strategy.name].get(symbol, 0.0)
 
-    def _signal_symbols(self, signal_name: str) -> set[str]:
-        """Return the symbols that the filters of a signal selected."""
-        return set().union(
-            *(
-                self.universes.get(filter_name, set())
-                for filter_name in self.graph.signal_filters[signal_name]
-            )
+    def _universe(self, strategy: Strategy) -> set[str]: # TODO: short function, can be inlined
+        """Return the symbols that the filter of a strategy selected."""
+        return self.universes.get(strategy.name, set())
+
+    def _fired(
+        self, strategy: Strategy, symbol: str, now: pd.Timestamp
+    ) -> bool: # TODO: short function, can be inlined
+        """Return whether a strategy's signal fired at now on a symbol that
+        the strategy's filter selected.
+
+        Evaluate the signal only for such a symbol.
+        """
+        return symbol in self._universe(strategy) and strategy.signal.fired(
+            symbol, now
         )
 
-    def _fired(self, symbol: str, now: pd.Timestamp) -> dict[str, float]:
-        """Return the values of the signals that fired for a symbol at now.
-
-        Evaluate only the signals whose filters selected symbol. Log a signal
-        that raises an exception and treat it as not fired.
-        """
-        fired = {}
-        for name, filters in self.graph.signal_filters.items():
-            if not any(symbol in self.universes.get(f, ()) for f in filters):
-                continue
-            try:
-                value = self.graph.signals[name].at(symbol, now)
-            except Exception:
-                logger.exception("signal %s failed on %s", name, symbol)
-                continue
-            if not math.isnan(value):
-                fired[name] = value
-        return fired
-
-    def _latest(self, signal_name: str, symbol: str, now: pd.Timestamp):
-        """Return the latest value of a signal at or before now, or NaN."""
-        try:
-            series = self.graph.signals[signal_name].get(symbol, now)
-        except Exception:
-            logger.exception("signal %s failed on %s", signal_name, symbol)
-            return math.nan
-        last = series.last_valid_index()
-        return math.nan if last is None else float(series[last])
-
-    def _has_open_order(self, rule: Rule, symbol: str) -> bool:
-        """Return whether a rule has an open order for a symbol."""
+    def _has_open_order(self, strategy: Strategy, symbol: str) -> bool:
+        """Return whether a strategy has an open order for a symbol."""
         return any(
-            o.rule is rule
+            o.strategy is strategy
             for o in self._symbol_orders.get(symbol, {}).values()
         )
 
-    def _may_trade(self, rule: Rule, symbol: str) -> bool:
-        """Return whether no other rule owns symbol and rule has no order."""
-        return self.owners.get(
-            symbol, rule.name
-        ) == rule.name and not self._has_open_order(rule, symbol)
-
     def _claim(
-        self, rule: Rule, requests: list[OrderRequest]
-    ) -> list[Decision]:
-        """Return the requests that rule may submit, and claim their symbols.
+        self, strategy: Strategy, requests: list[OrderRequest]
+    ) -> list[StrategyOrderRequest]:
+        """Return the requests that strategy may submit, and claim their
+        symbols.
 
-        Drop, with a warning, a request for a symbol that another rule owns or
-        that rule has an open order for. Make rule the owner of the symbols of
-        the other requests.
+        Raises
+        ------
+        Raise OwnershipCollision if strategy collides and halt_on_collision is
+        set.
         """
-        allowed = {
-            r.symbol for r in requests if self._may_trade(rule, r.symbol)
-        }
+        for request in requests:
+            owner = self.symbol_owners.get(request.symbol, strategy.name)
+            if owner == strategy.name:
+                continue
+            collision = OwnershipCollision(
+                strategy.name, request.symbol, owner
+            )
+            if self.halt_on_collision:
+                raise collision
+            strategy.active = False
+            self.universes.pop(strategy.name, None)
+            logger.warning(
+                "%s: deactivated %s, dropped its requests %s, and left its "
+                "positions %s to no strategy",
+                collision,
+                strategy,
+                requests,
+                self.positions[strategy.name],
+            )
+            return []
+
         decisions = []
         for request in requests:
-            if request.symbol not in allowed:
+            if self._has_open_order(strategy, request.symbol):
                 logger.warning(
-                    "%s may not trade %s now, dropped %s",
-                    rule,
+                    "%s has an open order for %s, dropped %s",
+                    strategy,
                     request.symbol,
                     request,
                 )
                 continue
-            self.owners[request.symbol] = rule.name
-            decisions.append((rule, request))
+            self.symbol_owners[request.symbol] = strategy.name
+            decisions.append((strategy, request))
         return decisions
 
     async def decide_symbol(
         self, symbol: str, now: pd.Timestamp
-    ) -> list[Decision]:
-        """Return the orders that the symbol rules request for a symbol.
-
-        Ask each symbol rule that is linked to a signal that fired at now, or
-        that owns symbol, unless another rule owns symbol or the rule has an
-        open order for it. Pass each rule only its own fired signals. A rule
-        that requests orders becomes the owner of symbol. Log a rule that
-        raises an exception and skip it.
+    ) -> list[StrategyOrderRequest]:
+        """Return the orders that the symbol rules of the active strategies
+        request for a symbol.
 
         Parameters
         ----------
@@ -263,112 +265,118 @@ class RunState:
             The symbol of the latest bar.
         now: pd.Timestamp
             The time of the latest bar.
+
+        Raises
+        ------
+        Raise OwnershipCollision if a strategy requests a symbol that another
+        strategy owns and halt_on_collision is set.
         """
-        fired = self._fired(symbol, now)
         decisions = []
-        for name, rule in self.graph.rules.items():
-            if not isinstance(rule, SymbolRule):
+        for strategy in self.strategies.values():
+            rule = strategy.rule
+            if not (
+                isinstance(rule, SymbolRule)
+                and strategy.active
+                and self.symbol_owners.get(symbol) in (None, strategy.name)
+                and not self._has_open_order(strategy, symbol)
+            ):
                 continue
-            rule_fired = {
-                s: fired[s]
-                for s in self.graph.rule_signals[name]
-                if s in fired
-            }
-            if not rule_fired and self.owners.get(symbol) != name:
-                continue
-            if not self._may_trade(rule, symbol):
+            if (
+                symbol not in self.symbol_owners
+                and not self._fired(strategy, symbol, now)
+            ):
                 continue
             try:
                 requests = await rule.decide(
-                    symbol, now, self.position(rule, symbol), rule_fired
+                    symbol, now, self.position(strategy, symbol)
                 )
             except Exception:
-                logger.exception("rule %s failed on %s", name, symbol)
+                logger.exception("rule %s failed on %s", rule, symbol)
                 continue
-            decisions += self._claim(rule, requests)
+            decisions += self._claim(strategy, requests)
         return decisions
 
     async def decide_portfolio(
-        self, rule: PortfolioRule, now: pd.Timestamp
-    ) -> list[Decision]:
-        """Return the orders that a portfolio rule requests.
+        self, strategy: Strategy, now: pd.Timestamp
+    ) -> list[StrategyOrderRequest]:
+        """Return the orders that the portfolio rule of a strategy requests.
 
-        Pass the rule the latest value at or before now of each of its
-        signals, for every symbol that their filters selected or that the
-        rule holds. Drop a request for a symbol that another rule owns or that
-        rule has an open order for. Log an exception that the rule raises and
-        return no orders.
+        Return no orders if the strategy is inactive. Otherwise record now as
+        the last run of the rule, and pass the rule every symbol that the
+        strategy's filter selected or that it holds. Deactivate the strategy
+        if the rule requests a symbol that another strategy owns, and drop a
+        request for a symbol that the strategy has an open order for, as
+        _claim does. Log an exception that the rule raises and return no
+        orders.
 
         Parameters
         ----------
-        rule: PortfolioRule
-            The rule.
+        strategy: Strategy
+            The strategy, whose rule is a PortfolioRule.
         now: pd.Timestamp
             The time of the latest bar.
+
+        Raises
+        ------
+        Raise OwnershipCollision if the rule requests a symbol that another
+        strategy owns and halt_on_collision is set.
         """
-        signal_names = self.graph.rule_signals[rule.name]
-        positions = dict(self.positions[rule.name])
-        symbols = sorted(
-            set(positions).union(*map(self._signal_symbols, signal_names))
-        )
-        signals = pd.DataFrame(
-            {
-                name: [self._latest(name, s, now) for s in symbols]
-                for name in signal_names
-            },
-            index=pd.Index(symbols, name="symbol"),
-            dtype=float,
-        )
+        if not strategy.active:
+            return []
+        rule = cast(PortfolioRule, strategy.rule)
+        rule.last_run = now
+        positions = dict(self.positions[strategy.name])
+        symbols = sorted(set(positions) | self._universe(strategy))
         try:
-            requests = await rule.decide(now, positions, signals)
+            requests = await rule.decide(now, positions, symbols)
         except Exception:
             logger.exception("rule %s failed", rule)
             return []
-        return self._claim(rule, requests)
+        return self._claim(strategy, requests)
 
     async def submit(
         self,
-        decisions: list[Decision],
+        decisions: list[StrategyOrderRequest],
         place: Callable[[OrderRequest], Awaitable[Optional[Order]]],
     ) -> None:
-        """Place the orders that rules requested and record them.
+        """Place the orders that strategies requested and record them.
 
         Place the sell orders before the buy orders. Log an order that place
-        fails to submit, and release its symbol if its rule is idle.
+        fails to submit, and release its symbol if its strategy is idle.
 
         Parameters
         ----------
         decisions: list[Decision]
-            The rules and the orders they requested.
+            The strategies and the orders that their rules requested.
         place: Callable[[OrderRequest], Awaitable[Optional[Order]]]
             The function that submits an order, and returns it or None.
         """
-        for rule, request in sells_first(decisions):
+        for strategy, request in sells_first(decisions):
             order: Optional[Order] = None
             try:
                 order = await place(request)
             except Exception:
-                logger.exception("%s: failed to submit %s", rule, request)
+                logger.exception("%s: failed to submit %s", strategy, request)
             if order:
-                self.add_open_order(order, rule, request)
+                self.add_open_order(order, strategy, request)
             else:
-                self.release_if_idle(rule, request.symbol)
+                self.release_if_idle(strategy, request.symbol)
 
     def add_open_order(
-        self, order: Order, rule: Rule, request: OrderRequest
+        self, order: Order, strategy: Strategy, request: OrderRequest
     ) -> None:
-        """Record an order submitted for a rule.
+        """Record an order submitted for a strategy.
 
         Parameters
         ----------
         order: Order
             The submitted order.
-        rule: Rule
-            The rule that requested the order.
+        strategy: Strategy
+            The strategy whose rule requested the order.
         request: OrderRequest
             The request that the order executes.
         """
-        open_order = OpenOrder(order, rule, request)
+        open_order = OpenOrder(order, strategy, request)
         self.open_orders[order.order_id] = open_order
         self._symbol_orders.setdefault(request.symbol, {})[
             order.order_id
@@ -384,22 +392,23 @@ class RunState:
                 del self._symbol_orders[open_order.request.symbol]
         return open_order
 
-    def release_if_idle(self, rule: Rule, symbol: str) -> None:
-        """Release a symbol if rule owns it, is flat and has no open order.
+    def release_if_idle(self, strategy: Strategy, symbol: str) -> None:
+        """Release a symbol if strategy owns it, is flat and has no open
+        order.
 
         Parameters
         ----------
-        rule: Rule
-            The rule.
+        strategy: Strategy
+            The strategy.
         symbol: str
             The symbol.
         """
         if (
-            self.owners.get(symbol) == rule.name
-            and not self.position(rule, symbol)
-            and not self._has_open_order(rule, symbol)
+            self.symbol_owners.get(symbol) == strategy.name
+            and not self.position(strategy, symbol)
+            and not self._has_open_order(strategy, symbol)
         ):
-            del self.owners[symbol]
+            del self.symbol_owners[symbol]
 
     def stale_orders(
         self, before: pd.Timestamp, symbol: Optional[str] = None
@@ -445,8 +454,8 @@ class RunState:
     async def fill(self, trade: Trade) -> bool:
         """Apply a fill of an open order and notify its rule.
 
-        Update the position of the rule, close the order on a full fill,
-        release the symbol if the rule is now idle, then call the rule's
+        Update the position of the strategy, close the order on a full fill,
+        release the symbol if the strategy is now idle, then call the rule's
         on_fill.
 
         Parameters
@@ -462,21 +471,22 @@ class RunState:
         if open_order is None:
             return False
 
-        rule, request = open_order.rule, open_order.request
+        strategy, request = open_order.strategy, open_order.request
         sign = 1 if request.side == Order.FillSide.buy else -1
         qty = round(
-            self.position(rule, request.symbol) + sign * trade.filled_qty, 8
+            self.position(strategy, request.symbol) + sign * trade.filled_qty,
+            8,
         )
         if qty:
-            self.positions[rule.name][request.symbol] = qty
+            self.positions[strategy.name][request.symbol] = qty
         else:
-            self.positions[rule.name].pop(request.symbol, None)
+            self.positions[strategy.name].pop(request.symbol, None)
         open_order.filled_qty += trade.filled_qty
         if trade.event == Order.EventType.fill:
             self._drop_order(trade.order_id)
-        self.release_if_idle(rule, request.symbol)
+        self.release_if_idle(strategy, request.symbol)
 
-        await _notify(rule.on_fill, trade)
+        await notify(strategy.rule.on_fill, trade)
         return True
 
     async def fill_order(
@@ -531,7 +541,7 @@ class RunState:
     ) -> bool:
         """Drop an open order and notify its rule.
 
-        Release the symbol if the rule is now idle, then call the rule's
+        Release the symbol if the strategy is now idle, then call the rule's
         on_cancel with the order and its final status.
 
         Parameters
@@ -549,9 +559,9 @@ class RunState:
         if open_order is None:
             return False
 
-        self.release_if_idle(open_order.rule, open_order.request.symbol)
-        await _notify(
-            open_order.rule.on_cancel,
+        self.release_if_idle(open_order.strategy, open_order.request.symbol)
+        await notify(
+            open_order.strategy.rule.on_cancel,
             replace(
                 open_order.order,
                 event=event,
@@ -559,11 +569,3 @@ class RunState:
             ),
         )
         return True
-
-
-async def _notify(callback: Callable[[A], Awaitable[None]], arg: A) -> None:
-    """Call a rule callback, and log rather than raise its exceptions."""
-    try:
-        await callback(arg)
-    except Exception:
-        logger.exception("%s failed", callback.__qualname__)

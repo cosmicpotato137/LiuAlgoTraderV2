@@ -15,8 +15,10 @@ A trading strategy is made of four kinds of components, which the trade plan wir
 
 * Filters, or stock screeners as called by some platforms, run periodically to search for stocks from the stock universe that adhere to criteria of choice. Users can easily create and deploy filters, with only few lines of Python code. Filters determine the time to `subscribe` for events of a specific stock. Events could be price changes or trades in a predefined window, e.g. per second/ per minute.
 * Indicators compute values, such as moving averages, from the market data of a symbol. Indicators are shared: each one is computed once per symbol, whichever signals use it.
-* Signals turn indicator values into a prediction of price movement for each symbol selected by the filters they are linked to. The sign of a signal value is the direction, and its magnitude the confidence.
-* Rules turn signals and positions into order requests. A `SymbolRule` acts on a single stock, and a `PortfolioRule` on a collection of stocks. Rules never call the broker: the framework submits their orders when trading, and simulates them when back-testing. The framework supports both long and short positions to equities, and is designed to be capable of concurrently handling hundreds of stocks with numerous rules. A position belongs to the rule that opened it until it is flat again.
+* Signals turn indicator values into a prediction of price movement for each symbol selected by the filter of their strategy. The sign of a signal value is the direction, and its magnitude the confidence.
+* Rules turn signals and positions into order requests. A `SymbolRule` acts on a single stock, and a `PortfolioRule` on a collection of stocks. Rules never call the broker: the framework submits their orders when trading, and simulates them when back-testing. The framework supports both long and short positions to equities, and is designed to be capable of concurrently handling hundreds of stocks with numerous rules.
+
+The trade plan is a folder of strategy files, each of which describes one *strategy*: a filter, a signal and a rule, which serve no other strategy and take the strategy's name. The framework activates and deactivates strategies as a whole, and a position belongs to the strategy whose rule opened it until it is flat again.
 
 ## Data Propagation
 
@@ -26,6 +28,7 @@ or updated in real-time using web-sockets.
 * `DataLoader()` class introduces a DataFrame-like interface to load data from a data providers, or updating data from web-sockets,
 * `StreamingAPI()` and `DataAPI()` are abstract classes for integrating data-providers (there are implemented connectors for both Alpaca and Polygon),
 * `data_loader_factory()` instantiates implementation for `StreamingAPI()` and `DataAPI()`, based on the selected data-providers,
+* `MarketCalendarAPI()` is an abstract class for the trading days that back-tests step through, and `market_calendar_factory()` instantiates the calendar of an asset type: every day for crypto, and the vendor set by the `CALENDAR_CONNECTOR` environment variable for US equities (only Alpaca is currently supported),
 * `Trader()` is a base-class for integration Broker APIs (only Alpaca is currently supported),
 
 ### DataLoader class
@@ -34,7 +37,7 @@ The DataLoader class is fundamental in creating a strategy using LiuAlgoTrader. 
 
 ### Context class
 
-Each run, which is a consumer process, the filter process or a back-test, creates one `Context` and passes it to every component. The context holds the `DataLoader`, an optional trader for read-only queries, and the shared indicators and caches, so separate runs in the same process do not share state.
+Each run, which is a consumer process, the filter process or a back-test, creates one `Context` and passes it to every component. The context holds the `DataLoader`, an optional trader for read-only queries, the market calendar of the run's asset type (US equities unless the run sets another; created on first use, as `self.ctx.calendar`), and the shared indicators and caches, so separate runs in the same process do not share state.
 
 
 ## Usage Fundamentals
@@ -42,7 +45,7 @@ Each run, which is a consumer process, the filter process or a back-test, create
 The framework's `base classes` are in `liualgotrader.strategy.new_base`: `Filter`, `Indicator`, `Signal`, `SymbolRule` and `PortfolioRule`.
 The framework comes with a generic momentum `Filter`, though we recommend to treat it as a reference.
 
-To get start with the framework, you should create your custom filters, signals and rules, inheriting from these base classes. Once the building blocks are in place, you can instruct the framework which components to instantiate in `tradeplan.toml` file, how they link to each other, and the configuration parameters that you would like to pass for each.
+To get start with the framework, you should create your custom filters, signals and rules, inheriting from these base classes. Once the building blocks are in place, you can instruct the framework which components to instantiate in strategy files, one for each strategy, and the configuration parameters that you would like to pass for each.
 
 Back-tests write their trades and a summary to files, which you can analyze to improve the performance of your algo trading strategies.
 
@@ -93,8 +96,8 @@ post them into the relevant consumer's Queue, and return to
 process the next message.
 
 Each consumer reads events from the Queue, parses them, then
-evaluates the signals and rules of the `tradeplan` configuration
-file on each minute bar.
+evaluates the signals and rules of the strategy files of the
+trade plan on each minute bar.
 
 Upon running the `trader` application, consumer processes are
 spawned, based on the available CPUs. The producer process is
@@ -122,7 +125,7 @@ When you see such a message repetitively, it may mean that either:
 - The signals and rules being used take too long to calculate compared to the number of stocks handled by that single process. It will be a good idea to double-check their code, and check if performance improvements are possible,
 - It is possible that the signals or rules write too much log that causes delays,
 - The number of stocks traded is too high for the hardware setup. In that case it would be best to reduce the max number of stocks (environment variable)
-- The consumer process listen to second message, as well as trade and quote messages, depending on the strategy and hardware capacity it might be best to reduce the event types that the producer is sending to the consumers (change the `tradeplan` configuration file),
+- The consumer process listen to second message, as well as trade and quote messages, depending on the strategy and hardware capacity it might be best to reduce the event types that the producer is sending to the consumers (change the strategy files),
 
 
 (websockets)=
@@ -163,6 +166,9 @@ files for a future developer.
 |   ├── data
 |   |   ├── data_base.py
 |   |   └── data_factory.py
+|   ├── market_calendar
+|   |   ├── base.py
+|   |   └── factory.py
 |   ├── streaming
 |   |   ├── streaming_base.py
 |   |   └── streaming_factory.py
@@ -173,6 +179,7 @@ files for a future developer.
 |   |   ├── alpaca
 |   |   |   ├── config.py
 |   |   |   ├── data.py
+|   |   |   ├── market_calendar.py
 |   |   |   ├── streaming.py
 |   |   |   └── trader.py
 |   |   ├── polygon
@@ -195,7 +202,8 @@ files for a future developer.
 │   ├── filters
 |   |    └── momentum.py
 │   ├── strategy
-|   |    └── new_base.py
+|   |    ├── new_base.py
+|   |    └── tradeplan.py
 │   ├── consumer.py
 │   ├── filters_runner.py
 │   ├── enhanced_backtest.py
@@ -215,7 +223,7 @@ The `common` folder contains 4 important files that the developer should be awar
 - `data_loader.py` explained above.
 
 ### strategy
-`strategy/new_base.py` holds the base classes of the strategy components, the `Context` and the `StrategyGraph` that the trade plan is loaded into. See the `Strategies` section.
+`strategy/new_base.py` holds the base classes of the strategy components, the `Context`, and the `Strategy` that groups a filter, a signal and a rule. `strategy/tradeplan.py` loads the strategy files of a trade plan, and creates the strategies that they describe. See the `Strategies` section.
 
 ### fincalcs
 The folder includes packages for basic financial calculations.

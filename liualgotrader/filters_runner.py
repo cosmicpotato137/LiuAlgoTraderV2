@@ -15,13 +15,13 @@ import json
 import logging
 import multiprocessing as mp
 import os
-from typing import Dict
 
 from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.log import configure_logging
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategy.new_base import Context, Filter, create_filters
+from liualgotrader.strategy.new_base import Context, Filter
+from liualgotrader.strategy.tradeplan import create_filters
 from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)
@@ -31,9 +31,10 @@ async def filter_runner(selector: Filter, queue: mp.Queue) -> None:
     """Run a filter and publish the symbols it selects to queue.
 
     Put the JSON object {filter_name, symbols} on queue after each run, even
-    one that selects no symbols, since each run replaces the filter's
-    universe. Repeat at the recurrence of the filter, or run once if it has
-    none. Log exceptions instead of raising them.
+    one that selects no symbols, since each run replaces the universe of the
+    filter's strategy, whose name the filter has. Repeat at the recurrence of
+    the filter, or run once if it has none. Log exceptions instead of raising
+    them.
 
     Parameters
     ----------
@@ -66,7 +67,7 @@ async def filter_runner(selector: Filter, queue: mp.Queue) -> None:
         logger.info("filter_runner %s completed", selector.name)
 
 
-async def async_main(tradeplan: Dict, queue: mp.Queue) -> None:
+async def async_main(tradeplan: list[dict], queue: mp.Queue) -> None:
     """Connect to the database and run the filters of a trade plan.
 
     Create the filters with a context of their own, whose trader answers
@@ -75,8 +76,8 @@ async def async_main(tradeplan: Dict, queue: mp.Queue) -> None:
 
     Parameters
     ----------
-    tradeplan: Dict
-        The trade plan.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     queue: mp.Queue
         The queue that receives the filter results.
     """
@@ -93,15 +94,15 @@ async def async_main(tradeplan: Dict, queue: mp.Queue) -> None:
         queue.close()
 
 
-def main(tradeplan: Dict, queue: mp.Queue) -> None:
+def main(tradeplan: list[dict], queue: mp.Queue) -> None:
     """Run the filter process until all filters complete.
 
     Log exceptions and keyboard interrupts instead of raising them.
 
     Parameters
     ----------
-    tradeplan: Dict
-        The trade plan, with a filters section.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     queue: mp.Queue
         The queue that receives the filter results.
     """

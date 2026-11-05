@@ -33,16 +33,17 @@ share your profits, if there are any).
 | `Filter`         | the market at `now`              | symbols to watch                     |
 | `Indicator`      | one symbol's bars through `now`  | DataFrame indexed by bar time        |
 | `Signal`         | one symbol's indicators through `now` | float Series: the sign is the direction, the magnitude (up to 1) is the confidence, NaN means no prediction |
-| `SymbolRule`     | the signals that fired for one symbol, and its position in it | `OrderRequest` list |
-| `PortfolioRule`  | the latest signal values for all its symbols, and its positions | `OrderRequest` list |
+| `SymbolRule`     | its signal's value for one symbol, with `self.signal.at()`, and its strategy's position in it | `OrderRequest` list |
+| `PortfolioRule`  | its signal's latest values for all its symbols, with `self.signal.latest()`, and its strategy's positions | `OrderRequest` list |
 
-* Each component in the trade plan has its own unique name,
-* `LiuAlgoTrader` supports both *long* and *short* positions: a rule's position is negative when short,
+* Each strategy in the trade plan has its own unique name, which its filter, signal and rule share,
+* `LiuAlgoTrader` supports both *long* and *short* positions: a strategy's position is negative when short,
 * Rules never call the broker. They return `OrderRequest` objects, which the
   framework submits when trading and simulates when back-testing, so the same
   rule runs unchanged in both,
-* A position in a symbol belongs to the rule that opened it until the position
-  is flat again. Meanwhile, no other rule is asked to decide on that symbol,
+* A position in a symbol belongs to the strategy whose rule opened it until
+  the position is flat again. Meanwhile, no other strategy's rule is asked to
+  decide on that symbol,
 * A `SymbolRule` acts on a single symbol at a time, while a `PortfolioRule`
   acts on a collection of symbols (e.g. SP500), for rebalancing and other
   decisions that compare symbols.
@@ -65,35 +66,49 @@ Each run (a consumer process, the filter process or a back-test) creates one
 * `is_shortable()`: whether a symbol can be sold short; the answer is cached per symbol, and always `True` when back-testing.
 
 ## Configuration
-Components are declared in the *tradeplan.toml* configuration file under the
-sections:
+A trade plan is a folder of *strategy files*: the `TRADEPLAN_DIR` folder, or
+the current folder if `TRADEPLAN_DIR` is not set. Each strategy file is a TOML
+file that describes one strategy completely. The framework reads every
+`*.toml` file in the folder, in file name order, so the folder should hold
+strategy files only (not a `pyproject.toml`, for example).
 
-```bash
-[filters]
-[signals]
-[rules]
-```
+A strategy file has a `name`, and a `[filter]`, a `[signal]` and a `[rule]`
+table:
 
-Each table key is the instance name, and `class` names the class. With a
-`filename`, `class` is the name of a class in that file. Without one, it is a
-dotted import path such as `liualgotrader.filters.momentum.Momentum`. Each file
-is loaded once, and a class that cannot be loaded raises an exception.
-
-Links between components are settings too:
-
-* a signal lists one or more filters under `filters`, and evaluates every
-  symbol they select,
-* a rule lists one or more signals under `signals`,
+* `name` names the strategy, and its filter, signal and rule too. It is
+  unique within the trade plan,
+* the filter selects the symbols that the signal evaluates, and the rule
+  decides on the signal. A filter, its signal and its rule make a
+  *strategy*, and serve no other strategy,
 * indicators are not in the trade plan: a signal creates the ones it needs.
 
-Every other setting is passed to the class's `__init__()` as a keyword
-argument, so a misspelled setting raises `TypeError` instead of being
+The framework activates and deactivates strategies as a whole, and a strategy
+owns the symbols it trades.
+
+In each table, `class` names the class. With a `filename`, `class` is the name
+of a class in that file. Without one, it is a dotted import path such as
+`liualgotrader.filters.momentum.Momentum`. Each file is loaded once, and a
+class that cannot be loaded raises an exception.
+
+Every other setting of a table is passed to the class's `__init__()` as a
+keyword argument, so a misspelled setting raises `TypeError` instead of being
 ignored. `recurrence` is in minutes, and a `PortfolioRule` must have one.
 
-For example:
+The `trader`, `backtester` and `optimizer` raise a `ValueError` at startup,
+naming the file, if a strategy file has a top-level setting other than
+`name`, `filter`, `signal`, `rule` and `optimizer`, if its `name` is not a
+non-empty string, or if its filter, signal or rule is not a table with a
+`class`. They also raise a `ValueError` if two strategy files have the same
+`name`, and log an error and exit if the folder has no TOML file. The
+optional `[optimizer]` table is read by the `optimizer` only (see the
+`Additional apps` section).
 
-```bash
-[filters.momentum1]
+For example, a trade plan folder with two strategy files, `breakout_long.toml`:
+
+```toml
+name = "breakout_long"
+
+[filter]
 class = "liualgotrader.filters.momentum.Momentum"
 min_volume = 30000
 today_change_percent = 3.5
@@ -103,23 +118,38 @@ min_share_price = 2.0
 from_market_open = 15
 recurrence = 5
 
-[signals.breakout]
+[signal]
 class = "MySignal"
 filename = "/home/liu/strategies/my_strategy.py"
-filters = ["momentum1"]
 
-[rules.breakout_long]
+[rule]
 class = "MyRule"
 filename = "/home/liu/strategies/my_strategy.py"
-signals = ["breakout"]
 risk = 0.001
+```
 
-[rules.rebalance]
+and `rebalance.toml`:
+
+```toml
+name = "rebalance"
+
+[filter]
+class = "MyWatchlist"
+filename = "/home/liu/strategies/my_strategy.py"
+
+[signal]
+class = "MyTrend"
+filename = "/home/liu/strategies/my_strategy.py"
+
+[rule]
 class = "MyRebalance"
 filename = "/home/liu/strategies/my_strategy.py"
-signals = ["breakout"]
 recurrence = 5
 ```
+
+The example has two strategies: `breakout_long`, whose rule decides on the
+symbols that the momentum filter selects, and `rebalance`, whose portfolio
+rule decides on the symbols of a watchlist.
 
 Position sizing, such as a portfolio value or risk per trade, belongs to the
 rules, as rule settings.
@@ -181,8 +211,8 @@ A signal creates its indicators in its initializer, and implements
 `compute()`, which returns a float Series indexed by bar timestamp. A positive
 value predicts a rise and a negative value a fall, and the magnitude, at most
 1, is the confidence. NaN means no prediction. A row with a value is an event
-that the framework passes to the rules of the signal, so a signal that holds a
-value on every bar makes its rules decide on every bar. Like indicators,
+that the framework passes to the signal's rule, so a signal that holds a value
+on every bar makes its rule decide on every bar. Like indicators,
 signals must be causal and are cached. A signal does not know about positions
 or orders.
 
@@ -239,16 +269,29 @@ async def decide(
     symbol: str,
     now: pd.Timestamp,
     position: float,
-    fired: dict[str, float],
 ) -> list[OrderRequest]:
 ```
 
-The framework calls `decide()` once per bar for each symbol on which one of
-the rule's signals fired, or in which the rule holds a position, so the rule
-can also exit on stops, targets or the time of day. `fired` holds the value of
-each of the rule's signals that fired at `now`, by signal name, and is empty
-if none did. The framework does not call `decide()` while the rule has an open
-order for the symbol, or while another rule owns the symbol.
+The framework calls `decide()` once per bar for each symbol that the
+strategy's filter selected and on which the rule's signal fired, or in which
+the strategy holds a position, so the rule can also exit on stops, targets or
+the time of day. The framework does not call `decide()`, nor evaluate the
+signal, while the strategy has an open order for the symbol, while another
+strategy owns the symbol, or once the strategy is deactivated.
+
+A rule reaches its signal as `self.signal`, and reads the signal's value
+itself:
+
+```python
+value = self.signal.at(symbol, now)
+```
+
+`self.signal.at(symbol, now)` returns the value stamped `now`, which is NaN
+unless the signal fired. For a symbol that the strategy holds, it returns
+the signal's value even if the filter no longer selects the symbol.
+`self.signal.fired(symbol, now)` returns whether the value is not NaN, and
+treats an exception that the signal raises, which it logs, as not firing. To
+read earlier values, use `self.signal.get(symbol, now)`.
 
 ### Portfolio rules
 A `PortfolioRule` takes a `recurrence`, and implements `decide()`, which the
@@ -259,22 +302,49 @@ async def decide(
     self,
     now: pd.Timestamp,
     positions: dict[str, float],
-    signals: pd.DataFrame,
+    symbols: list[str],
 ) -> list[OrderRequest]:
 ```
 
-`positions` holds the rule's position in each symbol it holds. `signals`
-holds the latest value at or before `now` of each of the rule's signals, with
-a row per symbol in their filters and a column per signal name, and NaN where
-a signal has no value. When trading, the first consumer process runs every
-portfolio rule, and receives every symbol of their filters.
+`positions` holds the strategy's position in each symbol it holds. `symbols`
+holds, sorted, each symbol that the strategy's filter selected or that the
+strategy holds. The rule reads the latest values of its signal itself:
+
+```python
+values = self.signal.latest(symbols, now)
+```
+
+`self.signal.latest(symbols, now)` returns a float Series indexed by symbol,
+named after the signal: the latest value of the signal at or before `now` for
+each symbol, and NaN where the signal has no value. An exception that the
+signal raises for a symbol is logged, and the symbol's value is NaN.
+When trading, the first consumer process runs every portfolio rule, and
+receives every symbol of their filters.
+
+### Symbol ownership
+Strategies own symbols, not rules. A symbol belongs to at most one strategy
+at a time: the strategy whose rule's order opened a position in it, until the
+position is flat. A strategy may own many symbols.
+
+A strategy whose rule requests an order for a symbol that another strategy
+owns collides with it. By default the framework then deactivates the
+strategy: it drops all of the rule's requests, sets the strategy's `active`
+flag to `False`, and logs a warning. From then on the strategy's rule is not
+asked to decide, its signal is not evaluated, and the symbols its filter
+selects are ignored; in a back-test, its filter does not run. The strategy keeps the positions it holds, but nothing decides
+on them again. Set `LIU_HALT_ON_COLLISION=1` to stop the run with an error
+instead.
+
+The filters of two strategies may select the same symbols, so the `symbols`
+passed to a portfolio rule can include symbols that other strategies own. A
+portfolio rule should not request every symbol in its list.
 
 ### Fills and cancellations
 A rule hears about its own orders through two callbacks, which do nothing in
 the base class:
 
 * `on_fill(trade)` is called after a full or partial fill, once the framework
-  updated the rule's position. `trade` is a `Trade` from
+  updated the strategy's position. `trade` is a `Trade` from
   `liualgotrader.common.types`, with the side, quantity, price and fee of the
   execution,
 * `on_cancel(order)` is called when an order is canceled, rejected or expires
@@ -303,10 +373,10 @@ long from a bullish crossover to the next bearish one:
 :linenos:
 ```
 
-Sample `tradeplan.toml` configuration file:
+Sample strategy file, `sma_cross_long.toml`:
 
-```{literalinclude} ../../examples/sma_crossover/tradeplan.toml
-:language: bash
+```{literalinclude} ../../examples/sma_crossover/sma_cross_long.toml
+:language: toml
 :linenos:
 ```
 
@@ -318,17 +388,18 @@ spawns consumer processes, a producer process and a filter process.
 The number of consumer processes is either pre-determined by an environment
 variable, or estimated based on the OS & hardware capabilities.
 
-Each consumer process creates its `Context` and the signals and rules of the
-trade plan. The producer assigns each symbol that a filter selects to one
+Each consumer process creates its `Context` and the strategies of the trade
+plan. The producer assigns each symbol that a filter selects to one
 consumer, and the assignment never changes. For each minute bar of a symbol,
 the consumer:
 
-1. gets the value of each signal whose filters selected the symbol; a value other than NaN means the signal fired,
-2. calls `decide()` on each `SymbolRule` that is linked to a fired signal or owns the symbol, unless the rule has an open order for the symbol or another rule owns it,
-3. submits the returned orders, sells before buys. The order that opens a position makes its rule the symbol's owner.
+1. skips each strategy that is inactive, has an open order for the symbol, or does not own the symbol while another strategy does,
+2. gets the value of the signal of each other strategy whose filter selected the symbol; a value other than NaN means the signal fired,
+3. calls `decide()` on the `SymbolRule` of each such strategy whose signal fired, and of the strategy that owns the symbol; the rule reads the signal's value with `self.signal.at()`,
+4. submits the returned orders, sells before buys. The order that opens a position makes its strategy the symbol's owner.
 
-When an order update arrives from the broker, the consumer updates the rule's
-position, releases the symbol once the position is flat, and calls the rule's
+When an order update arrives from the broker, the consumer updates the
+strategy's position, releases the symbol once the position is flat, and calls the rule's
 `on_fill()` or `on_cancel()`.
 
 If an order is still open a minute after it was submitted, the framework
@@ -352,6 +423,6 @@ configure the behaviour of the platform and the strategies.
 
 The best place to check out all possibilities is [here](https://github.com/amor71/LiuAlgoTrader/blob/master/liualgotrader/common/config.py).
 
-Some of the configurations are documented in the tradeplan.toml file,
+Some of the configurations are documented in the strategy files,
 some are in environment variables, and some may be over-written by the
 strategy developer.

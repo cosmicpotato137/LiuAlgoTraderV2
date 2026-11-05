@@ -5,12 +5,13 @@ The bars stand in for a DataLoader, so the test needs no credentials.
 
 import pandas as pd
 import pytest
-import toml
 
 from liualgotrader.common import clock
 from liualgotrader.common.types import TimeScale
 from liualgotrader.enhanced_backtest import Backtest
-from liualgotrader.strategy.new_base import Context, StrategyGraph
+from liualgotrader.strategy.new_base import Context
+from liualgotrader.strategy.runtime import RunState
+from liualgotrader.strategy.tradeplan import create_strategies, load_tradeplan
 
 DAY = pd.Timedelta(days=1)
 
@@ -51,15 +52,15 @@ async def test_buys_bullish_and_sells_bearish_crossover() -> None:
         + [139.0 - 2 * i for i in range(40)]
     )
     bars = daily_bars(closes)
-    tradeplan = toml.load("./examples/sma_crossover/tradeplan.toml")
-    tradeplan["filters"]["watchlist"]["symbols"] = ["AAPL"]
+    [spec] = load_tradeplan("./examples/sma_crossover")
+    spec["filter"]["symbols"] = ["AAPL"]
     ctx = Context({"aapl": Bars(bars)}, backtesting=True)
     session = Backtest(
-        ctx, StrategyGraph.from_tradeplan(tradeplan, ctx), TimeScale.day
+        ctx, RunState(create_strategies([spec], ctx)), TimeScale.day
     )
 
     for day in bars.index:
-        await session.run_day(day, day + DAY - pd.Timedelta(seconds=1))
+        await session.simulate_day(day, day + DAY - pd.Timedelta(seconds=1))
 
     trades = pd.DataFrame(session.trades)
     if list(trades.side) != ["buy", "sell"]:

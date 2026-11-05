@@ -19,21 +19,24 @@ import asyncio
 import logging
 import math
 import os
+import sys
 from multiprocessing import Queue
 from queue import Empty
 from random import randint
-from typing import Dict, List, Optional
+from typing import Dict, Optional, cast
 
 import pandas as pd
 
 from liualgotrader.common import clock, config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
+from liualgotrader.common.exceptions import OwnershipCollision
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import Order, QueueMessageType, Trade
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.strategy.new_base import (Context, OrderRequest,
-                                             PortfolioRule, StrategyGraph)
-from liualgotrader.strategy.runtime import Decision, OpenOrder, RunState
+                                             PortfolioRule, Strategy)
+from liualgotrader.strategy.runtime import OpenOrder, RunState
+from liualgotrader.strategy.tradeplan import create_strategies
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.trade.factory import trader_factory
 
@@ -122,8 +125,6 @@ class Consumer:
 
     Methods
     -------
-    submit
-        Submit the orders that rules requested.
     check_order
         Reconcile a stale order with the broker and cancel it unless filled.
     handle_market_data
@@ -139,16 +140,16 @@ class Consumer:
     """
 
     def __init__(
-        self, ctx: Context, graph: StrategyGraph, run_portfolio_rules: bool
+        self, ctx: Context, state: RunState, run_portfolio_rules: bool
     ):
-        """Initialize the consumer with an empty run state.
+        """Initialize the consumer.
 
         Parameters
         ----------
         ctx: Context
             The context of the run, with a trader.
-        graph: StrategyGraph
-            The signals and rules of the trade plan.
+        state: RunState
+            The run state, which holds the strategies of the trade plan.
         run_portfolio_rules: bool
             Whether this consumer runs the portfolio rules.
 
@@ -160,19 +161,9 @@ class Consumer:
             raise ValueError("the consumer needs a trader")
         self.ctx = ctx
         self.trader: TraderAPI = ctx.trader
-        self.state = RunState(graph)
+        self.state = state
         self.run_portfolio_rules = run_portfolio_rules
         self._time_tick: Dict[str, pd.Timestamp] = {}
-
-    async def submit(self, decisions: List[Decision]) -> None:
-        """Submit the orders that rules requested as day orders.
-
-        Parameters
-        ----------
-        decisions: List[Decision]
-            The rules and the orders they requested.
-        """
-        await self.state.submit(decisions, self._place)
 
     async def _place(self, request: OrderRequest) -> Optional[Order]:
         """Submit an order to the broker as a day order."""
@@ -243,8 +234,9 @@ class Consumer:
 
         Skip a message other than a minute bar that is more than 15 seconds
         late or repeats the previous second of its symbol. Check the stale
-        open orders of the symbol. On a minute bar, run the symbol rules with
-        now set to the time of the bar and submit the orders they request.
+        open orders of the symbol. On a minute bar, advance the horizon of the
+        context to the time of the bar, run the symbol rules with now set to
+        it and submit the orders they request.
 
         Parameters
         ----------
@@ -279,24 +271,29 @@ class Consumer:
             await self.check_order(open_order, second)
 
         if is_minute_bar:
-            await self.submit(
-                await self.state.decide_symbol(
-                    symbol, second.replace(second=0)
-                )
-            )
+            minute = second.replace(second=0)
+            self.ctx.set_horizon(minute)
+            decisions = await self.state.decide_symbol(symbol, minute)
+            await self.state.submit(decisions, self._place)
 
     async def queue_consumer(self, queue: Queue) -> None:
         """Consume and dispatch the messages of the producer until cancelled.
 
-        Apply trade updates, replace the universe of a filter with each of its
-        results and handle market data; log an error for a message of unknown
+        Apply trade updates, replace the universe of a strategy with each
+        result of its filter and handle market data; log an error for a message of unknown
         type. On a ConnectionError, reconnect the trader and put the message
-        back on queue. Log other exceptions and continue.
+        back on queue. Log other exceptions and continue, except
+        OwnershipCollision.
 
         Parameters
         ----------
         queue: Queue
             The queue to read from.
+
+        Raises
+        ------
+        Raise OwnershipCollision if a strategy requests a symbol that another
+        strategy owns and the run state halts on collisions.
         """
         logger.info("queue_consumer() starting")
         try:
@@ -335,6 +332,8 @@ class Consumer:
                     # re-post back to queue
                     queue.put(data, timeout=1)
                     await asyncio.sleep(1)
+                except OwnershipCollision:
+                    raise
                 except Exception:
                     logger.exception("Exception in queue_consumer() loop")
 
@@ -343,31 +342,44 @@ class Consumer:
         finally:
             logger.info("queue_consumer() task done.")
 
-    async def portfolio_runner(self, rule: PortfolioRule) -> None:
-        """Run a portfolio rule at its recurrence until cancelled.
+    async def portfolio_runner(self, strategy: Strategy) -> None:
+        """Run a portfolio strategy at the recurrence of its rule until
+        cancelled or inactive.
 
         Skip runs while the market is closed. Pass the rule the time of the
         latest completed minute bar, and submit the orders it requests. Log
-        the exceptions of a run and continue.
+        the exceptions of a run and continue, except OwnershipCollision.
 
         Parameters
         ----------
-        rule: PortfolioRule
-            The rule.
+        strategy: Strategy
+            The strategy, whose rule is a PortfolioRule.
+
+        Raises
+        ------
+        Raise OwnershipCollision if the rule requests a symbol that another
+        strategy owns and the run state halts on collisions.
         """
-        logger.info("portfolio_runner(%s) task starting", rule)
-        while True:
+        rule = cast(PortfolioRule, strategy.rule)
+        logger.info("portfolio_runner(%s) task starting", strategy)
+        while strategy.active:
             await asyncio.sleep(rule.recurrence.total_seconds())
             try:
                 now = clock.now()
                 if not self.trader.is_market_open(now):
                     continue
                 latest_bar = now.floor("min") - pd.Timedelta(minutes=1)
-                await self.submit(
-                    await self.state.decide_portfolio(rule, latest_bar)
+                decisions = await self.state.decide_portfolio(
+                    strategy, latest_bar
                 )
+                await self.state.submit(decisions, self._place)
+            except OwnershipCollision:
+                raise
             except Exception:
-                logger.exception("portfolio_runner(%s) failed", rule)
+                logger.exception("portfolio_runner(%s) failed", strategy)
+        logger.info(
+            "portfolio_runner(%s) task done, strategy inactive", strategy
+        )
 
     async def cancel_lingering_orders(self) -> None:
         """Check the stale open orders once a minute until cancelled.
@@ -395,72 +407,102 @@ class Consumer:
 
         Run the queue consumer and the lingering-order check, and a runner
         for each portfolio rule if this consumer runs them. Collect task
-        exceptions instead of raising them.
+        exceptions instead of raising them, except OwnershipCollision, which
+        cancels the other tasks.
 
         Parameters
         ----------
         queue: Queue
             The queue of messages from the producer.
+
+        Raises
+        ------
+        Raise OwnershipCollision if a strategy requests a symbol that another
+        strategy owns and the run state halts on collisions.
         """
-        tasks = [self.queue_consumer(queue), self.cancel_lingering_orders()]
+        coros = [self.queue_consumer(queue), self.cancel_lingering_orders()]
         if self.run_portfolio_rules:
-            tasks += [
-                self.portfolio_runner(rule)
-                for rule in self.state.graph.rules.values()
-                if isinstance(rule, PortfolioRule)
+            coros += [
+                self.portfolio_runner(strategy)
+                for strategy in self.state.strategies.values()
+                if isinstance(strategy.rule, PortfolioRule)
             ]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        pending = {asyncio.ensure_future(coro) for coro in coros}
+        while pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_EXCEPTION
+            )
+            for task in done:
+                error = None if task.cancelled() else task.exception()
+                if isinstance(error, OwnershipCollision):
+                    for other in pending:
+                        other.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
+                    raise error
 
 
 async def consumer_async_main(
-    queue: Queue, tradeplan: Dict, run_portfolio_rules: bool
+    queue: Queue, tradeplan: list[dict], run_portfolio_rules: bool
 ) -> None:
     """Set up the consumer and run its tasks until they finish.
 
-    Create the database connection pool, and a context and signals and rules
-    of its own. Filters run in a separate process.
+    Create the database connection pool, and a context and strategies of its
+    own. Filters run in a separate process.
 
     Parameters
     ----------
     queue: Queue
         The queue of messages from the producer.
-    tradeplan: Dict
-        The trade plan.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     run_portfolio_rules: bool
         Whether this consumer runs the portfolio rules.
+
+    Raises
+    ------
+    Raise OwnershipCollision if a strategy requests a symbol that another
+    strategy owns and config.halt_on_collision is set.
     """
     await create_db_connection(str(config.dsn))
     ctx = Context(DataLoader(), trader=trader_factory())
-    graph = StrategyGraph.from_tradeplan(tradeplan, ctx, with_filters=False)
-    logger.info("loaded signals %s, rules %s", graph.signals, graph.rules)
+    strategies = create_strategies(tradeplan, ctx, with_filters=False)
+    logger.info("loaded strategies %s", list(strategies))
 
-    await Consumer(ctx, graph, run_portfolio_rules).run(queue)
+    state = RunState(strategies, config.halt_on_collision)
+    await Consumer(ctx, state, run_portfolio_rules).run(queue)
 
     logger.info("consumer_async_main() completed")
 
 
 def consumer_main(
-    queue: Queue, tradeplan: Dict, run_portfolio_rules: bool = False
+    queue: Queue, tradeplan: list[dict], run_portfolio_rules: bool = False
 ) -> None:
     """Run a consumer process until its tasks complete.
 
-    Log a keyboard interrupt instead of raising it.
+    Log a keyboard interrupt instead of raising it. Exit with status 1 on an
+    ownership collision, so that the trader stops its other processes.
 
     Parameters
     ----------
     queue: Queue
         The queue of messages from the producer.
-    tradeplan: Dict
-        The trade plan.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     run_portfolio_rules: bool, default False
         Whether this consumer runs the portfolio rules.
     """
     configure_logging()
     logger.info("*** consumer_main() starting w pid %s ***", os.getpid())
 
+    halted = False
     try:
         asyncio.run(consumer_async_main(queue, tradeplan, run_portfolio_rules))
     except KeyboardInterrupt:
         logger.info("consumer_main() - Caught KeyboardInterrupt")
+    except OwnershipCollision as collision:
+        logger.critical("consumer_main() - halting: %s", collision)
+        halted = True
 
     logger.info("*** consumer_main() completed ***")
+    if halted:
+        sys.exit(1)

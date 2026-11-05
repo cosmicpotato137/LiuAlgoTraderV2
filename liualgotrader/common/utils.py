@@ -6,19 +6,24 @@ load_class
     Return the class that a specification names.
 date_from_string
     Return the date described by a natural-language string.
+notify
+    Call a callback, and log rather than raise its exceptions.
 """
 
 import hashlib
 import importlib
 import importlib.util
+import logging
 import sys
 from datetime import date
 from pathlib import Path
-from typing import TypeVar
+from typing import Awaitable, Callable, TypeVar
 
 import parsedatetime.parsedatetime as pdt
 
 from liualgotrader.common import clock
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -111,3 +116,19 @@ def date_from_string(s: str) -> date:
         raise ValueError(f"Don't understand date '{s}'")
 
     return dt
+
+
+async def notify(callback: Callable[[T], Awaitable[None]], arg: T) -> None:
+    """Call a callback, and log rather than raise its exceptions.
+
+    Parameters
+    ----------
+    callback: Callable[[T], Awaitable[None]]
+        The coroutine function to call, such as a rule's on_fill.
+    arg: T
+        The argument to call it with.
+    """
+    try:
+        await callback(arg)
+    except Exception:
+        logger.exception("%s failed", callback.__qualname__)

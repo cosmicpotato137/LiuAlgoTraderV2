@@ -29,7 +29,7 @@ from liualgotrader.common.types import (QueueMessageType, SymbolQueueMap,
                                         WSEventType)
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategy.new_base import portfolio_filters
+from liualgotrader.strategy.tradeplan import portfolio_strategy_names
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.stream.factory import streaming_factory
 from liualgotrader.trade.factory import trader_factory
@@ -48,8 +48,8 @@ class SymbolRouter:
     ----------
     queues: List[Queue]
         The consumer queues.
-    portfolio_filters: set[str]
-        The names of the filters that feed a portfolio rule.
+    portfolio_strategies: set[str]
+        The names of the strategies that feed a portfolio rule.
     stream: StreamingAPI
         The market data stream.
     assigned: Dict[str, int]
@@ -64,7 +64,7 @@ class SymbolRouter:
     def __init__(
         self,
         queues: List[Queue],
-        portfolio_filters: set[str],
+        portfolio_strategies: set[str],
         stream: StreamingAPI,
     ):
         """Initialize the router with no symbols assigned.
@@ -79,7 +79,7 @@ class SymbolRouter:
             The market data stream.
         """
         self.queues = queues
-        self.portfolio_filters = portfolio_filters
+        self.portfolio_strategies = portfolio_strategies
         self.stream = stream
         self.assigned: Dict[str, int] = {}
         self._counts = [0] * len(queues)
@@ -88,7 +88,7 @@ class SymbolRouter:
         """Assign a new symbol to a consumer queue."""
         consumer = (
             0
-            if filter_name in self.portfolio_filters
+            if filter_name in self.portfolio_strategies
             else self._counts.index(min(self._counts))
         )
         self.assigned[symbol] = consumer
@@ -120,7 +120,7 @@ class SymbolRouter:
                 self._assign(symbol, filter_name)
                 new_symbols.append(symbol)
             elif (
-                filter_name in self.portfolio_filters and self.assigned[symbol]
+                filter_name in self.portfolio_strategies and self.assigned[symbol]
             ):
                 logger.warning(
                     "%s from portfolio filter %s is on consumer %s, so "
@@ -188,7 +188,7 @@ async def filter_input(filter_queue: Queue, router: SymbolRouter) -> None:
 
 
 async def producer_async_main(
-    queues: List[Queue], filter_queue: Queue, tradeplan: Dict
+    queues: List[Queue], filter_queue: Queue, tradeplan: list[dict]
 ):
     """Set up the producer and run its tasks until they finish.
 
@@ -201,12 +201,12 @@ async def producer_async_main(
         The consumer queues.
     filter_queue: Queue
         The queue of filter results.
-    tradeplan: Dict
-        The trade plan.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     """
     await create_db_connection(str(config.dsn))
-    router_filters = portfolio_filters(tradeplan)
-    logger.info("portfolio filters: %s", router_filters)
+    portfolio_strategy_names = portfolio_strategy_names(tradeplan)
+    logger.info("portfolio filters: %s", portfolio_strategy_names)
 
     qm = SymbolQueueMap(queue_list=queues)
     stream = streaming_factory(qm)
@@ -217,7 +217,7 @@ async def producer_async_main(
     tasks = [
         asyncio.create_task(
             filter_input(
-                filter_queue, SymbolRouter(queues, router_filters, stream)
+                filter_queue, SymbolRouter(queues, portfolio_strategy_names, stream)
             ),
             name="filter_input",
         )
@@ -233,7 +233,7 @@ async def producer_async_main(
 def producer_main(
     unique_id: str,
     queues: List[Queue],
-    tradeplan: Dict,
+    tradeplan: list[dict],
     filter_queue: Queue,
 ) -> None:
     """Run the producer process until its tasks complete.
@@ -247,8 +247,8 @@ def producer_main(
         The batch identifier of the run.
     queues: List[Queue]
         The consumer queues.
-    tradeplan: Dict
-        The trade plan.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     filter_queue: Queue
         The queue of filter results.
     """

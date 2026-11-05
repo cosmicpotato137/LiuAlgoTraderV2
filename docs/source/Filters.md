@@ -4,9 +4,9 @@
 
 As explained in the `Concepts` section, filters select stocks of interest from the stock universe.
 Filters replace the scanners of earlier releases.
-When the `trader` application starts, it reads the `tradeplan.toml` file and looks at the **[filters]** section to identify the filters to be instantiated and executed. The `trader` application exits with an error if the trade plan has no **[filters]** section. The framework comes with a generic momentum filter, but it is advised to use it as a reference for designing your own filters.
+When the `trader` application starts, it reads the strategy files of the trade plan, and the **[filter]** table of each one identifies the filter to be instantiated and executed for that strategy. A strategy file without a **[filter]** table raises an error at startup. The framework comes with a generic momentum filter, but it is advised to use it as a reference for designing your own filters.
 
-Each entry under **[filters]** is a filter instance: the table key is the instance name, and `class` names the class to instantiate. Two entries may use the same class with different settings. The `recurrence` setting is generic to all filters, and every other setting is passed to the class.
+The **[filter]** table of a strategy file is a filter instance, named after the strategy, and `class` names the class to instantiate. Two strategies may use the same filter class with different settings. The `recurrence` setting is generic to all filters, and every other setting is passed to the class.
 
 ## No Liability Disclaimer
 Any example, or sample is provided for training purposes only.
@@ -27,7 +27,7 @@ from liualgotrader.strategy.new_base import Filter
 Creating a filter involves:
 
 1. Declare a class object that is inherited from base-class `Filter`,
-2. Optionally overwrite the `__init__()` method, which is passed the configuration parameters from the `tradeplan.toml` file,
+2. Optionally overwrite the `__init__()` method, which is passed the configuration parameters from the **[filter]** table of the strategy file,
 3. Overwrite the `run()` method, which is called when the framework is ready to execute the filter.
 
 [base]: https://github.com/amor71/LiuAlgoTrader/blob/master/liualgotrader/strategy/new_base.py
@@ -36,7 +36,7 @@ Creating a filter involves:
 
 A filter takes its trade plan settings as keyword arguments and passes the
 remaining keyword arguments on to the base-class initializer, which sets
-the run context (`self.ctx`), the instance name (`self.name`) and the
+the run context (`self.ctx`), the name of its strategy (`self.name`) and the
 `recurrence`:
 
 ```python
@@ -97,7 +97,7 @@ As a developer, I hate 'magic' that happens without my understanding, hence it's
 
 The filter task is to execute the `run()` method to determine a list of selected stocks and transmit them, with the filter name, over a Queue to the `producer` process. The task would then `sleep()` for the duration of the `recurrence` parameter (or just run once, if that parameter is not present).
 
-Once the producer receives a selected symbol, it assigns it to a consumer process, registers it for events on the data-stream, and persists it in the database, with the filter name and the timestamp of receiving the selected stock. The producer then tells the symbol's consumer which filter selected it, so that the signals linked to that filter start evaluating the symbol. The built-in momentum filter uses the persisted picks when back-testing.
+Once the producer receives a selected symbol, it assigns it to a consumer process, registers it for events on the data-stream, and persists it in the database, with the filter name and the timestamp of receiving the selected stock. The producer then tells the symbol's consumer which filter selected it, so that the signal of the filter's strategy starts evaluating the symbol. The built-in momentum filter uses the persisted picks when back-testing.
 
 When back-testing, the `backtester` runs the filters itself, at each time step: a filter with a `recurrence` runs once that much time has elapsed, and a filter without one runs once per day.
 
@@ -111,10 +111,10 @@ An example of *filter.py*, from the SMA crossover example:
 ```
 
 
-Configuring a custom filter in the *tradeplan* TOML file is as easy as:
+Configuring a custom filter in a strategy file is as easy as:
 
 ```none
-[filters.my_filter]
+[filter]
 class = "MyFilter"
 filename = "examples/sma_crossover/filter.py"
 
@@ -122,21 +122,32 @@ symbols = ["AAPL", "MSFT"]
 ```
 
 Upon execution, **trader** application will look for *filter.py* and
-instantiate the `MyFilter` class with the arguments defined in the `tradeplan`
-configuration file. A `class` without a `filename` is a dotted import path,
+instantiate the `MyFilter` class with the arguments defined in the **[filter]**
+table. A `class` without a `filename` is a dotted import path,
 which is how the built-in filters are named.
 
-### Linking filters to signals
+### Filters and signals
 
-A filter does not trade. Each signal in the trade plan lists the filters
-whose symbols it evaluates, and a symbol selected by several filters reaches
-the signals of each of them:
+A filter does not trade. The filter of a strategy file feeds the signal of
+the same file, and with that signal and the file's rule makes a strategy. A
+symbol selected by the filters of several strategies reaches the signal of
+each of them:
 
 ```none
-[signals.breakout]
+name = "breakout"
+
+[filter]
+class = "MyFilter"
+filename = "examples/sma_crossover/filter.py"
+symbols = ["AAPL", "MSFT"]
+
+[signal]
 class = "MySignal"
 filename = "my_signal.py"
-filters = ["my_filter"]
+
+[rule]
+class = "MyRule"
+filename = "my_rule.py"
 ```
 
 See the `Strategies` section for signals and rules.
@@ -144,11 +155,11 @@ See the `Strategies` section for signals and rules.
 
 
 ## Momentum Filter
-Filters are defined in the *tradeplan.toml* TOML
-configuration file under the section **[filters]**. Note that
-several filters may run, at different schedules and
-identify new stocks that needs to be fed into the strategy
-pipeline.
+Filters are defined in the strategy files of the trade
+plan, each under the table **[filter]**. Note that
+several filters, one for each strategy, may run at different
+schedules and identify new stocks that needs to be fed into
+the strategy pipeline.
 
 The momentum filter is named by
 `class = "liualgotrader.filters.momentum.Momentum"`, and
@@ -168,7 +179,7 @@ has several properties:
 For example:
 
 ```none
-[filters.momentum1]
+[filter]
 class = "liualgotrader.filters.momentum.Momentum"
 min_volume = 30000
 today_change_percent = 3.5
@@ -182,4 +193,4 @@ recurrence = 5
 **Notes**
 
 - Unless specified, the trader applications scans & trades a limited number of stocks, however that limitation can be overwritten by **LIU_MAX_SYMBOLS** env variable.
-- When back-testing, the momentum filter does not compute picks from history: it returns the symbols that the `trader` application recorded for a filter of the same name on that day, so it only covers days on which the `trader` ran with that filter.
+- When back-testing, the momentum filter does not compute picks from history: it returns the symbols that the `trader` application recorded for a filter of the same name on that day, which is the name of its strategy, so it only covers days on which the `trader` ran a strategy of that name with that filter.

@@ -5,14 +5,18 @@ The components here read synthetic bars, so the tests need no credentials.
 
 import asyncio
 import json
+import math
 import queue
+from datetime import date
 
 import pandas as pd
 import pytest
 
 from liualgotrader import filters_runner, producer
 from liualgotrader.common import clock
+from liualgotrader.common.exceptions import OwnershipCollision
 from liualgotrader.common.types import (
+    AssetType,
     Order,
     OrderType,
     QueueMessageType,
@@ -26,18 +30,19 @@ from liualgotrader.enhanced_backtest import (
     net_cash_flow,
     write_results,
 )
+from liualgotrader.market_calendar.base import CryptoCalendar
+from liualgotrader.strategy import new_base
 from liualgotrader.strategy.new_base import (
     Context,
     Filter,
     OrderRequest,
     PortfolioRule,
     Signal,
-    StrategyGraph,
+    Strategy,
     SymbolRule,
-    portfolio_filters,
-    select_rules,
 )
 from liualgotrader.strategy.runtime import RunState, sells_first
+from liualgotrader.strategy.tradeplan import portfolio_strategy_names
 
 DAY_START = pd.Timestamp("2026-10-01 09:30", tz=clock.NY)
 MINUTE = pd.Timedelta(minutes=1)
@@ -94,7 +99,10 @@ class Always(Signal):
 
 
 class Recorder(SymbolRule):
-    """Buy when flat and fired, then sell the position on the next call."""
+    """Buy when flat and fired, then sell the position on the next call.
+
+    Record each call with the value of the signal.
+    """
 
     def __init__(self, qty=1.0, limit_price=None, **kwargs):
         super().__init__(**kwargs)
@@ -104,11 +112,12 @@ class Recorder(SymbolRule):
         self.fills = []
         self.cancels = []
 
-    async def decide(self, symbol, now, position, fired):
-        self.calls.append((symbol, now, position, dict(fired)))
+    async def decide(self, symbol, now, position):
+        value = self.signal.at(symbol, now)
+        self.calls.append((symbol, now, position, value))
         if position:
             return [OrderRequest(symbol, SELL, abs(position))]
-        if fired:
+        if not math.isnan(value):
             return [
                 OrderRequest(
                     symbol,
@@ -128,39 +137,62 @@ class Recorder(SymbolRule):
 
 
 class Rebalance(PortfolioRule):
-    """Record the signal table and buy one of each symbol with a value."""
+    """Record the signal values and buy one of each symbol with a value."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.tables = []
+        self.calls = []
 
-    async def decide(self, now, positions, signals):
-        self.tables.append((positions, signals))
+    async def decide(self, now, positions, symbols):
+        values = self.signal.latest(symbols, now)
+        self.calls.append((positions, values))
         return [
             OrderRequest(symbol, BUY, 1.0)
-            for symbol, value in signals["sig"].items()
+            for symbol, value in values.items()
             if value > 0
         ]
 
 
-def make_graph(ctx, *rule_names, portfolio=None, filters=None):
-    """Return a graph with the Always signal on filter f and Recorder rules."""
-    signal = Always(ctx=ctx, name="sig")
-    rules = {
-        name: Recorder(ctx=ctx, name=name, signals=[signal])
-        for name in rule_names
+class CountingAlways(Always):
+    """Fire +1 on every bar, and record the times it computes through."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.computed = []
+
+    def compute(self, symbol, now):
+        self.computed.append(now)
+        return super().compute(symbol, now)
+
+
+def make_strategies(
+    ctx, *rule_names, portfolio=None, filters=None, signals=None
+):
+    """Return a strategy for each rule, by name, whose filter and signal have
+    the name of the rule, as a trade plan may name them.
+
+    The rules are Recorder rules, and a Rebalance rule named portfolio. The
+    filter and the signal of a strategy are the ones of its name in filters
+    and signals, or else a Fixed filter and an Always signal.
+    """
+    names = [*rule_names, *([portfolio] if portfolio else [])]
+    filters = {
+        name: (filters or {}).get(name) or Fixed(ctx=ctx, name=name)
+        for name in names
     }
-    if portfolio:
-        rules[portfolio] = Rebalance(
-            ctx=ctx, name=portfolio, signals=[signal], recurrence=MINUTE
-        )
-    return StrategyGraph(
-        filters=filters or {},
-        signals={"sig": signal},
-        rules=rules,
-        signal_filters={"sig": ["f"]},
-        rule_signals={name: ["sig"] for name in rules},
-    )
+    signals = {
+        name: (signals or {}).get(name) or Always(ctx=ctx, name=name)
+        for name in names
+    }
+
+    def rule(name):
+        if name == portfolio:
+            return Rebalance(
+                ctx=ctx, name=name, signal=signals[name], recurrence=MINUTE
+            )
+        return Recorder(ctx=ctx, name=name, signal=signals[name])
+
+    return {name: Strategy(name, rule(name), filters[name]) for name in names}
 
 
 def submitted(order_id: str, symbol: str, side=BUY) -> Order:
@@ -196,46 +228,49 @@ def ctx() -> Context:
 
 @pytest.mark.asyncio
 async def test_rule_decides_on_fired_symbols_only(ctx) -> None:
-    state = RunState(make_graph(ctx, "r"))
-    rule = state.graph.rules["r"]
+    state = RunState(make_strategies(ctx, "r"))
+    strategy = state.strategies["r"]
 
     if await state.decide_symbol("aapl", DAY_START):
         raise AssertionError("decided on a symbol no filter selected")
 
-    state.set_universe("f", ["aapl"])
+    state.set_universe("r", ["aapl"])
     decisions = await state.decide_symbol("aapl", DAY_START)
-    if [r for r, _ in decisions] != [rule] or rule.calls != [
-        ("aapl", DAY_START, 0.0, {"sig": 1.0})
+    if [s for s, _ in decisions] != [strategy] or strategy.rule.calls != [
+        ("aapl", DAY_START, 0.0, 1.0)
     ]:
         raise AssertionError(f"unexpected decisions {decisions}")
-    if state.owners != {"aapl": "r"}:
-        raise AssertionError(f"rule did not claim aapl: {state.owners}")
+    if state.symbol_owners != {"aapl": "r"}:
+        raise AssertionError(
+            f"strategy did not claim aapl: {state.symbol_owners}"
+        )
 
 
 @pytest.mark.asyncio
 async def test_owner_and_open_orders_block_other_decisions(ctx) -> None:
-    state = RunState(make_graph(ctx, "first", "second"))
-    state.set_universe("f", ["aapl"])
-    first, second = state.graph.rules.values()
+    state = RunState(make_strategies(ctx, "first", "second"))
+    state.set_universe("first", ["aapl"])
+    state.set_universe("second", ["aapl"])
+    first, second = state.strategies.values()
 
     decisions = await state.decide_symbol("aapl", DAY_START)
-    if [r for r, _ in decisions] != [first] or second.calls:
-        raise AssertionError("a second rule traded a claimed symbol")
+    if [s for s, _ in decisions] != [first] or second.rule.calls:
+        raise AssertionError("a second strategy traded a claimed symbol")
 
     state.add_open_order(submitted("1", "aapl"), first, decisions[0][1])
     if await state.decide_symbol("aapl", DAY_START + MINUTE):
         raise AssertionError("a rule decided while it had an open order")
-    if len(first.calls) != 1:
-        raise AssertionError("the rule with an open order was asked")
+    if len(first.rule.calls) != 1:
+        raise AssertionError("the strategy with an open order was asked")
 
 
 @pytest.mark.asyncio
 async def test_fills_update_positions_and_release_symbols(ctx) -> None:
-    state = RunState(make_graph(ctx, "r"))
-    state.set_universe("f", ["aapl"])
-    rule = state.graph.rules["r"]
+    state = RunState(make_strategies(ctx, "r"))
+    state.set_universe("r", ["aapl"])
+    strategy = state.strategies["r"]
     [(_, request)] = await state.decide_symbol("aapl", DAY_START)
-    state.add_open_order(submitted("1", "aapl"), rule, request)
+    state.add_open_order(submitted("1", "aapl"), strategy, request)
 
     if await state.handle_trade(fill("other", 1.0)):
         raise AssertionError("applied another consumer's order")
@@ -243,49 +278,183 @@ async def test_fills_update_positions_and_release_symbols(ctx) -> None:
     await state.handle_trade(fill("1", 0.6))
     if state.positions["r"] != {"aapl": 1.0} or state.open_orders:
         raise AssertionError(f"unexpected state {state.positions}")
-    if len(rule.fills) != 2 or state.owners != {"aapl": "r"}:
+    if len(strategy.rule.fills) != 2 or state.symbol_owners != {"aapl": "r"}:
         raise AssertionError("fills not reported or symbol released")
 
-    # the owner keeps deciding on its symbol even without a fired signal
+    # the owner keeps deciding on its symbol once its filter drops it
     state.universes.clear()
     [(_, sell)] = await state.decide_symbol("aapl", DAY_START + MINUTE)
-    state.add_open_order(submitted("2", "aapl", SELL), rule, sell)
+    state.add_open_order(submitted("2", "aapl", SELL), strategy, sell)
     await state.handle_trade(fill("2", 1.0, SELL))
-    if state.positions["r"] or state.owners:
-        raise AssertionError("flat rule still owns its symbol")
+    if state.positions["r"] or state.symbol_owners:
+        raise AssertionError("flat strategy still owns its symbol")
 
 
 @pytest.mark.asyncio
 async def test_cancel_notifies_rule_and_releases_symbol(ctx) -> None:
-    state = RunState(make_graph(ctx, "r"))
-    state.set_universe("f", ["aapl"])
-    rule = state.graph.rules["r"]
+    state = RunState(make_strategies(ctx, "r"))
+    state.set_universe("r", ["aapl"])
+    strategy = state.strategies["r"]
     [(_, request)] = await state.decide_symbol("aapl", DAY_START)
-    state.add_open_order(submitted("1", "aapl"), rule, request)
+    state.add_open_order(submitted("1", "aapl"), strategy, request)
 
     rejected = fill("1", 0.0)
     rejected.event = Order.EventType.rejected
     await state.handle_trade(rejected)
-    if state.open_orders or state.owners:
+    if state.open_orders or state.symbol_owners:
         raise AssertionError("rejected order kept")
-    if [o.event for o in rule.cancels] != [Order.EventType.rejected]:
-        raise AssertionError(f"unexpected cancels {rule.cancels}")
+    cancels = strategy.rule.cancels
+    if [o.event for o in cancels] != [Order.EventType.rejected]:
+        raise AssertionError(f"unexpected cancels {cancels}")
 
 
 @pytest.mark.asyncio
 async def test_portfolio_rule_gets_latest_signal_values(ctx) -> None:
     ctx.data_loader["msft"] = Bars(make_bars([20.0]))
-    state = RunState(make_graph(ctx, "r", portfolio="p"))
-    state.set_universe("f", ["aapl", "msft"])
-    state.owners["msft"] = "r"
-    rule = state.graph.rules["p"]
+    state = RunState(make_strategies(ctx, "r", portfolio="p"))
+    state.set_universe("p", ["aapl", "msft"])
+    strategy = state.strategies["p"]
 
-    decisions = await state.decide_portfolio(rule, DAY_START + 2 * MINUTE)
-    [(positions, table)] = rule.tables
-    if list(table.index) != ["aapl", "msft"] or list(table.sig) != [1, 1]:
-        raise AssertionError(f"unexpected signal table {table}")
-    if [d[1].symbol for d in decisions] != ["aapl"]:
-        raise AssertionError("portfolio rule traded a symbol it doesn't own")
+    decisions = await state.decide_portfolio(strategy, DAY_START + 2 * MINUTE)
+    [(positions, values)] = strategy.rule.calls
+    if values.to_dict() != {"aapl": 1.0, "msft": 1.0}:
+        raise AssertionError(f"unexpected signal values {values}")
+    if [d[1].symbol for d in decisions] != ["aapl", "msft"]:
+        raise AssertionError(f"unexpected decisions {decisions}")
+    if state.symbol_owners != {"aapl": "p", "msft": "p"}:
+        raise AssertionError(f"strategy did not claim: {state.symbol_owners}")
+
+
+def test_signal_fired(ctx, caplog) -> None:
+    signal = Always(ctx=ctx, name="s")
+
+    # no bars of zzz were loaded
+    if not signal.fired("aapl", DAY_START) or signal.fired("zzz", DAY_START):
+        raise AssertionError("unexpected fired values")
+    if "s failed on zzz" not in caplog.text:
+        raise AssertionError("failed symbol not logged")
+
+
+def test_signal_latest_values(ctx, caplog) -> None:
+    ctx.data_loader["msft"] = Bars(make_bars([20.0]))
+    signal = Always(ctx=ctx, name="s")
+
+    # msft has a single bar, and no bars of zzz were loaded
+    values = signal.latest(["aapl", "msft", "zzz"], DAY_START + 2 * MINUTE)
+
+    if values.iloc[:2].to_dict() != {"aapl": 1.0, "msft": 1.0}:
+        raise AssertionError(f"unexpected values {values}")
+    if not math.isnan(values["zzz"]) or "s failed on zzz" not in caplog.text:
+        raise AssertionError("failed symbol not logged as no value")
+    if values.name != "s" or values.index.name != "symbol":
+        raise AssertionError(f"unexpected labels {values}")
+
+
+@pytest.mark.asyncio
+async def test_strategy_that_requests_an_owned_symbol_is_deactivated(
+    ctx, caplog
+) -> None:
+    ctx.data_loader["msft"] = Bars(make_bars([20.0]))
+    state = RunState(make_strategies(ctx, "r", portfolio="p"))
+    state.set_universe("p", ["aapl", "msft"])
+    state.symbol_owners["msft"] = "r"
+    strategies = state.strategies
+
+    decisions = await state.decide_portfolio(strategies["p"], DAY_START)
+
+    # the request for aapl is dropped too
+    if decisions or state.symbol_owners != {"msft": "r"}:
+        raise AssertionError(f"inactive strategy claimed symbols: {decisions}")
+    if strategies["p"].active or not strategies["r"].active:
+        raise AssertionError("wrong strategy deactivated")
+    if list(strategies) != ["r", "p"]:
+        raise AssertionError(f"unexpected strategies {strategies}")
+    if "p requested msft, which r owns" not in caplog.text:
+        raise AssertionError(f"collision not logged: {caplog.text}")
+
+
+@pytest.mark.asyncio
+async def test_halt_on_collision_raises_and_keeps_the_strategy(ctx) -> None:
+    state = RunState(
+        make_strategies(ctx, "r", portfolio="p"), halt_on_collision=True
+    )
+    state.set_universe("p", ["aapl"])
+    state.symbol_owners["aapl"] = "r"
+
+    with pytest.raises(OwnershipCollision, match="p requested aapl"):
+        await state.decide_portfolio(state.strategies["p"], DAY_START)
+
+    if not state.strategies["p"].active:
+        raise AssertionError("strategy deactivated")
+
+
+@pytest.mark.asyncio
+async def test_inactive_strategy_keeps_its_positions_and_orders(ctx) -> None:
+    ctx.data_loader["msft"] = Bars(make_bars([20.0]))
+    state = RunState(make_strategies(ctx, "r", portfolio="p"))
+    strategy = state.strategies["p"]
+    state.set_universe("p", ["msft"])
+    [(_, request)] = await state.decide_portfolio(strategy, DAY_START)
+    state.add_open_order(submitted("1", "msft"), strategy, request)
+
+    state.set_universe("p", ["aapl"])
+    state.symbol_owners["aapl"] = "r"
+    await state.decide_portfolio(strategy, DAY_START + MINUTE)
+    await state.handle_trade(fill("1", 1.0))
+
+    # the fill still applies, and no other strategy may trade the position
+    if strategy.active or state.positions["p"] != {"msft": 1.0}:
+        raise AssertionError(f"unexpected positions {state.positions}")
+    if state.symbol_owners != {"aapl": "r", "msft": "p"}:
+        raise AssertionError(f"unexpected owners {state.symbol_owners}")
+
+
+@pytest.mark.asyncio
+async def test_inactive_strategy_drops_its_universe_and_rule(ctx) -> None:
+    state = RunState(make_strategies(ctx, "r", portfolio="p"))
+    strategy = state.strategies["p"]
+    state.set_universe("p", ["aapl"])
+    state.symbol_owners["aapl"] = "r"
+    await state.decide_portfolio(strategy, DAY_START)
+
+    state.set_universe("p", ["msft"])
+    await state.decide_portfolio(strategy, DAY_START + MINUTE)
+    if strategy.active or "p" in state.universes:
+        raise AssertionError(f"inactive strategy kept {state.universes}")
+    if state.symbols() != {"aapl"} or len(strategy.rule.calls) != 1:
+        raise AssertionError("inactive strategy still decides")
+
+
+@pytest.mark.asyncio
+async def test_inactive_strategy_runs_neither_rule_nor_signal(ctx) -> None:
+    signals = {name: CountingAlways(ctx=ctx, name=name) for name in ("r", "q")}
+    state = RunState(make_strategies(ctx, "r", "q", signals=signals))
+    state.set_universe("r", ["aapl"])
+    state.set_universe("q", ["aapl"])
+    r, q = state.strategies.values()
+    r.active = False
+
+    decisions = await state.decide_symbol("aapl", DAY_START)
+
+    if [strategy for strategy, _ in decisions] != [q]:
+        raise AssertionError(f"unexpected decisions {decisions}")
+    if r.rule.calls or signals["r"].computed:
+        raise AssertionError("asked the rule or signal of a stopped strategy")
+    if not signals["q"].computed:
+        raise AssertionError("the active strategy's signal was not evaluated")
+
+
+@pytest.mark.asyncio
+async def test_signal_is_not_evaluated_on_another_strategys_symbol(
+    ctx,
+) -> None:
+    signal = CountingAlways(ctx=ctx, name="r")
+    state = RunState(make_strategies(ctx, "r", signals={"r": signal}))
+    state.set_universe("r", ["aapl"])
+    state.symbol_owners["aapl"] = "q"
+
+    if await state.decide_symbol("aapl", DAY_START) or signal.computed:
+        raise AssertionError("evaluated a signal for a symbol q owns")
 
 
 def test_sells_first() -> None:
@@ -298,10 +467,12 @@ def test_sells_first() -> None:
 @pytest.mark.asyncio
 async def test_backtest_fills_at_next_open() -> None:
     ctx = Context(loader(aapl=make_bars([10.0, 11.0, 12.0])), backtesting=True)
-    graph = make_graph(ctx, "r", filters={"f": Fixed(ctx=ctx, name="f")})
-    session = Backtest(ctx, graph, TimeScale.minute, buy_fee_percentage=1.0)
+    strategies = make_strategies(ctx, "r")
+    session = Backtest(
+        ctx, RunState(strategies), TimeScale.minute, buy_fee_percentage=1.0
+    )
 
-    await session.run_day(DAY_START, DAY_START + 3 * MINUTE)
+    await session.simulate_day(DAY_START, DAY_START + 3 * MINUTE)
 
     # buy at 9:31, sell at 9:32; the buy decided at 9:32 ends with the day
     trades = pd.DataFrame(session.trades)
@@ -316,7 +487,8 @@ async def test_backtest_fills_at_next_open() -> None:
         raise AssertionError(f"unexpected fee {trades.fee}")
     if net_cash_flow(trades) != pytest.approx(12.0 - 11.0 - 0.11):
         raise AssertionError("unexpected cash flow")
-    if len(graph.rules["r"].cancels) != 1 or session.state.open_orders:
+    cancels = strategies["r"].rule.cancels
+    if len(cancels) != 1 or session.state.open_orders:
         raise AssertionError("open order survived the end of the day")
 
 
@@ -326,18 +498,54 @@ async def test_backtest_cancels_untouched_limit_order() -> None:
         loader(aapl=make_bars([10.0, 11.0], lows=[9.0, 10.5])),
         backtesting=True,
     )
-    graph = make_graph(ctx, filters={"f": Fixed(ctx=ctx, name="f")})
-    graph.rules["r"] = Recorder(
-        ctx=ctx, name="r", signals=[graph.signals["sig"]], limit_price=10.0
+    strategies = make_strategies(ctx, "r")
+    strategy = strategies["r"]
+    strategy.rule = Recorder(
+        ctx=ctx, name="r", signal=strategy.signal, limit_price=10.0
     )
-    graph.rule_signals["r"] = ["sig"]
-    session = Backtest(ctx, graph, TimeScale.minute)
+    session = Backtest(ctx, RunState(strategies), TimeScale.minute)
 
-    await session.run_day(DAY_START, DAY_START + 2 * MINUTE)
+    await session.simulate_day(DAY_START, DAY_START + 2 * MINUTE)
 
-    rule = graph.rules["r"]
-    if session.trades or len(rule.cancels) != 2:
+    if session.trades or len(strategy.rule.cancels) != 2:
         raise AssertionError(f"limit order filled: {session.trades}")
+
+
+@pytest.mark.asyncio
+async def test_backtest_skips_strategy_after_it_collides() -> None:
+    ctx = Context(loader(aapl=make_bars([10.0, 11.0])), backtesting=True)
+    selector = Sequence(
+        ["aapl"], ["aapl"], ctx=ctx, name="p", recurrence=MINUTE
+    )
+    strategies = make_strategies(
+        ctx, "r", portfolio="p", filters={"p": selector}
+    )
+    session = Backtest(ctx, RunState(strategies), TimeScale.minute)
+
+    await session.simulate_day(DAY_START, DAY_START + 2 * MINUTE)
+
+    # r claims aapl at 9:30, then p requests it in the same step; p and its
+    # filter are due again at 9:31 but no longer run
+    strategy = strategies["p"]
+    calls = strategy.rule.calls
+    if strategy.active or len(calls) != 1:
+        raise AssertionError(f"inactive strategy decided {len(calls)} times")
+    if selector.runs != 1:
+        raise AssertionError(f"inactive filter ran {selector.runs} times")
+    if [t["strategy"] for t in session.trades] != ["r"]:
+        raise AssertionError(f"unexpected trades {session.trades}")
+
+
+@pytest.mark.asyncio
+async def test_backtest_halts_on_collision() -> None:
+    ctx = Context(loader(aapl=make_bars([10.0, 11.0])), backtesting=True)
+    strategies = make_strategies(ctx, "r", portfolio="p")
+    session = Backtest(
+        ctx, RunState(strategies, halt_on_collision=True), TimeScale.minute
+    )
+
+    with pytest.raises(OwnershipCollision, match="p requested aapl"):
+        await session.simulate_day(DAY_START, DAY_START + 2 * MINUTE)
 
 
 class Sequence(Filter):
@@ -358,14 +566,14 @@ async def test_backtest_filter_run_replaces_universe() -> None:
     bars = make_bars([10.0, 11.0])
     ctx = Context(loader(aapl=bars, msft=bars), backtesting=True)
     selector = Sequence(
-        ["aapl", "msft"], ["aapl"], ctx=ctx, name="f", recurrence=MINUTE
+        ["aapl", "msft"], ["aapl"], ctx=ctx, name="r", recurrence=MINUTE
     )
-    graph = make_graph(ctx, filters={"f": selector})
-    session = Backtest(ctx, graph, TimeScale.minute)
+    strategies = make_strategies(ctx, "r", filters={"r": selector})
+    session = Backtest(ctx, RunState(strategies), TimeScale.minute)
 
-    await session.run_day(DAY_START, DAY_START + 2 * MINUTE)
+    await session.simulate_day(DAY_START, DAY_START + 2 * MINUTE)
 
-    if session.state.universes != {"f": {"aapl"}}:
+    if session.state.universes != {"r": {"aapl"}}:
         raise AssertionError(
             f"dropped symbol stayed in universe: {session.state.universes}"
         )
@@ -375,19 +583,105 @@ async def test_backtest_filter_run_replaces_universe() -> None:
 async def test_backtest_universe_lasts_until_next_filter_run() -> None:
     ctx = Context(loader(aapl=make_bars([10.0])), backtesting=True)
     selector = Sequence(
-        ["aapl"], ctx=ctx, name="f", recurrence=pd.Timedelta(days=2)
+        ["aapl"], ctx=ctx, name="r", recurrence=pd.Timedelta(days=2)
     )
-    graph = make_graph(ctx, filters={"f": selector})
-    session = Backtest(ctx, graph, TimeScale.minute)
+    strategies = make_strategies(ctx, "r", filters={"r": selector})
+    session = Backtest(ctx, RunState(strategies), TimeScale.minute)
 
-    await session.run_day(DAY_START, DAY_START + MINUTE)
+    await session.simulate_day(DAY_START, DAY_START + MINUTE)
     next_day = DAY_START + pd.Timedelta(days=1)
-    await session.run_day(next_day, next_day + MINUTE)
+    await session.simulate_day(next_day, next_day + MINUTE)
 
-    if selector.runs != 1 or session.state.universes != {"f": {"aapl"}}:
+    if selector.runs != 1 or session.state.universes != {"r": {"aapl"}}:
         raise AssertionError(
             f"universe lost before the next run: {session.state.universes}"
         )
+
+
+@pytest.mark.asyncio
+async def test_filter_without_recurrence_is_due_once_a_day(ctx) -> None:
+    selector = Fixed(ctx=ctx, name="r")
+    if not selector.is_due(DAY_START):
+        raise AssertionError("filter not due before its first run")
+
+    await selector.select(DAY_START)
+
+    if selector.last_run != DAY_START or selector.is_due(DAY_START + MINUTE):
+        raise AssertionError("filter due again on the day of its run")
+    if not selector.is_due(DAY_START + pd.Timedelta(days=1)):
+        raise AssertionError("filter not due on the next day")
+
+
+@pytest.mark.asyncio
+async def test_decide_portfolio_records_the_run_of_the_rule(ctx) -> None:
+    state = RunState(make_strategies(ctx, portfolio="p"))
+    strategy = state.strategies["p"]
+
+    await state.decide_portfolio(strategy, DAY_START)
+
+    rule = strategy.rule
+    if rule.last_run != DAY_START or rule.is_due(DAY_START + MINUTE / 2):
+        raise AssertionError("rule due before its recurrence elapsed")
+    if not rule.is_due(DAY_START + MINUTE):
+        raise AssertionError("rule not due once its recurrence elapsed")
+
+
+@pytest.mark.asyncio
+async def test_backtest_computes_signals_once_a_day() -> None:
+    ctx = Context(loader(aapl=make_bars([10.0, 11.0, 12.0])), backtesting=True)
+    signal = CountingAlways(ctx=ctx, name="r")
+    strategies = make_strategies(ctx, "r", signals={"r": signal})
+    session = Backtest(ctx, RunState(strategies), TimeScale.minute)
+
+    day_end = DAY_START + 3 * MINUTE
+    await session.simulate_day(DAY_START, day_end)
+    next_day = DAY_START + pd.Timedelta(days=1)
+    await session.simulate_day(next_day, next_day + MINUTE)
+
+    # the signal fires on each bar of the first day; the second has no bars
+    calls = strategies["r"].rule.calls
+    if len(calls) != 3:
+        raise AssertionError(f"unexpected calls {calls}")
+    if signal.computed != [day_end, next_day + MINUTE]:
+        raise AssertionError(f"unexpected computations {signal.computed}")
+
+
+@pytest.mark.asyncio
+async def test_backtest_steps_through_the_days_of_the_calendar(
+    monkeypatch,
+) -> None:
+    ctx = Context(loader(), backtesting=True, asset_type=AssetType.CRYPTO)
+    session = Backtest(ctx, RunState(make_strategies(ctx)), TimeScale.day)
+    steps = []
+
+    async def record(now):
+        steps.append(now)
+
+    monkeypatch.setattr(session, "simulate_timestep", record)
+
+    await session.simulate_range(date(2026, 10, 3), date(2026, 10, 5))
+
+    # crypto trades every day, and the day scale steps once at midnight
+    expected = [
+        pd.Timestamp(f"2026-10-0{day}", tz=clock.NY) for day in (3, 4, 5)
+    ]
+    if steps != expected:
+        raise AssertionError(f"unexpected steps {steps}")
+
+
+def test_context_creates_its_calendar_on_first_use(monkeypatch) -> None:
+    created = []
+
+    def factory(asset_type):
+        created.append(asset_type)
+        return CryptoCalendar()
+
+    monkeypatch.setattr(new_base, "market_calendar_factory", factory)
+    ctx = Context(loader(), asset_type=AssetType.CRYPTO)
+    if created:
+        raise AssertionError("created the calendar before its first use")
+    if ctx.calendar is not ctx.calendar or created != [AssetType.CRYPTO]:
+        raise AssertionError(f"unexpected calendar creations {created}")
 
 
 def test_write_results(tmp_path, monkeypatch) -> None:
@@ -397,7 +691,7 @@ def test_write_results(tmp_path, monkeypatch) -> None:
             [DAY_START, "r", "aapl", "buy", 1.0, 10.0, 0.0],
             [DAY_START, "r", "aapl", "sell", 1.0, 12.0, 0.5],
         ],
-        columns=["time", "rule", "symbol", "side", "qty", "price", "fee"],
+        columns=["time", "strategy", "symbol", "side", "qty", "price", "fee"],
     )
     write_results("b", trades, {"r": {}, "idle": {"msft": 2.0}})
 
@@ -408,44 +702,20 @@ def test_write_results(tmp_path, monkeypatch) -> None:
         raise AssertionError(f"unexpected summary {summary}")
 
 
-def test_select_rules() -> None:
-    plan = {
-        "filters": {"f1": {}, "f2": {}},
-        "signals": {"s1": {"filters": ["f1"]}, "s2": {"filters": ["f2"]}},
-        "rules": {"r1": {"signals": ["s1"]}, "r2": {"signals": ["s2"]}},
-    }
-    selected = select_rules(plan, ["r1"])
-    if [list(selected[k]) for k in ("filters", "signals", "rules")] != [
-        ["f1"],
-        ["s1"],
-        ["r1"],
-    ]:
-        raise AssertionError(f"unexpected selection {selected}")
-    if select_rules(plan, None) != plan:
-        raise AssertionError("no selection should keep every rule")
-    with pytest.raises(ValueError):
-        select_rules(plan, ["missing"])
-
-
 def test_portfolio_filters() -> None:
-    plan = {
-        "filters": {"f1": {}, "f2": {}},
-        "signals": {"s1": {"filters": ["f1"]}, "s2": {"filters": ["f2"]}},
-        "rules": {
-            "symbol": {
-                "class": "Recorder",
-                "filename": __file__,
-                "signals": ["s1"],
-            },
-            "portfolio": {
-                "class": "Rebalance",
-                "filename": __file__,
-                "signals": ["s2"],
-            },
-        },
-    }
-    if portfolio_filters(plan) != {"f2"}:
+    plan = [
+        {
+            "name": name,
+            "filter": {"class": "Fixed", "filename": __file__},
+            "signal": {"class": "Always", "filename": __file__},
+            "rule": {"class": rule, "filename": __file__},
+        }
+        for name, rule in (("symbol", "Recorder"), ("portfolio", "Rebalance"))
+    ]
+    if portfolio_strategy_names(plan) != {"portfolio"}:
         raise AssertionError("wrong portfolio filters")
+    if plan[1]["rule"] != {"class": "Rebalance", "filename": __file__}:
+        raise AssertionError("portfolio_filters modified the trade plan")
 
 
 class FakeStream:
@@ -516,7 +786,7 @@ class Messages:
 @pytest.mark.asyncio
 async def test_consumer_filter_result_replaces_universe(ctx) -> None:
     ctx.trader = FakeTrader()
-    consumer = Consumer(ctx, make_graph(ctx, "r"), False)
+    consumer = Consumer(ctx, RunState(make_strategies(ctx, "r")), False)
 
     def result(filter_name, symbols):
         return {
@@ -576,12 +846,11 @@ class FakeTrader:
 async def test_consumer_submits_and_applies_trade_updates(ctx) -> None:
     trader = FakeTrader()
     ctx.trader = trader
-    consumer = Consumer(ctx, make_graph(ctx, "r"), False)
-    consumer.state.set_universe("f", ["aapl"])
+    consumer = Consumer(ctx, RunState(make_strategies(ctx, "r")), False)
+    consumer.state.set_universe("r", ["aapl"])
 
-    await consumer.submit(
-        await consumer.state.decide_symbol("aapl", DAY_START)
-    )
+    decisions = await consumer.state.decide_symbol("aapl", DAY_START)
+    await consumer.state.submit(decisions, consumer._place)
     if [o["side"] for o in trader.submitted] != ["buy"]:
         raise AssertionError(f"unexpected orders {trader.submitted}")
 
@@ -594,22 +863,38 @@ async def test_consumer_submits_and_applies_trade_updates(ctx) -> None:
 async def test_consumer_cancels_stale_partially_filled_order(ctx) -> None:
     trader = FakeTrader(Order.EventType.partial_fill, filled_qty=0.25)
     ctx.trader = trader
-    consumer = Consumer(ctx, make_graph(ctx, "r"), False)
-    consumer.state.set_universe("f", ["aapl"])
-    await consumer.submit(
-        await consumer.state.decide_symbol("aapl", DAY_START)
-    )
+    consumer = Consumer(ctx, RunState(make_strategies(ctx, "r")), False)
+    consumer.state.set_universe("r", ["aapl"])
+    decisions = await consumer.state.decide_symbol("aapl", DAY_START)
+    await consumer.state.submit(decisions, consumer._place)
 
     [stale] = consumer.state.stale_orders(DAY_START + MINUTE)
     await consumer.check_order(stale, DAY_START + MINUTE)
 
-    rule = consumer.state.graph.rules["r"]
+    rule = consumer.state.strategies["r"].rule
     if trader.canceled != ["1"] or consumer.state.open_orders:
         raise AssertionError("stale order not canceled")
     if consumer.state.positions["r"] != {"aapl": 0.25}:
         raise AssertionError("reported partial fill not applied")
     if [o.filled_qty for o in rule.cancels] != [0.25]:
         raise AssertionError(f"unexpected cancels {rule.cancels}")
+
+
+@pytest.mark.asyncio
+async def test_consumer_stops_its_tasks_on_collision(ctx, monkeypatch) -> None:
+    ctx.trader = FakeTrader()
+    consumer = Consumer(ctx, RunState(make_strategies(ctx, "r"), True), False)
+
+    async def collide(data):
+        raise OwnershipCollision("r", "aapl", "q")
+
+    monkeypatch.setattr(consumer, "handle_market_data", collide)
+
+    # run raises although the lingering-order check would run forever
+    with pytest.raises(OwnershipCollision):
+        await asyncio.wait_for(
+            consumer.run(Messages({"EV": QueueMessageType.MINUTE_BAR})), 5
+        )
 
 
 def test_bars_asks_loader_only_for_new_ranges() -> None:
@@ -637,3 +922,11 @@ def test_bars_asks_loader_only_for_new_ranges() -> None:
         raise AssertionError(f"unexpected loader requests {data.requests}")
     if len(bars) != 3 or len(ctx.bars("aapl", DAY_START, DAY_START)) != 1:
         raise AssertionError("bars returned the wrong rows")
+
+
+def test_set_horizon_never_moves_it_back(ctx) -> None:
+    ctx.set_horizon(DAY_START + MINUTE)
+    ctx.set_horizon(DAY_START)
+
+    if ctx.horizon != DAY_START + MINUTE:
+        raise AssertionError(f"horizon moved back to {ctx.horizon}")
