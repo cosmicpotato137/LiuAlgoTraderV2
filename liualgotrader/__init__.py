@@ -25,6 +25,8 @@ filters
     Built-in filters that select the symbols to trade.
 fincalcs
     Financial calculations for use by strategies.
+market_calendar
+    Market calendar interface.
 reprocess
     Recalculation of stored portfolio data.
 scripts

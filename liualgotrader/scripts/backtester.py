@@ -1,11 +1,11 @@
 """Backtest the trade plan over a range of past days.
 
 Usage: backtester from <start_date> [--asset=equity|crypto]
-    [--rules=<name,...>] [--to=<end_date>] [--scale=day|minute]
+    [--to=<end_date>] [--scale=day|minute]
     [--buy-fee-percentage=<percent>] [--sell-fee-percentage=<percent>]
-Backtest the trade plan, tradeplan.toml, read from TRADEPLAN_DIR or else the
-current directory. The defaults are equity, all rules, today, day and no
-fees. --rules selects rules, and their signals and filters come with them.
+Backtest the trade plan: the strategy files (*.toml) in TRADEPLAN_DIR, or
+else in the current directory. The defaults are equity, today, day and no
+fees.
 
 Functions
 ---------
@@ -18,13 +18,12 @@ import logging
 import os
 import sys
 
-import toml
-
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import clock, config
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import AssetType, TimeScale
 from liualgotrader.common.utils import date_from_string
+from liualgotrader.strategy.tradeplan import load_tradeplan
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +36,11 @@ def main_cli() -> None:
     Parse the from command and its options from sys.argv, run the backtest
     and exit. Exit with the usage text on missing or invalid arguments, and
     exit if the trade plan is not found.
+
+    Raises
+    ------
+    Raise ValueError if a strategy file of the trade plan is not valid, see
+    load_tradeplan.
     """
     configure_logging()
 
@@ -58,11 +62,6 @@ def main_cli() -> None:
         choices=ASSET_TYPES,
         default="equity",
         help="asset type being traded: equity = US Equities, crypto = Crypto-currency. Asset type affects the market schedule for backtesting",
-    )
-    from_parser.add_argument(
-        "--rules",
-        type=lambda rules: rules.split(","),
-        help="comma-separated rules to backtest, with their signals and filters. DEFAULT is all rules",
     )
     from_parser.add_argument(
         "--to",
@@ -94,22 +93,17 @@ def main_cli() -> None:
 
     config.filename = os.path.basename(__file__)
 
-    fname = os.path.join(
-        config.tradeplan_folder, config.configuration_filename
-    )
     try:
-        conf_dict = toml.load(fname)
-        logger.info("loaded configuration file from %s", fname)
-    except FileNotFoundError:
-        logger.error("could not locate tradeplan file %s", fname)
+        tradeplan = load_tradeplan(config.tradeplan_folder)
+    except FileNotFoundError as error:
+        logger.error("could not locate the trade plan: %s", error)
         sys.exit(0)
 
     enhanced_backtest.backtest(
         from_date=args.start_date,
         to_date=args.to_date,
         scale=TimeScale[args.scale],
-        config=conf_dict,
-        rules=args.rules,
+        tradeplan=tradeplan,
         asset_type=ASSET_TYPES[args.asset],
         buy_fee_percentage=args.buy_fee_percentage,
         sell_fee_percentage=args.sell_fee_percentage,

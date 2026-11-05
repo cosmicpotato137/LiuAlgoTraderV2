@@ -1,4 +1,4 @@
-# This is a TOML configuration file.
+# This is a TOML strategy file, which describes one strategy completely.
 #
 # A momentum strategy: buy when the 10-bar simple moving average of the close
 # crosses above the 30-bar one, and sell when it crosses back below. Back-test
@@ -6,17 +6,20 @@
 #
 #   TRADEPLAN_DIR=examples/sma_crossover backtester from 2024-01-01 --to=2024-12-31
 
-# symbol filters, may have several; each table key names an instance of the
-# class, so two entries may use the same class with different settings
-[filters.watchlist]
+# the name of the strategy, unique within the trade plan; the filter, signal
+# and rule below have it too
+name = "sma_cross_long"
+
+# the filter, which selects the symbols that the signal evaluates
+[filter]
 class = "MyFilter"
 filename = "examples/sma_crossover/filter.py"
 symbols = ["AAPL", "MSFT", "NVDA"]
 
-# To trade the picks of the momentum filter instead, uncomment this filter and
-# list it in the signal's filters. In back-tests it only replays the picks
-# that the live trader recorded.
-# [filters.momentum]
+# To trade the picks of the momentum filter instead, replace the filter table
+# above with this one. In back-tests it only replays the picks that the live
+# trader recorded for a strategy of the same name.
+# [filter]
 # class = "liualgotrader.filters.momentum.Momentum"
 # min_volume = 30000
 # today_change_percent = 3.5
@@ -26,20 +29,18 @@ symbols = ["AAPL", "MSFT", "NVDA"]
 # from_market_open = 15
 # recurrence = 5
 
-# signals; each one evaluates the symbols of the filters it lists
-[signals.sma_cross]
+# the signal, which evaluates the symbols of the filter
+[signal]
 class = "SmaCrossover"
 filename = "examples/sma_crossover/strategy.py"
-filters = ["watchlist"]
 fast = 10
 slow = 30
 # calendar days of bars to read, which must cover `slow` bars; a few days are
 # enough for minute bars
 lookback_days = 60
 
-# rules; each one decides on the signals it lists
-[rules.sma_cross_long]
+# the rule, which decides on the signal
+[rule]
 class = "SmaCrossoverRule"
 filename = "examples/sma_crossover/strategy.py"
-signals = ["sma_cross"]
 qty = 10

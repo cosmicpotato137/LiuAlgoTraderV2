@@ -96,7 +96,7 @@ def setup_samples(samples_location: str) -> None:
 
         base_url = "https://raw.github.com/amor71/LiuAlgoTrader/master/examples/quickstart/"
         files = [
-            "tradeplan.toml",
+            "momentum_long.toml",
             "vwap_short.py",
             "momentum_long_simplified.py",
         ]

@@ -34,7 +34,7 @@ from liualgotrader.common import clock
 from liualgotrader.common.types import Order, OrderType, Trade
 from liualgotrader.fincalcs.support_resistance import find_stop
 from liualgotrader.strategy.new_base import (Indicator, OrderRequest, Signal,
-                                             SymbolRule, lookback_start)
+                                             SymbolRule)
 
 logger = logging.getLogger(__name__)
 
@@ -162,9 +162,8 @@ class Macd(Indicator):
         Return a DataFrame with macd, macds and macdh columns and a row per
         bar of the regular session.
         """
-        bars = self.ctx.bars(
-            symbol, lookback_start(now, self.lookback_days), now
-        )
+        start = now.normalize() - pd.Timedelta(days=self.lookback_days)
+        bars = self.ctx.bars(symbol, start, now)
         return macd(
             _market_hours_close(bars), self.fast, self.slow, self.signal
         )
@@ -210,9 +209,8 @@ class Rsi(Indicator):
         Return a DataFrame with an rsi column and a row per bar of the
         regular session.
         """
-        bars = self.ctx.bars(
-            symbol, lookback_start(now, self.lookback_days), now
-        )
+        start = now.normalize() - pd.Timedelta(days=self.lookback_days)
+        bars = self.ctx.bars(symbol, start, now)
         return rsi(_market_hours_close(bars), self.window).to_frame("rsi")
 
 
@@ -292,9 +290,8 @@ class MomentumSignal(Signal):
         now: pd.Timestamp
             The time of the last row to compute.
         """
-        bars = self.ctx.bars(
-            symbol, lookback_start(now, self.lookback_days), now
-        )
+        start = now.normalize() - pd.Timedelta(days=self.lookback_days)
+        bars = self.ctx.bars(symbol, start, now)
         if bars.empty:
             return pd.Series(dtype=float)
 
@@ -409,13 +406,9 @@ class MomentumLongRule(SymbolRule):
         )
 
     async def decide(
-        self,
-        symbol: str,
-        now: pd.Timestamp,
-        position: float,
-        fired: dict[str, float],
+        self, symbol: str, now: pd.Timestamp, position: float
     ) -> list[OrderRequest]:
-        """Return an entry when flat and a signal fired, or an exit.
+        """Return an entry when flat and the signal fired, or an exit.
 
         Parameters
         ----------
@@ -424,13 +417,10 @@ class MomentumLongRule(SymbolRule):
         now: pd.Timestamp
             The time of the latest bar.
         position: float
-            The rule's position in symbol.
-        fired: dict[str, float]
-            The value of each of the rule's signals that fired at now.
+            The strategy's position in symbol.
         """
-        bars = self.ctx.bars(
-            symbol, lookback_start(now, self.lookback_days), now
-        )
+        start = now.normalize() - pd.Timedelta(days=self.lookback_days)
+        bars = self.ctx.bars(symbol, start, now)
         if bars.empty:
             return []
 
@@ -442,7 +432,7 @@ class MomentumLongRule(SymbolRule):
                 symbol in self.cool_down
                 and now.floor("min") <= self.cool_down[symbol]
             )
-            if fired and not cooling_down:
+            if self.signal.fired(symbol, now) and not cooling_down:
                 return self._enter(symbol, now, bars, morning_rush)
         elif position > 0 and symbol in self.cost_basis:
             return self._exit(symbol, now, position, bars, morning_rush)
@@ -541,7 +531,7 @@ class MomentumLongRule(SymbolRule):
         now: pd.Timestamp
             The time of the latest bar.
         position: float
-            The rule's position in symbol, which is positive.
+            The strategy's position in symbol, which is positive.
         bars: pd.DataFrame
             The bars of symbol through now.
         morning_rush: bool

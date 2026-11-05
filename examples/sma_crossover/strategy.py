@@ -4,8 +4,8 @@ When the fast simple moving average of the close rises above the slow one, a
 bullish crossover, the price has upward momentum; when it falls back below, a
 bearish crossover, the momentum has faded. SmaCrossover fires on the bars
 where either happens, and SmaCrossoverRule holds a long position from a
-bullish crossover to the next bearish one. tradeplan.toml in this folder
-links them to the watchlist filter in filter.py.
+bullish crossover to the next bearish one. sma_cross_long.toml in this
+folder makes them a strategy with the watchlist filter in filter.py.
 
 Classes
 -------
@@ -24,7 +24,7 @@ import pandas as pd
 
 from liualgotrader.common.types import Order, Trade
 from liualgotrader.strategy.new_base import (Indicator, OrderRequest, Signal,
-                                             SymbolRule, lookback_start)
+                                             SymbolRule)
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +73,8 @@ class SimpleMovingAverage(Indicator):
         Return a DataFrame with an sma column, NaN until window bars are
         available.
         """
-        bars = self.ctx.bars(
-            symbol, lookback_start(now, self.lookback_days), now
-        )
+        start = now.normalize() - pd.Timedelta(days=self.lookback_days)
+        bars = self.ctx.bars(symbol, start, now)
         return pd.DataFrame({"sma": bars["close"].rolling(self.window).mean()})
 
 
@@ -154,8 +153,8 @@ class SmaCrossover(Signal):
 class SmaCrossoverRule(SymbolRule):
     """Rule that is long from a bullish crossover to a bearish one.
 
-    Buy qty at market when flat and a signal of the rule fires bullish, and
-    sell the whole position at market when one fires bearish. The runtime
+    Buy qty at market when flat and the rule's signal fires bullish, and
+    sell the whole position at market when it fires bearish. The runtime
     asks the rule on every bar while it holds a position, but the rule acts
     only on crossovers.
 
@@ -183,11 +182,7 @@ class SmaCrossoverRule(SymbolRule):
         self.qty = qty
 
     async def decide(
-        self,
-        symbol: str,
-        now: pd.Timestamp,
-        position: float,
-        fired: dict[str, float],
+        self, symbol: str, now: pd.Timestamp, position: float
     ) -> list[OrderRequest]:
         """Return a buy on a bullish crossover and a sell on a bearish one.
 
@@ -198,14 +193,14 @@ class SmaCrossoverRule(SymbolRule):
         now: pd.Timestamp
             The time of the latest bar.
         position: float
-            The rule's position in symbol.
-        fired: dict[str, float]
-            The values of the rule's signals that fired at now.
+            The strategy's position in symbol.
         """
-        if not position and any(v > 0 for v in fired.values()):
+        # NaN, which no comparison holds for, unless the signal fired
+        value = self.signal.at(symbol, now)
+        if not position and value > 0:
             logger.info("%s: bullish crossover of %s at %s", self, symbol, now)
             return [OrderRequest(symbol, Order.FillSide.buy, self.qty)]
-        if position > 0 and any(v < 0 for v in fired.values()):
+        if position > 0 and value < 0:
             logger.info("%s: bearish crossover of %s at %s", self, symbol, now)
             return [OrderRequest(symbol, Order.FillSide.sell, position)]
         return []

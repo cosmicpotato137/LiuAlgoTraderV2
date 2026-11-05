@@ -2,14 +2,15 @@ import logging
 from datetime import date
 
 import pytest
-import toml
 
 from liualgotrader.common import config
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType, TimeScale
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.enhanced_backtest import Backtest
-from liualgotrader.strategy.new_base import Context, StrategyGraph
+from liualgotrader.strategy.new_base import Context
+from liualgotrader.strategy.runtime import RunState
+from liualgotrader.strategy.tradeplan import create_strategies, load_tradeplan
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +26,15 @@ async def run_backtest(
     scale: TimeScale, from_date: date, to_date: date, lookback_days: int
 ):
     config.debug_enabled = False
-    tradeplan = toml.load("./examples/sma_crossover/tradeplan.toml")
-    tradeplan["signals"]["sma_cross"]["lookback_days"] = lookback_days
-    ctx = Context(DataLoader(scale=scale), backtesting=True)
-    session = Backtest(
-        ctx, StrategyGraph.from_tradeplan(tradeplan, ctx), scale
+    [spec] = load_tradeplan("./examples/sma_crossover")
+    spec["signal"]["lookback_days"] = lookback_days
+    ctx = Context(
+        DataLoader(scale=scale),
+        backtesting=True,
+        asset_type=AssetType.US_EQUITIES,
     )
-    await session.run(from_date, to_date, AssetType.US_EQUITIES)
+    session = Backtest(ctx, RunState(create_strategies([spec], ctx)), scale)
+    await session.simulate_range(from_date, to_date)
 
     logger.info("trades: %s", session.trades)
     return session

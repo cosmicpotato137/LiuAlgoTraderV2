@@ -1,11 +1,15 @@
 """Strategy components: filters, indicators, signals and rules.
 
-A trade plan wires these components into a StrategyGraph. Filters select the
-symbols to trade. Indicators compute values from market data. Signals turn
-indicator values into predictions of price movement for the symbols that
-their filters selected. Rules turn signals and positions into order requests,
-which the runtime executes: the consumer when trading live, and the backtester
-otherwise. Components never submit orders themselves.
+Filters select the symbols to trade. Indicators compute values from market
+data. Signals turn indicator values into predictions of price movement for
+the symbols that their filters selected. Rules turn signals and positions into
+order requests, which the runtime executes: the consumer when trading live,
+and the backtester otherwise. Components never submit orders themselves.
+
+A filter, a signal and a rule make a Strategy, which the runtime activates
+and deactivates as a whole, and which owns the symbols it trades. Each
+strategy file of a trade plan describes one strategy, and tradeplan.py
+creates the strategies of a trade plan.
 
 Each run creates one Context and passes it to every component. The context
 holds the services and caches that components share, so separate runs in the
@@ -34,34 +38,24 @@ Rule
 SymbolRule
     Rule that decides for one symbol at a time.
 PortfolioRule
-    Rule that decides for all symbols of its signals at once.
-StrategyGraph
-    The components of a trade plan and the links between them.
-
-Functions
----------
-lookback_start
-    Return the start of the bars that a computation through now reads.
-create_filters
-    Create the filters of a trade plan.
-portfolio_filters
-    Return the filters that feed a portfolio rule.
-select_rules
-    Return a trade plan with only some of its rules.
+    Rule that decides for all symbols of its signal at once.
+Strategy
+    A named filter, signal and rule that the runtime runs together.
 """
 
-import copy
 import json
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from functools import cached_property
 from typing import Callable, Optional, Self, TypeVar
 
 import pandas as pd
 
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.types import Order, OrderType, Trade
-from liualgotrader.common.utils import load_class
+from liualgotrader.common.types import AssetType, Order, OrderType, Trade
+from liualgotrader.market_calendar.base import MarketCalendarAPI
+from liualgotrader.market_calendar.factory import market_calendar_factory
 from liualgotrader.trade.base import TraderAPI
 
 logger = logging.getLogger(__name__)
@@ -81,17 +75,25 @@ class Context:
         symbols, or None.
     backtesting: bool
         Whether the run is a backtest.
+    asset_type: AssetType
+        The type of asset traded.
+    calendar: MarketCalendarAPI
+        The market calendar of the asset type, created on first use.
     indicators: dict[str, Indicator]
         The shared indicators, by class and parameters.
-    compute_through: Optional[pd.Timestamp]
-        The time through which indicators and signals compute on a cache
-        miss, or None for the time asked for. The backtester sets it to the
-        end of the day, so each result is computed once a day.
+    horizon: Optional[pd.Timestamp]
+        The time of the latest bar that the runtime has made available, or
+        None before the first. Indicators and signals compute through it on
+        a cache miss. The live consumer advances it to each minute bar, and
+        the backtester to the end of each day, so that a backtest computes
+        each result once a day.
 
     Methods
     -------
     bars
         Return the bars of a symbol from a start time through now.
+    set_horizon
+        Make the bars stamped through a time available to components.
     invalidate
         Mark the cached results for a symbol as out of date.
     version
@@ -105,6 +107,7 @@ class Context:
         data_loader: DataLoader,
         trader: Optional[TraderAPI] = None,
         backtesting: bool = False,
+        asset_type: AssetType = AssetType.US_EQUITIES,
     ):
         """Initialize the context with empty caches.
 
@@ -116,15 +119,31 @@ class Context:
             The broker, for read-only queries.
         backtesting: bool, default False
             Whether the run is a backtest.
+        asset_type: AssetType, default AssetType.US_EQUITIES
+            The type of asset traded, which sets the market calendar.
         """
         self.data_loader = data_loader
         self.trader = trader
         self.backtesting = backtesting
+        self.asset_type = asset_type
         self.indicators: dict[str, Indicator] = {}
-        self.compute_through: Optional[pd.Timestamp] = None
+        self.horizon: Optional[pd.Timestamp] = None
         self._versions: dict[str, int] = {}
         self._shortable: dict[str, bool] = {}
         self._fetched: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
+
+    @cached_property
+    def calendar(self) -> MarketCalendarAPI:
+        """Return the market calendar of the asset type.
+
+        Create the calendar on first use, so that a run that never asks for
+        trading days does not connect to the calendar's vendor.
+
+        Raises
+        ------
+        Raise the exceptions of market_calendar_factory.
+        """
+        return market_calendar_factory(self.asset_type)
 
     def bars(
         self, symbol: str, start: pd.Timestamp, now: pd.Timestamp
@@ -157,6 +176,20 @@ class Context:
             data[fetched[1] : now]
         self._fetched[symbol] = (min(start, fetched[0]), max(now, fetched[1]))
         return data.symbol_data.loc[start:now]
+
+    def set_horizon(self, horizon: pd.Timestamp) -> None:
+        """Make the bars stamped through a time available to components.
+
+        Never move the horizon back, so that a late bar does not undo a
+        later one.
+
+        Parameters
+        ----------
+        horizon: pd.Timestamp
+            The time of the latest available bar.
+        """
+        if self.horizon is None or horizon > self.horizon:
+            self.horizon = horizon
 
     def invalidate(self, symbol: str) -> None:
         """Mark the cached indicator and signal results for a symbol as stale.
@@ -214,17 +247,18 @@ class Context:
 class Component:
     """Base class of every strategy component.
 
-    Subclasses take their trade plan settings as keyword arguments and pass
-    the remaining keyword arguments on to the base initializer, for example
-    ``def __init__(self, window: int = 20, **kwargs)``. An unknown setting in
-    the trade plan then raises TypeError instead of being ignored.
+    Subclasses take their strategy file settings as keyword arguments and
+    pass the remaining keyword arguments on to the base initializer, for
+    example ``def __init__(self, window: int = 20, **kwargs)``. An unknown
+    setting in the strategy file then raises TypeError instead of being
+    ignored.
 
     Attributes
     ----------
     ctx: Context
         The context of the run.
     name: str
-        The name of the component in the trade plan, or its class name.
+        The name of the component's strategy, or its class name.
     """
 
     def __init__(self, ctx: Context, name: Optional[str] = None):
@@ -235,8 +269,7 @@ class Component:
         ctx: Context
             The context of the run.
         name: Optional[str], default None
-            The name of the component in the trade plan, or None for the class
-            name.
+            The name of the component's strategy, or None for the class name.
         """
         self.ctx = ctx
         self.name = name or type(self).__name__
@@ -244,24 +277,6 @@ class Component:
     def __repr__(self):
         """Return the name of the component."""
         return self.name
-
-
-def lookback_start(now: pd.Timestamp, days: int) -> pd.Timestamp:
-    """Return the start of the bars that a computation through now reads.
-
-    Anchor the start to the day of now rather than to now itself, so that the
-    computations of a day share their first bar. Indicator and Signal
-    results then do not depend on how far they were computed, as compute
-    requires.
-
-    Parameters
-    ----------
-    now: pd.Timestamp
-        The time of the last bar.
-    days: int
-        The number of calendar days before the day of now to start at.
-    """
-    return now.normalize() - pd.Timedelta(days=days)
 
 
 @dataclass
@@ -290,8 +305,8 @@ class _Memoized(Component):
         """Return a cached result for a symbol that covers now.
 
         Call compute again if the cached result ends before now or the bars of
-        symbol changed since it was computed. Compute through the
-        compute_through time of the context, if it is later than now.
+        symbol changed since it was computed. Compute through the horizon of
+        the context, or through now if no bar that late is available yet.
 
         Parameters
         ----------
@@ -305,7 +320,7 @@ class _Memoized(Component):
         version = self.ctx.version(symbol)
         entry = self._cache.get(symbol)
         if entry is None or entry.version != version or entry.through < now:
-            through = max(now, self.ctx.compute_through or now)
+            through = max(now, self.ctx.horizon or now)
             entry = _CacheEntry(compute(symbol, through), through, version)
             self._cache[symbol] = entry
         return entry
@@ -330,7 +345,41 @@ class _Memoized(Component):
         return self._entry(symbol, now, compute).data.loc[:now]
 
 
-class Filter(Component):
+class _Recurring(Component):
+    """Component that runs at a recurrence, or once a day without one."""
+
+    def __init__(self, recurrence: Optional[pd.Timedelta] = None, **kwargs):
+        """Initialize the component, which has not run yet.
+
+        Parameters
+        ----------
+        recurrence: Optional[pd.Timedelta], default None
+            The interval between runs, or None to run once a day.
+        """
+        super().__init__(**kwargs)
+        self.recurrence = recurrence
+        self.last_run: Optional[pd.Timestamp] = None
+
+    def is_due(self, now: pd.Timestamp) -> bool:
+        """Return whether the component runs at a time.
+
+        It runs if it has not run yet, if its recurrence has elapsed since
+        its last run, or, without a recurrence, if its last run was on an
+        earlier day.
+
+        Parameters
+        ----------
+        now: pd.Timestamp
+            The time.
+        """
+        if self.last_run is None:
+            return True
+        if self.recurrence is None:
+            return False
+        return now - self.last_run >= self.recurrence
+
+
+class Filter(_Recurring):
     """Select the symbols that signals evaluate.
 
     Replaces Scanner. Subclasses implement run. Each run replaces the
@@ -341,6 +390,8 @@ class Filter(Component):
     ----------
     recurrence: Optional[pd.Timedelta]
         The interval between runs, or None to run once a day.
+    last_run: Optional[pd.Timestamp]
+        The time of the last run of select, or None before the first.
 
     Methods
     -------
@@ -348,18 +399,9 @@ class Filter(Component):
         Return the symbols that the filter selects.
     select
         Return the symbols that run selects, in lower case.
+    is_due
+        Return whether the filter runs at a time.
     """
-
-    def __init__(self, recurrence: Optional[pd.Timedelta] = None, **kwargs):
-        """Initialize the filter.
-
-        Parameters
-        ----------
-        recurrence: Optional[pd.Timedelta], default None
-            The interval between runs, or None to run once a day.
-        """
-        super().__init__(**kwargs)
-        self.recurrence = recurrence
 
     async def run(self, now: pd.Timestamp) -> list[str]:
         """Return the symbols that the filter selects at a given time.
@@ -376,13 +418,15 @@ class Filter(Component):
     async def select(self, now: pd.Timestamp) -> list[str]:
         """Return the symbols that run selects at a given time, in lower case.
 
-        The runtime calls this method rather than run.
+        The runtime calls this method rather than run. Record now as the time
+        of the last run.
 
         Parameters
         ----------
         now: pd.Timestamp
             The time to select as of, which is in the past when backtesting.
         """
+        self.last_run = now
         return [symbol.lower() for symbol in await self.run(now)]
 
 
@@ -434,7 +478,10 @@ class Indicator(_Memoized):
         Subclasses must override this method. The value of each row must
         depend only on data stamped at or before that row, so that computing
         through a later time yields the same earlier rows. The backtester
-        relies on this to compute a whole day at once.
+        relies on this to compute a whole day at once. So read bars from a
+        start anchored to the day of now, such as
+        now.normalize() - pd.Timedelta(days=n), rather than to now itself,
+        so that the computations of a day share their first bar.
 
         Parameters
         ----------
@@ -468,14 +515,16 @@ class Signal(_Memoized):
     """Predict price movement for a symbol.
 
     Subclasses create the indicators in their initializer. A signal evaluates
-    the symbols selected by the filters that the trade plan links it to. It
-    does not know about positions or orders.
+    the symbols that the filter of its strategy selects, and those that its
+    strategy holds, for the rule of its strategy. It does not know about
+    positions or orders.
 
     A signal value is a float: a positive value predicts a rise and a negative
     value a fall, and the magnitude, at most 1, is the confidence. NaN means no
     prediction. A row with a value is an event that the runtime passes to the
-    rules of the signal, so a signal that holds a value on every bar makes its
-    rules decide on every bar.
+    signal's rule, so a signal that holds a value on every bar makes its rule
+    decide on every bar. The runtime evaluates a signal only when its rule may
+    decide, so never once its strategy is inactive.
 
     Methods
     -------
@@ -485,13 +534,18 @@ class Signal(_Memoized):
         Return the cached signal values for a symbol through a time.
     at
         Return the signal value for a symbol at a time.
+    fired
+        Return whether the signal has a value for a symbol at a time.
+    latest
+        Return the latest signal value of each of some symbols.
     """
 
     def compute(self, symbol: str, now: pd.Timestamp) -> pd.Series:
         """Return the signal values for a symbol through a time.
 
         Subclasses must override this method. The value of each row must
-        depend only on data stamped at or before that row.
+        depend only on data stamped at or before that row, as for
+        Indicator.compute.
 
         Parameters
         ----------
@@ -537,6 +591,60 @@ class Signal(_Memoized):
         return float(
             self._entry(symbol, now, self.compute).data.get(now, math.nan)
         )
+
+    def fired(self, symbol: str, now: pd.Timestamp) -> bool:
+        """Return whether the signal has a value for a symbol at a time.
+
+        Log an exception raised for the symbol, and treat it as no value.
+
+        Parameters
+        ----------
+        symbol: str
+            The symbol.
+        now: pd.Timestamp
+            The time of the row.
+        """
+        try:
+            return not math.isnan(self.at(symbol, now))
+        except Exception:
+            logger.exception("signal %s failed on %s", self, symbol)
+            return False
+
+    def latest(self, symbols: list[str], now: pd.Timestamp) -> pd.Series:
+        """Return the latest signal value at or before a time of each of some
+        symbols.
+
+        Log an exception raised for a symbol, and treat it as no value, so
+        that one symbol does not keep a rule from deciding on the others.
+
+        Parameters
+        ----------
+        symbols: list[str]
+            The symbols.
+        now: pd.Timestamp
+            The time.
+
+        Returns
+        -------
+        Return a float Series indexed by symbol, NaN where the signal has no
+        value at or before now.
+        """
+        return pd.Series(
+            [self._latest(symbol, now) for symbol in symbols],
+            index=pd.Index(symbols, name="symbol"),
+            dtype=float,
+            name=self.name,
+        )
+
+    def _latest(self, symbol: str, now: pd.Timestamp) -> float:
+        """Return the latest value at or before now for a symbol, or NaN."""
+        try:
+            series = self.get(symbol, now)
+        except Exception:
+            logger.exception("signal %s failed on %s", self, symbol)
+            return math.nan
+        last = series.last_valid_index()
+        return math.nan if last is None else float(series[last])
 
 
 @dataclass(frozen=True)
@@ -591,14 +699,17 @@ class OrderRequest:
 class Rule(Component):
     """Base class of rules, which turn signals into order requests.
 
-    Subclasses inherit from SymbolRule or PortfolioRule. A position belongs to
-    the rule that opened it until it is flat again, and the runtime keeps
-    other rules from trading that symbol meanwhile.
+    Subclasses inherit from SymbolRule or PortfolioRule. A rule decides for
+    its strategy: a position belongs to the strategy whose rule opened it
+    until it is flat again, and the runtime keeps other strategies from
+    trading that symbol meanwhile. A rule that requests an order for a symbol
+    that another strategy owns collides with it: the runtime deactivates the
+    rule's strategy or halts the run.
 
     Attributes
     ----------
-    signals: list[Signal]
-        The signals that the trade plan links to the rule.
+    signal: Signal
+        The signal of the rule's strategy.
 
     Methods
     -------
@@ -608,22 +719,22 @@ class Rule(Component):
         Handle one of the rule's orders ending without a full fill.
     """
 
-    def __init__(self, signals: list[Signal], **kwargs):
+    def __init__(self, signal: Signal, **kwargs):
         """Initialize the rule.
 
         Parameters
         ----------
-        signals: list[Signal]
-            The signals that the trade plan links to the rule.
+        signal: Signal
+            The signal of the rule's strategy.
         """
         super().__init__(**kwargs)
-        self.signals = signals
+        self.signal = signal
 
     async def on_fill(self, trade: Trade) -> None:
         """Handle a full or partial fill of one of the rule's orders.
 
-        The runtime calls this method after it updates the rule's position.
-        The base implementation does nothing.
+        The runtime calls this method after it updates the position of the
+        rule's strategy. The base implementation does nothing.
 
         Parameters
         ----------
@@ -655,19 +766,20 @@ class SymbolRule(Rule):
     """
 
     async def decide(
-        self,
-        symbol: str,
-        now: pd.Timestamp,
-        position: float,
-        fired: dict[str, float],
+        self, symbol: str, now: pd.Timestamp, position: float
     ) -> list[OrderRequest]:
         """Return the orders to submit for a symbol.
 
         The runtime calls this method once per bar for each symbol on which
-        one of the rule's signals fired, or in which the rule holds a
-        position, so the rule can also exit on stops, targets or the time of
-        day. It does not call it while the rule has an open order for symbol.
-        The base implementation returns no orders.
+        the rule's signal fired, or in which its strategy holds a position, so
+        the rule can also exit on stops, targets or the time of day. It does
+        not call it while the strategy has an open order for symbol, or while
+        another strategy owns symbol. The base implementation returns no
+        orders.
+
+        Read the value of the signal with self.signal.at(symbol, now), which
+        is NaN unless the signal fired, or whether it fired with
+        self.signal.fired(symbol, now).
 
         Parameters
         ----------
@@ -676,16 +788,13 @@ class SymbolRule(Rule):
         now: pd.Timestamp
             The time of the latest bar.
         position: float
-            The rule's position in symbol, negative when short.
-        fired: dict[str, float]
-            The value of each of the rule's signals that fired at now, by
-            signal name; empty if none did.
+            The strategy's position in symbol, negative when short.
         """
         return []
 
 
-class PortfolioRule(Rule):
-    """Rule that decides for all symbols of its signals at once.
+class PortfolioRule(Rule, _Recurring):
+    """Rule that decides for all symbols of its signal at once.
 
     Use for rebalancing and other decisions that compare symbols. When
     trading live, a single consumer runs every portfolio rule and receives
@@ -695,12 +804,19 @@ class PortfolioRule(Rule):
     ----------
     recurrence: pd.Timedelta
         The interval between decisions.
+    last_run: Optional[pd.Timestamp]
+        The time at which the runtime last asked the rule to decide, or None
+        before the first.
 
     Methods
     -------
     decide
         Return the orders to submit for the rule's symbols.
+    is_due
+        Return whether the rule decides at a time.
     """
+
+    recurrence: pd.Timedelta
 
     def __init__(self, recurrence: pd.Timedelta, **kwargs):
         """Initialize the rule.
@@ -710,289 +826,71 @@ class PortfolioRule(Rule):
         recurrence: pd.Timedelta
             The interval between decisions.
         """
-        super().__init__(**kwargs)
-        self.recurrence = recurrence
+        super().__init__(recurrence=recurrence, **kwargs)
 
     async def decide(
         self,
         now: pd.Timestamp,
         positions: dict[str, float],
-        signals: pd.DataFrame,
+        symbols: list[str],
     ) -> list[OrderRequest]:
         """Return the orders to submit for the rule's symbols.
 
         The runtime submits the sell orders before the buy orders. The base
         implementation returns no orders.
 
+        Read the values of the signal with self.signal.latest(symbols, now).
+
         Parameters
         ----------
         now: pd.Timestamp
             The time of the latest bar.
         positions: dict[str, float]
-            The rule's position in each symbol it holds.
-        signals: pd.DataFrame
-            The latest value at or before now of each of the rule's signals,
-            with a row per symbol in their filters and a column per signal
-            name; NaN where a signal has no value.
+            The strategy's position in each symbol it holds.
+        symbols: list[str]
+            The symbols that the strategy's filter selected or that the
+            strategy holds, sorted.
         """
         return []
 
 
-def _links(spec: dict, key: str, targets: dict, owner: str) -> list[str]:
-    """Return the names that a trade plan entry links to.
+@dataclass(eq=False)
+class Strategy:
+    """A named filter, signal and rule that the runtime runs together.
 
-    Parameters
-    ----------
-    spec: dict
-        The trade plan entry.
-    key: str
-        The setting that lists the linked names.
-    targets: dict
-        The trade plan section that the names must be in.
-    owner: str
-        The name of the entry, for error messages.
-
-    Raises
-    ------
-    Raise ValueError if the list is missing or empty, or names an entry that
-    is not in targets.
-    """
-    names = spec.get(key)
-    if not names:
-        raise ValueError(f"{owner} must list at least one entry in {key}")
-    if unknown := set(names) - set(targets):
-        raise ValueError(f"{owner} links to unknown {key}: {sorted(unknown)}")
-    return list(names)
-
-
-def _tradeplan_links(
-    tradeplan: dict,
-) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """Return the links of a trade plan without creating its components.
-
-    Parameters
-    ----------
-    tradeplan: dict
-        The trade plan; it is not modified.
-
-    Returns
-    -------
-    Return the names of the filters of each signal and the names of the
-    signals of each rule.
-
-    Raises
-    ------
-    Raise ValueError if a signal or rule lists no entries, or an entry that
-    does not exist.
-    """
-    filter_specs = tradeplan.get("filters", {})
-    signal_specs = tradeplan.get("signals", {})
-    signal_filters = {
-        name: _links(spec, "filters", filter_specs, name)
-        for name, spec in signal_specs.items()
-    }
-    rule_signals = {
-        name: _links(spec, "signals", signal_specs, name)
-        for name, spec in tradeplan.get("rules", {}).items()
-    }
-    return signal_filters, rule_signals
-
-
-def create_filters(tradeplan: dict, ctx: Context) -> dict[str, Filter]:
-    """Create the filters of a trade plan.
-
-    Parameters
-    ----------
-    tradeplan: dict
-        The trade plan; it is not modified.
-    ctx: Context
-        The context passed to each filter.
-
-    Returns
-    -------
-    Return the filters by name.
-    """
-    filters = {}
-    for name, spec in copy.deepcopy(tradeplan.get("filters", {})).items():
-        filter_class = load_class(Filter, spec)
-        if "recurrence" in spec:
-            spec["recurrence"] = pd.Timedelta(minutes=spec["recurrence"])
-        filters[name] = filter_class(ctx=ctx, name=name, **spec)
-    return filters
-
-
-def portfolio_filters(tradeplan: dict) -> set[str]:
-    """Return the filters that feed a PortfolioRule through its signals.
-
-    Load the rule classes without creating the rules.
-
-    Parameters
-    ----------
-    tradeplan: dict
-        The trade plan; it is not modified.
-
-    Raises
-    ------
-    Raise the exceptions of _tradeplan_links and load_class.
-    """
-    signal_filters, rule_signals = _tradeplan_links(tradeplan)
-    names: set[str] = set()
-    for name, spec in copy.deepcopy(tradeplan.get("rules", {})).items():
-        if issubclass(load_class(Rule, spec), PortfolioRule):
-            for signal in rule_signals[name]:
-                names.update(signal_filters[signal])
-    return names
-
-
-def select_rules(tradeplan: dict, rule_names: Optional[list[str]]) -> dict:
-    """Return a trade plan with only some of its rules.
-
-    Keep the signals of the selected rules, and the filters of those signals.
-
-    Parameters
-    ----------
-    tradeplan: dict
-        The trade plan; it is not modified.
-    rule_names: Optional[list[str]]
-        The rules to keep, or None or empty for all.
-
-    Raises
-    ------
-    Raise ValueError if a selected rule is not in the trade plan, and the
-    exceptions of _tradeplan_links.
-    """
-    if not rule_names:
-        return tradeplan
-
-    signal_filters, rule_signals = _tradeplan_links(tradeplan)
-    if unknown := set(rule_names) - set(rule_signals):
-        raise ValueError(f"unknown rules: {sorted(unknown)}")
-    signal_names = {s for r in rule_names for s in rule_signals[r]}
-    filter_names = {f for s in signal_names for f in signal_filters[s]}
-
-    plan = dict(tradeplan)
-    plan["rules"] = {name: tradeplan["rules"][name] for name in rule_names}
-    plan["signals"] = {
-        name: spec
-        for name, spec in tradeplan["signals"].items()
-        if name in signal_names
-    }
-    plan["filters"] = {
-        name: spec
-        for name, spec in tradeplan.get("filters", {}).items()
-        if name in filter_names
-    }
-    return plan
-
-
-@dataclass
-class StrategyGraph:
-    """The components of a trade plan and the links between them.
+    The runtime activates and deactivates strategies as a whole, and a
+    strategy owns the symbols in which its rule's orders opened positions. Its
+    filter, which selects the symbols that its signal evaluates, has the name
+    of the strategy, and runs in the filter process when trading live.
 
     Attributes
     ----------
-    filters: dict[str, Filter]
-        The filters by name; empty in processes that do not run filters.
-    signals: dict[str, Signal]
-        The signals by name.
-    rules: dict[str, Rule]
-        The rules by name.
-    signal_filters: dict[str, list[str]]
-        The names of the filters of each signal.
-    rule_signals: dict[str, list[str]]
-        The names of the signals of each rule.
-
-    Methods
-    -------
-    from_tradeplan
-        Create the components of a trade plan.
-    signals_of_filter
-        Return the signals that evaluate the symbols of a filter.
-    rules_of_signal
-        Return the rules that a signal fires.
+    name: str
+        The name of the strategy.
+    rule: Rule
+        The rule, which requests the orders of the strategy.
+    filter: Optional[Filter], default None
+        The filter, or None in processes that do not run filters.
+    signal: Signal
+        The signal of the rule, which predicts the price movements that the
+        rule decides on.
+    active: bool, default True
+        Whether the runtime runs the strategy: asks its rule to decide,
+        evaluates its signal and keeps the symbols that its filter selects,
+        which a backtest also stops running. False once its rule requests a
+        symbol that another strategy owns.
     """
 
-    filters: dict[str, Filter]
-    signals: dict[str, Signal]
-    rules: dict[str, Rule]
-    signal_filters: dict[str, list[str]] = field(default_factory=dict)
-    rule_signals: dict[str, list[str]] = field(default_factory=dict)
+    name: str
+    rule: Rule
+    filter: Optional[Filter] = None
+    active: bool = True
 
-    @classmethod
-    def from_tradeplan(
-        cls, tradeplan: dict, ctx: Context, with_filters: bool = True
-    ) -> Self:
-        """Create the components of a trade plan and link them.
+    @property
+    def signal(self) -> Signal:
+        """Return the signal of the strategy's rule."""
+        return self.rule.signal
 
-        Parameters
-        ----------
-        tradeplan: dict
-            The trade plan; it is not modified.
-        ctx: Context
-            The context passed to each component.
-        with_filters: bool, default True
-            Whether to create the filters, which the live trader runs in a
-            separate process.
-
-        Raises
-        ------
-        Raise the exceptions of _tradeplan_links and load_class.
-        """
-        plan = copy.deepcopy(tradeplan)
-        signal_filters, rule_signals = _tradeplan_links(plan)
-
-        signals: dict[str, Signal] = {}
-        for name, spec in plan.get("signals", {}).items():
-            del spec["filters"]
-            signals[name] = load_class(Signal, spec)(
-                ctx=ctx, name=name, **spec
-            )
-
-        rules: dict[str, Rule] = {}
-        for name, spec in plan.get("rules", {}).items():
-            del spec["signals"]
-            rule_class = load_class(Rule, spec)
-            if issubclass(rule_class, PortfolioRule) and "recurrence" in spec:
-                spec["recurrence"] = pd.Timedelta(minutes=spec["recurrence"])
-            rules[name] = rule_class(
-                ctx=ctx,
-                name=name,
-                signals=[signals[s] for s in rule_signals[name]],
-                **spec,
-            )
-
-        return cls(
-            filters=create_filters(tradeplan, ctx) if with_filters else {},
-            signals=signals,
-            rules=rules,
-            signal_filters=signal_filters,
-            rule_signals=rule_signals,
-        )
-
-    def signals_of_filter(self, filter_name: str) -> list[Signal]:
-        """Return the signals that evaluate the symbols of a filter.
-
-        Parameters
-        ----------
-        filter_name: str
-            The name of the filter.
-        """
-        return [
-            self.signals[name]
-            for name, filters in self.signal_filters.items()
-            if filter_name in filters
-        ]
-
-    def rules_of_signal(self, signal_name: str) -> list[Rule]:
-        """Return the rules that a signal fires.
-
-        Parameters
-        ----------
-        signal_name: str
-            The name of the signal.
-        """
-        return [
-            self.rules[name]
-            for name, signals in self.rule_signals.items()
-            if signal_name in signals
-        ]
+    def __repr__(self):
+        """Return the name of the strategy."""
+        return self.name

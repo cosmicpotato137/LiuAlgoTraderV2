@@ -46,17 +46,18 @@ backtester from 2026-09-01
 
 The backtester prints the batch-id of the session when it completes.
 
-**NOTE**: the samples that the wizard downloads may still use the
-`[scanners]` and `[strategies]` trade plan sections of earlier
-releases. If the `backtester` rejects them, use the samples in the
-`examples` folder of the GitHub repository, which use the
-`[filters]`, `[signals]` and `[rules]` sections explained in the
-`Strategies` section.
+**NOTE**: the `backtester` reads every TOML file in the current
+directory, or in `TRADEPLAN_DIR` if it is set, as a strategy file
+(see the `Strategies` section).
+A `tradeplan.toml` of earlier releases, such as one that an earlier
+version of the wizard downloaded, makes it raise an error at startup.
+Remove it, or use the samples in the `examples` folder of the GitHub
+repository.
 
 ### `Voila!`
 You should find your back-test session in two files in the current
 directory: `<batch-id>-trades.csv`, with one row per trade, and
-`<batch-id>-summary.txt`, with the results of each rule.
+`<batch-id>-summary.txt`, with the results of each strategy.
 You're all set now.
 
 **NOTE**

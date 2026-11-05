@@ -1,39 +1,40 @@
-# This is a TOML configuration file.
+# This is a TOML strategy file, which describes one strategy completely.
 
-[filters.sp500]
+name = "trend_follow"
+
+[filter]
 class = "MyIndexFilter"
 filename = "strats/trendfollow.py"
 index = "SP500"
 
-[signals.trend]
+[signal]
 class = "TrendSignal"
 filename = "strats/trendfollow.py"
-filters = ["sp500"]
 rank_days = 90
 
 # a PortfolioRule must have a recurrence, in minutes
-[rules.trend_follow]
+[rule]
 class = "TrendFollowRule"
 filename = "strats/trendfollow.py"
-signals = ["trend"]
 recurrence = 1440
 portfolio_id = "2b94a5c6-4ccf-480c-91cd-71cdeacf158c"
 portfolio_value = 25000.0
 reinvest = true
 stock_count = 10
 
+# the optimizer backtests this strategy alone
 [optimizer]
 end_date = '2021-06-19'
 start_date = '2021-01-01'
 
 # parameters get a new value for every backtest, such as a new portfolio
-[optimizer.parameters.rules.trend_follow]
+[optimizer.parameters.rule]
 portfolio_id = {param_type = 'portfolio', size = 10000, credit = 1000}
 
 # hyperparameters take every combination of their values
-[optimizer.hyperparameters.rules.trend_follow]
+[optimizer.hyperparameters.rule]
 stock_count = {param_type = 'int', min = 5, max = 15}
 
-# filters and signals take hyperparameters the same way
-# [optimizer.hyperparameters.signals.trend]
+# the filter and the signal take hyperparameters the same way
+# [optimizer.hyperparameters.signal]
 # rank_days = {param_type = 'int', min = 80, max = 100}

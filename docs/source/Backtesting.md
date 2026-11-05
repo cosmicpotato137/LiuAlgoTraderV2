@@ -64,7 +64,7 @@ on a single parameter and progress slowly.
 
 ### Prerequisites
 1. Installed and configured Liu Algo Trading Framework,
-2. An existing *tradeplan.toml* in the `TRADEPLAN_DIR` folder, or in the current folder. For more details on how to setup the trade plan configuration file, see the `Configuration` and `Strategies` sections.
+2. At least one strategy file, a TOML file that describes one strategy, in the `TRADEPLAN_DIR` folder, or in the current folder if `TRADEPLAN_DIR` is not set. For more details on how to write strategy files, see the `Configuration` and `Strategies` sections.
 
 ### How-To Use
 
@@ -77,16 +77,24 @@ backtester
 Displays the usage of the tool.
 
 To run the back-testing you need to specify a starting day.
-For example, assuming `tradeplan.toml` file is present:
+For example, assuming the strategy files are in the current folder:
 
 ```bash
 backtester from '2020-10-18'
 ```
 
-To back-test some of the rules on minute bars:
+To back-test on minute bars:
 
 ```bash
-backtester from '2020-10-18' --to='2020-10-23' --scale=minute --rules=breakout_long
+backtester from '2020-10-18' --to='2020-10-23' --scale=minute
+```
+
+To back-test only some of the strategies, run the `backtester` with a trade
+plan folder that holds only their strategy files. For example, to back-test
+the SMA crossover example from the repository root:
+
+```bash
+TRADEPLAN_DIR=examples/sma_crossover backtester from 2024-01-01 --to=2024-12-31
 ```
 
 Each back-test session creates a new `batch-id`, which the `backtester`
@@ -94,25 +102,26 @@ logs when it completes.
 
 ### How a back-test runs
 
-For each day in the range (the market calendar for US equities, and every
-calendar day for crypto), the `backtester` clears the filters' selections,
+For each day in the range (the market calendar for US equities, from the
+vendor set by the `CALENDAR_CONNECTOR` environment variable, `alpaca` by
+default, and every calendar day for crypto), the `backtester` clears the filters' selections,
 then steps from the start of the day to its end, one minute or one day at a
 time. At each step `now`:
 
-1. The orders of the previous step are filled at the open of this bar: market orders always, and limit orders only if this bar trades through the limit. A limit order that is not filled is canceled after one bar, and its rule's `on_cancel()` is called. The fees are applied, the rule's position is updated, and its `on_fill()` is called,
-2. The filters that are due run with `run(now)`: a filter with a `recurrence` once that much time has elapsed, and a filter without one once per day,
+1. The orders of the previous step are filled at the open of this bar: market orders always, and limit orders only if this bar trades through the limit. A limit order that is not filled is canceled after one bar, and its rule's `on_cancel()` is called. The fees are applied, the strategy's position is updated, and its rule's `on_fill()` is called,
+2. The filters of the active strategies that are due run with `run(now)`: a filter with a `recurrence` once that much time has elapsed, and a filter without one once per day,
 3. For the symbols that just got selected, the day's bars are loaded and the signals computed for the whole day at once (signals must be causal),
-4. The symbol rules are evaluated exactly as the `trader` application does, with fired signals, ownership and open orders, and each portfolio rule whose `recurrence` has elapsed decides.
+4. The symbol rules are evaluated exactly as the `trader` application does, with fired signals, ownership and open orders, and the portfolio rule of each active strategy whose `recurrence` has elapsed decides.
 
-Rules keep evaluating the symbols they own even if no filter selects them on
-a later day.
+Strategies keep deciding on the symbols they own even if no filter selects
+them on a later day.
 
 ### Results
 
 The `backtester` writes two files to the current folder, named by the `batch-id`:
 
-- `<batch_id>-trades.csv`, with one row per fill: the time, rule, symbol, side, quantity, price and fee,
-- `<batch_id>-summary.txt`, with each rule's net cash flow, number of trades and open positions.
+- `<batch_id>-trades.csv`, with one row per fill: the time, strategy, symbol, side, quantity, price and fee,
+- `<batch_id>-summary.txt`, with each strategy's net cash flow, number of trades and open positions.
 
 **Note**: back-tests do not write the `algo_run` and `new_trades` database tables, so the
 analysis notebooks and the browser-based analyzer, which read those tables, do
@@ -124,7 +133,6 @@ not show new back-test sessions.
 | ------------------- | ----------- |
 | to                  | The last day for calculating the back-testing. the date is provided in the format `YYYY-MM-DD`. The `to` date will be included in the back-testing session. If not specified, `today` is being used. |
 | scale               | The time-scale for running the back-test. Allowed values are: day or minute. If not specified day will be used. Keep in mind that minute will take longer to run, but may be more realistic for your strategy. |
-| rules               | Comma-separated list of rule names to be used in the back-testing session. The rule names are read from the `tradeplan.toml` file, and the signals and filters that the selected rules link to come with them. If not specified all rules will be executed. |
 | asset               | The asset type being traded: equity (default) for US equities, or crypto. The asset type selects the market schedule for back-testing. |
 | buy-fee-percentage  | trading fee for buying. Represented as percentage between 0 and 100. For example 0.3 is 0.3% transaction fee. |
 | sell-fee-percentage | trading fee for selling. Represented as percentage between 0 and 100. For example 0.3 is 0.3% transaction fee. |

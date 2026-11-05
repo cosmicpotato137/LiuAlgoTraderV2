@@ -36,7 +36,7 @@ filter.
 ### Step 1.75
 Once you understand these basics, the next step is to understand the mechanics of
 running an execution (either trading, or back-testing). `LiuAlgoTrader` uses
-JSON-like **TOML** file format to specify the Filters, Signals and Rules for execution, and how they link to each other.
+JSON-like **TOML** file format to specify the Filters, Signals and Rules for execution: each strategy file describes one strategy, with its filter, signal and rule.
 
 ### Don't Panic!
 
@@ -46,7 +46,7 @@ then get back here with us cool cats.
 
 When you are ready, below is a recommended order for reading the rest of the documentation:
 
-1. Read the `Configuration` section to understand more on the structure of `tradeplan.toml`,
+1. Read the `Configuration` section to understand more on the structure of strategy files,
 2. `Concepts` section is detailed-packed, recommended to skim through it in your first read,
 3. `Filters` section comes next, followed by `Strategies`
 4. When ready read the `back-testing` section (note it's marked in Bold)

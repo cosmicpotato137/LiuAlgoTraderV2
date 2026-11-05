@@ -1,10 +1,11 @@
-# This is a TOML configuration file.
+# This is a TOML strategy file, which describes one strategy completely.
 
-# how many minutes, before end of the trading day to enforce liquidation
-# market_liquidation_end_time_minutes = 15
+# the name of the strategy, unique within the trade plan; the filter, signal
+# and rule below have it too
+name = "momentum_long"
 
-# symbol filters, may have several
-[filters.momentum]
+# the filter, which selects the symbols that the signal evaluates
+[filter]
 class = "liualgotrader.filters.momentum.Momentum"
 
 # scan for tickers with minimal volume since day start
@@ -25,19 +26,17 @@ from_market_open = 15
 # minutes between runs
 recurrence = 5
 
-# signals; each one evaluates the symbols of the filters it lists
-[signals.breakout]
+# the signal, which evaluates the symbols of the filter
+[signal]
 class = "MomentumSignal"
 filename = "./momentum_long_simplified.py"
-filters = ["momentum"]
 # length of the opening range, in minutes
 breakout_minutes = 15
 
-# rules; each one decides on the signals it lists
-[rules.momentum_long]
+# the rule, which decides on the signal
+[rule]
 class = "MomentumLongRule"
 filename = "./momentum_long_simplified.py"
-signals = ["breakout"]
 # position sizing belongs to the rule
 portfolio_value = 25000.0
 risk = 0.001

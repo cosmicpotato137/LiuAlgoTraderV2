@@ -1,9 +1,10 @@
-"""Optimize trade plan hyperparameters by backtesting their combinations.
+"""Optimize strategy hyperparameters by backtesting their combinations.
 
 Usage: optimizer [--concurrency=<processes>]
-Backtest each hyperparameter combination in the optimizer section of the
-trade plan, tradeplan.toml in TRADEPLAN_DIR or the current directory, with
-at most 4 concurrent backtests by default.
+For each strategy file of the trade plan, in TRADEPLAN_DIR or the current
+directory, that has an optimizer section, backtest the strategy alone with
+each hyperparameter combination of the section, with at most 4 concurrent
+backtests by default.
 
 Functions
 ---------
@@ -17,8 +18,6 @@ realize
     Return a copy of a configuration with parameter values applied.
 optimize
     Run a backtest for each hyperparameter combination in parallel.
-load_configuration
-    Return the configuration loaded from a TOML file.
 main_cli
     Run the hyperparameter optimizer from the command line and exit.
 """
@@ -38,6 +37,7 @@ from liualgotrader.common import clock, config
 from liualgotrader.common.hyperparameter import Hyperparameters, Parameter
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.utils import date_from_string
+from liualgotrader.strategy.tradeplan import COMPONENTS, load_tradeplan
 
 logger = logging.getLogger(__name__)
 
@@ -62,20 +62,20 @@ def motd(filename: str, version: str) -> None:
 def create_parameters(parameters: Dict) -> List[Parameter]:
     """Return the parameters defined in a parameter configuration.
 
-    Name each parameter by its dotted path in the trade plan, such as
-    rules.<rule>.<name>.
+    Name each parameter by its dotted path in the strategy file, such as
+    rule.<name>.
 
     Parameters
     ----------
     parameters: Dict
-        The configuration, with optional "filters", "signals" and "rules"
-        sections that map each component to its parameter settings.
+        The configuration, with optional "filter", "signal" and "rule"
+        sections that map each setting of the component to its parameter
+        settings.
     """
     params = [
-        Parameter(f"{section}.{component}.{name}", **settings)
-        for section in ("filters", "signals", "rules")
-        for component, component_params in parameters.get(section, {}).items()
-        for name, settings in component_params.items()
+        Parameter(f"{section}.{name}", **settings)
+        for section in COMPONENTS
+        for name, settings in parameters.get(section, {}).items()
     ]
 
     logger.info("created %s parameters", len(params))
@@ -123,13 +123,15 @@ def optimize(
     end_date: date,
     hyperparameters: Hyperparameters,
     parameters: List[Parameter],
-    conf_dict: Dict,
+    strategy: Dict,
     concurrency: int,
 ):
-    """Run a backtest for each hyperparameter combination in parallel.
+    """Run a backtest of a strategy for each hyperparameter combination in
+    parallel.
 
-    Run each backtest in its own process. A portfolio parameter creates a new
-    portfolio in the database for each backtest.
+    Run each backtest in its own process, with the strategy alone. A
+    portfolio parameter creates a new portfolio in the database for each
+    backtest.
 
     Parameters
     ----------
@@ -141,8 +143,8 @@ def optimize(
         The hyperparameter combinations to test.
     parameters: List[Parameter]
         The parameters, such as portfolios, created anew for each backtest.
-    conf_dict: Dict
-        The trade plan to apply the values to.
+    strategy: Dict
+        The strategy file to apply the values to.
     concurrency: int
         The maximum number of backtests to run at the same time.
     """
@@ -164,7 +166,7 @@ def optimize(
                 optimizer_session_id,
                 start_date,
                 end_date,
-                realize(realize(conf_dict, hyperparameter), parameters_values),  # type: ignore
+                [realize(realize(strategy, hyperparameter), parameters_values)],  # type: ignore
                 hyperparameter,
             ),
         )
@@ -179,40 +181,23 @@ def optimize(
     logger.info("done.")
 
 
-def load_configuration(filename: str):
-    """Return the configuration loaded from a TOML file.
-
-    Exit the process if the file is not found.
-
-    Parameters
-    ----------
-    filename: str
-        The path of the file.
-    """
-    try:
-        import toml
-
-        conf_dict = toml.load(filename)
-        logger.info("loaded configuration file from %s", filename)
-    except FileNotFoundError:
-        logger.error("could not locate tradeplan file %s", filename)
-        sys.exit(0)
-
-    return conf_dict
-
-
 def main_cli() -> None:
     """Run the hyperparameter optimizer from the command line and exit.
 
-    Run optimize with the optimizer section of the trade plan, taking an
+    Run optimize for each strategy with an optimizer section, taking an
     optional --concurrency option (default 4) for the number of parallel
-    backtests. Exit early on invalid arguments, a missing optimizer section or
-    unparsable dates.
+    backtests. Exit early on invalid arguments, a missing trade plan, no
+    optimizer section or unparsable dates.
+
+    Raises
+    ------
+    Raise ValueError if a strategy file of the trade plan is not valid, see
+    load_tradeplan.
     """
     configure_logging()
 
     parser = argparse.ArgumentParser(
-        description="Optimize trade plan hyperparameters by backtesting their combinations."
+        description="Optimize strategy hyperparameters by backtesting their combinations."
     )
     parser.add_argument(
         "-c",
@@ -227,33 +212,46 @@ def main_cli() -> None:
     config.filename = os.path.basename(__file__)
     motd(filename=config.filename, version=config.build_label)
     logger.info("using concurrency %s", concurrency)
-    fname = os.path.join(
-        config.tradeplan_folder, config.configuration_filename
-    )
-    conf_dict = load_configuration(fname)
-
-    if "optimizer" not in conf_dict:
-        logger.error("optimizer directive not found in %s. aborting.", fname)
-        sys.exit(0)
-
-    logger.info("optimizer directive found in %s", fname)
-
     try:
-        start_date = date_from_string(conf_dict["optimizer"]["start_date"])
-        end_date = date_from_string(conf_dict["optimizer"]["end_date"])
-    except Exception:
-        logger.error("failed to load start & end dates")
+        tradeplan = load_tradeplan(config.tradeplan_folder)
+    except FileNotFoundError as error:
+        logger.error("could not locate the trade plan: %s", error)
         sys.exit(0)
 
-    optimize(
-        start_date=start_date,
-        end_date=end_date,
-        hyperparameters=create_hyperparameters(
-            conf_dict["optimizer"]["hyperparameters"]
-        ),
-        parameters=create_parameters(conf_dict["optimizer"]["parameters"]),
-        conf_dict=conf_dict,
-        concurrency=concurrency,
-    )
+    runs = []
+    for strategy in tradeplan:
+        if "optimizer" not in strategy:
+            continue
+        try:
+            start_date = date_from_string(strategy["optimizer"]["start_date"])
+            end_date = date_from_string(strategy["optimizer"]["end_date"])
+        except Exception:
+            logger.error(
+                "failed to load start & end dates of %s", strategy["name"]
+            )
+            sys.exit(0)
+        runs.append((strategy, start_date, end_date))
+
+    if not runs:
+        logger.error(
+            "no strategy in %s has an optimizer directive. aborting.",
+            config.tradeplan_folder,
+        )
+        sys.exit(0)
+
+    for strategy, start_date, end_date in runs:
+        logger.info("optimizing strategy %s", strategy["name"])
+        optimize(
+            start_date=start_date,
+            end_date=end_date,
+            hyperparameters=create_hyperparameters(
+                strategy["optimizer"]["hyperparameters"]
+            ),
+            parameters=create_parameters(
+                strategy["optimizer"]["parameters"]
+            ),
+            strategy=strategy,
+            concurrency=concurrency,
+        )
 
     sys.exit(0)

@@ -1,8 +1,8 @@
 """Framework-wide configuration settings.
 
 Most settings are module-level variables, many read from environment
-variables at import time, such as the data connector, broker, database DSN
-and performance parameters. Shared run-time values, such as the batch ID, are
+variables at import time, such as the data and calendar connectors, broker,
+database DSN and performance parameters. Shared run-time values, such as the batch ID, are
 set later.
 
 Functions
@@ -37,16 +37,18 @@ def installed_version() -> str:
         return ""
 
 
+# The folder of the trade plan, whose TOML files each describe a strategy
 tradeplan_folder: str = (
     os.getenv("TRADEPLAN_DIR", ".")
     if len(os.getenv("TRADEPLAN_DIR", ".")) > 0
     else "."
 )
-configuration_filename: str = "tradeplan.toml"
 env: str
 
 
 data_connector: DataConnectorType = DataConnectorType[os.getenv("DATA_CONNECTOR", "alpaca")]  # type: ignore
+# The vendor of the US equities market calendar
+calendar_connector: DataConnectorType = DataConnectorType[os.getenv("CALENDAR_CONNECTOR", "alpaca")]  # type: ignore
 
 # Performance, Debugging & Logging
 trace_enabled = bool(int(os.getenv("LIU_TRACE_ENABLED", 0)))
@@ -57,6 +59,11 @@ log_level: str = os.getenv("LIU_LOG_LEVEL", "INFO").upper()
 # Broker
 #
 broker: BrokerType = BrokerType[os.getenv("LIU_BROKER", "alpaca")]
+
+# When a strategy requests a symbol that another strategy owns, stop the run
+# with an error (1) instead of deactivating the strategy with a warning
+# (0, DEFAULT)
+halt_on_collision = bool(int(os.getenv("LIU_HALT_ON_COLLISION", 0)))
 
 # total number of tickers to follow
 total_tickers = 000

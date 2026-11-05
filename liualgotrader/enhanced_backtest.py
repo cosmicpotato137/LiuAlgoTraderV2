@@ -20,76 +20,26 @@ backtest
 import itertools
 import logging
 import uuid
-from datetime import date, time
-from typing import Dict, Iterator, List, Optional, Tuple, cast
+from datetime import date
+from typing import Dict, List, Optional
 
 import pandas as pd
-from alpaca.trading.models import Calendar
-from alpaca.trading.requests import GetCalendarRequest
 
-from liualgotrader.common import clock, config
+from liualgotrader.common import config
 from liualgotrader.common.concurrency import reset_event_loop
 from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType, Order, OrderType, TimeScale
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategy.new_base import (Component, Context, Filter,
-                                             OrderRequest, PortfolioRule,
-                                             StrategyGraph, select_rules)
+from liualgotrader.strategy.new_base import (Context, OrderRequest,
+                                             PortfolioRule)
 from liualgotrader.strategy.runtime import OpenOrder, RunState
+from liualgotrader.strategy.tradeplan import create_strategies
 from liualgotrader.trade.factory import trader_factory
-from liualgotrader.vendors.alpaca.data import AlpacaData
 
 logger = logging.getLogger(__name__)
 
 # The columns of the trades of a session.
-TRADE_COLUMNS = ["time", "rule", "symbol", "side", "qty", "price", "fee"]
-
-
-def _trading_sessions(
-    from_date: date, to_date: date, asset_type: AssetType
-) -> Iterator[Tuple[pd.Timestamp, pd.Timestamp]]:
-    """Yield the start and end of each trading day in a date range.
-
-    A US equities day spans the market hours of the Alpaca market calendar,
-    and a crypto day spans the whole of every calendar day, both in New York
-    time.
-
-    Parameters
-    ----------
-    from_date: date
-        The first day of the range.
-    to_date: date
-        The last day of the range.
-    asset_type: AssetType
-        The type of asset traded.
-
-    Raises
-    ------
-    Raise AssertionError for any other asset type.
-    """
-    if asset_type == AssetType.US_EQUITIES:
-        calendar = cast(
-            List[Calendar],
-            AlpacaData(config.alpaca).trading_client.get_calendar(
-                GetCalendarRequest(start=from_date, end=to_date)
-            ),
-        )
-        for day in calendar:
-            # Calendar.open and Calendar.close are naive New York times
-            yield (
-                pd.Timestamp(day.open).tz_localize(clock.NY),
-                pd.Timestamp(day.close).tz_localize(clock.NY),
-            )
-    elif asset_type == AssetType.CRYPTO:
-        for day in pd.date_range(from_date, to_date):
-            yield (
-                pd.Timestamp(day.date(), tz=clock.NY),
-                pd.Timestamp.combine(day.date(), time.max).tz_localize(
-                    clock.NY
-                ),
-            )
-    else:
-        raise AssertionError(f"Asset type {asset_type} not supported yet")
+TRADE_COLUMNS = ["time", "strategy", "symbol", "side", "qty", "price", "fee"]
 
 
 class Backtest:
@@ -97,7 +47,8 @@ class Backtest:
 
     Each step of a day runs at the time of a bar. A step fills the orders of
     the previous step at the open of its bar, runs the filters that are due,
-    then asks the rules for orders exactly as the live consumer does.
+    then asks the rules of the strategies for orders exactly as the live
+    consumer does.
 
     Attributes
     ----------
@@ -116,30 +67,31 @@ class Backtest:
 
     Methods
     -------
-    run
+    simulate_range
         Simulate every trading day in a date range.
-    run_day
+    simulate_day
         Simulate a trading day.
-    step
+    simulate_timestep
         Simulate one step of a day.
     """
 
     def __init__(
         self,
         ctx: Context,
-        graph: StrategyGraph,
+        state: RunState,
         scale: TimeScale,
         buy_fee_percentage: float = 0.0,
         sell_fee_percentage: float = 0.0,
     ):
-        """Initialize a session with no positions or orders.
+        """Initialize a session with no trades.
 
         Parameters
         ----------
         ctx: Context
             The context of the session, with backtesting set.
-        graph: StrategyGraph
-            The components of the trade plan.
+        state: RunState
+            The run state of the session, with the components of the trade
+            plan.
         scale: TimeScale
             The time between steps.
         buy_fee_percentage: float, default 0.0
@@ -148,46 +100,17 @@ class Backtest:
             The sell fee, as a percentage of the trade value.
         """
         self.ctx = ctx
-        self.state = RunState(graph)
+        self.state = state
         self.scale = scale
         self.buy_fee_percentage = buy_fee_percentage
         self.sell_fee_percentage = sell_fee_percentage
         self.trades: List[Dict] = []
         self._order_ids = itertools.count(1)
-        self._last_run: Dict[Component, pd.Timestamp] = {}
 
-    def _steps(
-        self, day_start: pd.Timestamp, day_end: pd.Timestamp
-    ) -> pd.DatetimeIndex:
-        """Return the bar times of a day: one per minute, or one per day."""
-        if self.scale == TimeScale.day:
-            return pd.DatetimeIndex([day_start.normalize()])
-        return pd.date_range(
-            day_start, day_end, freq=f"{self.scale.value}s", inclusive="left"
-        )
-
-    def _due(
-        self, component: Filter | PortfolioRule, now: pd.Timestamp
-    ) -> bool:
-        """Return whether a filter or rule runs at now, and record it if so.
-
-        A filter without a recurrence runs once a day.
-        """
-        last = self._last_run.get(component)
-        recurrence = component.recurrence
-        due = (
-            last is None
-            or (recurrence is None and last.date() != now.date())
-            or (recurrence is not None and now - last >= recurrence)
-        )
-        if due:
-            self._last_run[component] = now
-        return due
-
-    async def run(
-        self, from_date: date, to_date: date, asset_type: AssetType
-    ) -> None:
+    async def simulate_range(self, from_date: date, to_date: date) -> None:
         """Simulate every trading day in a date range.
+
+        Take the trading days from the market calendar of the context.
 
         Parameters
         ----------
@@ -195,26 +118,21 @@ class Backtest:
             The first day of the range.
         to_date: date
             The last day of the range.
-        asset_type: AssetType
-            The type of asset traded.
         """
-        for day_start, day_end in _trading_sessions(
-            from_date, to_date, asset_type
+        for day_start, day_end in self.ctx.calendar.trading_days(
+            from_date, to_date
         ):
-            await self.run_day(day_start, day_end)
+            await self.simulate_day(day_start, day_end)
 
-    async def run_day(
+    async def simulate_day(
         self, day_start: pd.Timestamp, day_end: pd.Timestamp
     ) -> None:
         """Simulate a trading day.
 
-        Keep each filter universe from the filter's latest run, which is on
-        an earlier day when its recurrence is longer than a day. Compute
-        indicators and signals through the end of the day on first use, which
-        their causal compute allows, so that later steps read them from the
-        cache. With minute steps, cancel the orders still open at the end of
-        the day, as day orders expire at the close; with daily steps, they
-        fill at the next day's open.
+        Make the whole day's bars available at its start, so that each
+        indicator and signal is computed once a day and later steps read it
+        from the cache. Step once per bar: once at midnight on the day scale,
+        and at each bar time from the start of the day otherwise.
 
         Parameters
         ----------
@@ -223,21 +141,27 @@ class Backtest:
         day_end: pd.Timestamp
             The end of the day.
         """
-        self.ctx.compute_through = day_end
-        for now in self._steps(day_start, day_end):
-            await self.step(now)
+        self.ctx.set_horizon(day_end)
+        if self.scale == TimeScale.day:
+            steps = pd.DatetimeIndex([day_start.normalize()])
+        else:
+            steps = pd.date_range(
+                day_start,
+                day_end,
+                freq=f"{self.scale.value}s",
+                inclusive="left",
+            )
+        for now in steps:
+            await self.simulate_timestep(now)
         if self.scale != TimeScale.day:
             for order_id in list(self.state.open_orders):
                 await self.state.cancel(order_id)
 
-    async def step(self, now: pd.Timestamp) -> None:
-        """Simulate the step of a day at the time of a bar.
+    async def simulate_timestep(self, now: pd.Timestamp) -> None:
+        """Simulate the step of at the time of a bar.
 
-        Fill the orders of the previous step and run the filters that are
-        due, replacing the universe of each with the symbols it selects. Then
-        ask the symbol rules for orders on every symbol in a
-        universe or owned by a rule, and the portfolio rules whose recurrence
-        elapsed, and place the orders, sells before buys.
+        Run only the active strategies, and only their filters and portfolio
+        rules that are due.
 
         Parameters
         ----------
@@ -246,16 +170,21 @@ class Backtest:
         """
         await self._fill_open_orders(now)
 
-        for name, selector in self.state.graph.filters.items():
-            if self._due(selector, now):
-                self.state.set_universe(name, await selector.select(now))
+        strategies = self.state.strategies.values()
+        for strategy in strategies:
+            filter = strategy.filter
+            if strategy.active and filter is not None and filter.is_due(now):
+                self.state.set_universe(
+                    strategy.name, await filter.select(now)
+                )
 
         decisions = []
         for symbol in sorted(self.state.symbols()):
             decisions += await self.state.decide_symbol(symbol, now)
-        for rule in self.state.graph.rules.values():
-            if isinstance(rule, PortfolioRule) and self._due(rule, now):
-                decisions += await self.state.decide_portfolio(rule, now)
+        for strategy in strategies:
+            rule = strategy.rule
+            if isinstance(rule, PortfolioRule) and rule.is_due(now):
+                decisions += await self.state.decide_portfolio(strategy, now)
 
         async def place(request: OrderRequest) -> Order:
             return Order(
@@ -283,9 +212,9 @@ class Backtest:
             if price is None:
                 await self.state.cancel(order_id)
             else:
-                await self._fill(open_order, price, now)
+                await self._fill_open_order(open_order, price, now)
 
-    async def _fill(
+    async def _fill_open_order(
         self, open_order: OpenOrder, price: float, now: pd.Timestamp
     ) -> None:
         """Fill an open order completely at a price, and record the trade."""
@@ -300,7 +229,7 @@ class Backtest:
         self.trades.append(
             {
                 "time": now,
-                "rule": open_order.rule.name,
+                "strategy": open_order.strategy.name,
                 "symbol": request.symbol,
                 "side": request.side.name,
                 "qty": request.qty,
@@ -332,7 +261,7 @@ def write_results(
     """Write the trades and the summary of a session to files.
 
     Write the trades to <batch_id>-trades.csv, and the net cash flow, the
-    number of trades and the open positions of each rule to
+    number of trades and the open positions of each strategy to
     <batch_id>-summary.txt, both in the current directory.
 
     Parameters
@@ -342,18 +271,18 @@ def write_results(
     trades: pd.DataFrame
         The trades, with the columns of TRADE_COLUMNS.
     positions: Dict[str, Dict]
-        The open positions of each rule, by rule name and symbol.
+        The open positions of each strategy, by strategy name and symbol.
     """
     trades.to_csv(f"{batch_id}-trades.csv", index=False)
 
     lines = [f"batch-id: {batch_id}"]
-    for rule, rule_positions in positions.items():
-        rule_trades = trades[trades.rule == rule]
+    for strategy, strategy_positions in positions.items():
+        strategy_trades = trades[trades.strategy == strategy]
         lines += [
-            f"rule {rule}:",
-            f"  net cash flow: {net_cash_flow(rule_trades):.2f}",
-            f"  trades: {len(rule_trades)}",
-            f"  open positions: {rule_positions}",
+            f"strategy {strategy}:",
+            f"  net cash flow: {net_cash_flow(strategy_trades):.2f}",
+            f"  trades: {len(strategy_trades)}",
+            f"  open positions: {strategy_positions}",
         ]
     with open(f"{batch_id}-summary.txt", "w") as summary:
         summary.write("\n".join(lines) + "\n")
@@ -380,16 +309,16 @@ async def backtest_main(
     from_date: date,
     to_date: date,
     scale: TimeScale,
-    tradeplan: Dict,
+    tradeplan: list[dict],
     buy_fee_percentage: float,
     sell_fee_percentage: float,
     asset_type: AssetType,
-    rules: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """Prepare and run a complete backtesting session.
 
     Connect to the database, which the momentum filter reads, and create the
-    components of the trade plan with a context of their own. Write the
+    components of the trade plan with a context of their own. Halt on an
+    ownership collision if config.halt_on_collision is set. Write the
     results with write_results.
 
     Parameters
@@ -402,21 +331,23 @@ async def backtest_main(
         The last day to backtest.
     scale: TimeScale
         The time scale of the simulation.
-    tradeplan: Dict
-        The trade plan.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     buy_fee_percentage: float
         The buy fee, as a percentage of the trade value.
     sell_fee_percentage: float
         The sell fee, as a percentage of the trade value.
     asset_type: AssetType
-        The type of asset traded.
-    rules: Optional[List[str]], default None
-        The names of the rules to backtest, with their signals and filters,
-        or None for all.
+        The type of asset traded, which sets the market calendar.
 
     Returns
     -------
     Return the trades, with the columns of TRADE_COLUMNS.
+
+    Raises
+    ------
+    Raise OwnershipCollision if a strategy requests a symbol that another
+    strategy owns and config.halt_on_collision is set.
     """
     logger.info(
         "Starting back-test from %s to %s with time scale %s",
@@ -424,24 +355,26 @@ async def backtest_main(
         to_date,
         scale,
     )
-    if rules:
-        logger.info("with rules:%s", rules)
 
     await create_db_connection()
 
-    ctx = Context(DataLoader(scale), trader_factory(), backtesting=True)
-    graph = StrategyGraph.from_tradeplan(select_rules(tradeplan, rules), ctx)
-    logger.info(
-        "filters %s, signals %s, rules %s",
-        list(graph.filters),
-        list(graph.signals),
-        list(graph.rules),
+    ctx = Context(
+        DataLoader(scale),
+        trader_factory(),
+        backtesting=True,
+        asset_type=asset_type,
     )
+    strategies = create_strategies(tradeplan, ctx)
+    logger.info("strategies %s", list(strategies))
 
     session = Backtest(
-        ctx, graph, scale, buy_fee_percentage, sell_fee_percentage
+        ctx,
+        RunState(strategies, config.halt_on_collision),
+        scale,
+        buy_fee_percentage,
+        sell_fee_percentage,
     )
-    await session.run(from_date, to_date, asset_type)
+    await session.simulate_range(from_date, to_date)
 
     trades = pd.DataFrame(session.trades, columns=TRADE_COLUMNS)
     write_results(uid, trades, session.state.positions)
@@ -452,8 +385,7 @@ def backtest(
     from_date: date,
     to_date: date,
     scale: TimeScale,
-    config: Dict,
-    rules: Optional[List[str]],
+    tradeplan: list[dict],
     asset_type: AssetType,
     buy_fee_percentage: float,
     sell_fee_percentage: float,
@@ -471,10 +403,8 @@ def backtest(
         The last day to backtest.
     scale: TimeScale
         The time scale of the simulation.
-    config: Dict
-        The trade plan.
-    rules: Optional[List[str]]
-        The names of the rules to backtest, or None for all.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     asset_type: AssetType
         The type of asset traded.
     buy_fee_percentage: float
@@ -491,11 +421,10 @@ def backtest(
                 from_date,
                 to_date,
                 scale,
-                config,
+                tradeplan,
                 buy_fee_percentage,
                 sell_fee_percentage,
                 asset_type,
-                rules,
             )
         )
     except KeyboardInterrupt:

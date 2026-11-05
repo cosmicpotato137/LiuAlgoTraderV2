@@ -11,7 +11,6 @@ backtest_iteration
 import logging
 import uuid
 from datetime import date
-from typing import Dict
 
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import config
@@ -50,7 +49,7 @@ def backtest_iteration(
     optimizer_session_id: str,
     start_date: date,
     end_date: date,
-    conf_dict: Dict,
+    tradeplan: list[dict],
     hypers: Hyperparameters,
 ):
     """Run one daily US-equities back-test and record it in the session.
@@ -67,17 +66,17 @@ def backtest_iteration(
         The first date of the back-test.
     end_date: date
         The last date of the back-test.
-    conf_dict: Dict
-        The trade-plan configuration.
+    tradeplan: list[dict]
+        The strategy files of the trade plan.
     hypers: Hyperparameters
         The hyper-parameter values being tested.
     """
     configure_logging()
     logger.info(
-        "starting backtest with start_date=%s, end_date=%s w/ configuration=%s",
+        "starting backtest with start_date=%s, end_date=%s w/ trade plan=%s",
         start_date,
         end_date,
-        conf_dict,
+        tradeplan,
     )
     uid = str(uuid.uuid4())
 
@@ -89,7 +88,7 @@ def backtest_iteration(
                 start_date,
                 end_date,
                 TimeScale.day,
-                conf_dict,
+                tradeplan,
                 0.0,
                 0.0,
                 AssetType.US_EQUITIES,
