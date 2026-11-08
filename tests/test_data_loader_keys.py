@@ -3,8 +3,8 @@ from datetime import date, datetime
 import pandas as pd
 import pytest
 
-from liualgotrader.common.data_loader import SymbolData  # type: ignore
 from liualgotrader.common.types import TimeScale
+from liualgotrader.data.data_loader import SymbolData
 
 INVALID_KEYS = [
     "2021-01-05 09:45:00",

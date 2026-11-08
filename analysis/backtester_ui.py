@@ -15,8 +15,8 @@ from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_batch_list, load_trades,
                                               load_trades_by_batch_id)
 from liualgotrader.common import config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.log import configure_logging
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.session import create_db_connection
 
 configure_logging()

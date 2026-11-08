@@ -15,7 +15,6 @@ import queue
 import time as time_action
 from datetime import date, time
 from enum import StrEnum
-from threading import Thread
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -25,7 +24,7 @@ import websocket
 from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
 from liualgotrader.common.types import (Order, OrderType, QueueMessageType,
-                                        SymbolQueueMap, ThreadFlags, Trade)
+                                        SymbolQueueMap, Trade)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.tradier.config import TradierConfig
 
@@ -71,8 +70,8 @@ class TradierTrader(TraderAPI):
     ----------
     config: TradierConfig
         The connection settings, including the account number.
-    running_task: Optional[Thread]
-        The account event listener thread, or None.
+    running_task: Optional[asyncio.Task]
+        The account event listener, or None.
     ws: Optional[websocket]
         The account event WebSocket application, or None.
     ws_session_id: Optional[str]
@@ -138,7 +137,7 @@ class TradierTrader(TraderAPI):
             The queue mapper that receives trade updates.
         """
         self.config = config
-        self.running_task: Optional[Thread] = None
+        self.running_task: Optional[asyncio.Task] = None
         self.ws: Optional[websocket] = None
         self.ws_session_id: Optional[str] = None
         super().__init__(qm)
@@ -644,7 +643,7 @@ class TradierTrader(TraderAPI):
             self.ws is not None
             and self.ws_session_id
             and self.running_task
-            and self.running_task.is_alive()
+            and not self.running_task.done()
         ):
             payload = {
                 "events": ["order"],
@@ -663,7 +662,7 @@ class TradierTrader(TraderAPI):
         side: str,
         order_type: OrderType,
         time_in_force: str = None,
-        limit_price: str = None,
+        limit_price: Optional[str] = None,
         stop_price: str = None,
         client_order_id: str = None,
         extended_hours: bool = None,
@@ -688,7 +687,7 @@ class TradierTrader(TraderAPI):
             The order type, such as OrderType.MARKET or OrderType.LIMIT.
         time_in_force: str, default None
             Ignored.
-        limit_price: str, default None
+        limit_price: Optional[str], default None
             The limit price, rounded to cents.
         stop_price: str, default None
             The stop price, rounded to cents.
@@ -774,12 +773,14 @@ class TradierTrader(TraderAPI):
         await self.close()
         await self.run()
 
-    async def run(self) -> Optional[asyncio.Task]:
+    async def run(self) -> asyncio.Task:
         """Start the account event listener and subscribe it to order events.
+
+        The blocking WebSocket client runs in a thread, wrapped in a task.
 
         Returns
         -------
-        Return the listener thread; if it already exists, return it without
+        Return the listener task; if it already exists, return it without
         starting another.
 
         Raises
@@ -810,24 +811,23 @@ class TradierTrader(TraderAPI):
                 on_error=self.on_error,
                 on_close=self.on_close,
             )
-            self.running_task = Thread(
-                target=self.ws.run_forever,
+            self.running_task = asyncio.create_task(
+                asyncio.to_thread(self.ws.run_forever)
             )
-            self.running_task.start()
             await asyncio.sleep(1.0)
             await self._subscribe_order_status_update()
 
-        return self.running_task  # type: ignore
+        return self.running_task
 
     async def close(self):
         """Stop the account event listener if it is running.
 
-        Block until the listener thread has finished.
+        Wait until the listener has finished.
         """
-        if self.running_task and self.running_task.is_alive():
+        if self.running_task and not self.running_task.done():
             logger.info("close task %s", self.running_task)
             self.ws.keep_running = False
-            self.running_task.join()
+            await self.running_task
             logger.info("task terminated")
             self.ws = None
             self.running_task = None

@@ -13,7 +13,6 @@ from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.models.optimizer import OptimizerRun
 from liualgotrader.db.models.portfolio import Portfolio
-from liualgotrader.db.models.stock_ohlc import StockOhlc
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import create_db_connection, session_scope
@@ -145,46 +144,6 @@ async def test_trending_tickers() -> bool:
 
     with pytest.raises(Exception):
         await TrendingTicker.load(unique("batch"))
-
-    return True
-
-
-@pytest.mark.asyncio
-@pytest.mark.devtest
-async def test_stock_ohlc() -> bool:
-    symbol = unique("SYM")
-    day1, day2 = date(2026, 1, 5), date(2026, 1, 6)
-
-    def bar(day, close, volume, indicators):
-        return StockOhlc(
-            symbol=symbol,
-            symbol_date=day,
-            open=1.0,
-            high=10.0,
-            low=0.5,
-            close=close,
-            volume=volume,
-            indicators=indicators,
-        )
-
-    await bar(day1, 1.5, 100, {}).save()
-    await bar(day2, 1.5, 100, {}).save()
-    await bar(day2, 9.0, 200, {"k": 1}).save()
-
-    if not await StockOhlc.check_stock_date_exists(symbol, day1):
-        raise AssertionError("existing date not found")
-    if await StockOhlc.check_stock_date_exists(symbol, date(2026, 1, 7)):
-        raise AssertionError("missing date found")
-
-    record = (await StockOhlc.load_by_date(day2))[symbol]
-    if (record.close, record.volume, record.indicators) != (
-        9.0,
-        200,
-        {"k": 1},
-    ):
-        raise AssertionError(f"record not replaced: {record}")
-    if not record.stock_ohlc_id or record.modify_tstamp is None:
-        raise AssertionError("record id or update time missing")
 
     return True
 

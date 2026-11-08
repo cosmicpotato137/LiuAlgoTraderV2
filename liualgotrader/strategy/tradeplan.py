@@ -58,7 +58,7 @@ import pandas as pd
 import toml
 
 from liualgotrader.common.utils import load_class
-from liualgotrader.strategy.new_base import (Component, Context, Filter,
+from liualgotrader.strategy.base import (Component, Context, Filter,
                                              PortfolioRule, Rule, Signal,
                                              Strategy)
 

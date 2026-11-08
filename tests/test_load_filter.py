@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from liualgotrader.strategy.new_base import Context
+from liualgotrader.strategy.base import Context
 from liualgotrader.strategy.tradeplan import create_filters
 
 logger = logging.getLogger(__name__)

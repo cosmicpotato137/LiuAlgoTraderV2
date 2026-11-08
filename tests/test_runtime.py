@@ -31,8 +31,8 @@ from liualgotrader.enhanced_backtest import (
     write_results,
 )
 from liualgotrader.market_calendar.base import CryptoCalendar
-from liualgotrader.strategy import new_base
-from liualgotrader.strategy.new_base import (
+from liualgotrader.strategy import base
+from liualgotrader.strategy.base import (
     Context,
     Filter,
     OpenOrder,
@@ -696,7 +696,7 @@ def test_context_creates_its_calendar_on_first_use(monkeypatch) -> None:
         created.append(asset_type)
         return CryptoCalendar()
 
-    monkeypatch.setattr(new_base, "market_calendar_factory", factory)
+    monkeypatch.setattr(base, "market_calendar_factory", factory)
     ctx = Context(loader(), asset_type=AssetType.CRYPTO)
     if created:
         raise AssertionError("created the calendar before its first use")

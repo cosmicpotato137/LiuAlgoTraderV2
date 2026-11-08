@@ -58,8 +58,8 @@ from sqlalchemy import Select, select
 from tqdm import tqdm
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.new_trades import NewTrade

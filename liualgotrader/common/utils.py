@@ -8,6 +8,8 @@ date_from_string
     Return the date described by a natural-language string.
 notify
     Call a callback, and log rather than raise its exceptions.
+list_chunks
+    Yield successive n-sized chunks from lst.
 """
 
 import hashlib
@@ -132,3 +134,19 @@ async def notify(callback: Callable[[T], Awaitable[None]], arg: T) -> None:
         await callback(arg)
     except Exception:
         logger.exception("%s failed", callback.__qualname__)
+
+
+def list_chunks(lst, n):
+    """Yield successive n-sized chunks from lst.
+
+    The last chunk may be shorter.
+
+    Parameters
+    ----------
+    lst
+        The sequence to split.
+    n
+        The chunk size.
+    """
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]

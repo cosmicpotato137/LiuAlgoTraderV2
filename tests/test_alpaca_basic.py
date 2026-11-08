@@ -1,6 +1,7 @@
 import logging
 import time
 from datetime import date
+from typing import List, cast
 
 import pandas as pd
 import pytest
@@ -106,7 +107,7 @@ def test_alpaca_multi_symbols_day() -> bool:
 def test_alpaca_multi_symbols_min_negative() -> bool:
     try:
         AlpacaData(config.alpaca).get_symbols_data(
-            "AAPL",  # type:ignore
+            cast(List[str], "AAPL"),  # deliberately not a list
             date(year=2021, month=2, day=1),
             date(year=2021, month=2, day=2),
         )

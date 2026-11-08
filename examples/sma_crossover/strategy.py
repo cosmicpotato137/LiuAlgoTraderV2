@@ -23,7 +23,7 @@ import math
 import pandas as pd
 
 from liualgotrader.common.types import Order, Trade
-from liualgotrader.strategy.new_base import (Indicator, OrderRequest, Signal,
+from liualgotrader.strategy.base import (Indicator, OrderRequest, Signal,
                                              SymbolRule)
 
 logger = logging.getLogger(__name__)

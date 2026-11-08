@@ -17,10 +17,10 @@ import multiprocessing as mp
 import os
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.log import configure_logging
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategy.new_base import Context, Filter
+from liualgotrader.strategy.base import Context, Filter
 from liualgotrader.strategy.tradeplan import create_filters
 from liualgotrader.trade.factory import trader_factory
 

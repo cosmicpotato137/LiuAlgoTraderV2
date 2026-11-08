@@ -21,10 +21,6 @@ optimizer
     Persist and load the batches run by optimizer sessions.
 portfolio
     Persist and load trading portfolios.
-stock_ohlc
-    Persist and load daily price data.
-ticker_snapshot
-    Data type for the volume and daily change of a symbol.
 tradeplan
     Load the trade plan entries that assign strategies to portfolios.
 trending_tickers
@@ -37,10 +33,7 @@ from liualgotrader.db.models.keystore import KeyStore
 from liualgotrader.db.models.new_trades import NewTrade
 from liualgotrader.db.models.optimizer import OptimizerRun
 from liualgotrader.db.models.portfolio import Portfolio, PortfolioBatchId
-from liualgotrader.db.models.stock_ohlc import StockOhlc
-from liualgotrader.db.models.ticker_snapshot import TickerSnapshot
-from liualgotrader.db.models.tradeplan import (TradePlan,
-                                               TradePlanExecutionAudit)
+from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 
 __all__ = [
@@ -52,9 +45,6 @@ __all__ = [
     "OptimizerRun",
     "Portfolio",
     "PortfolioBatchId",
-    "StockOhlc",
-    "TickerSnapshot",
     "TradePlan",
-    "TradePlanExecutionAudit",
     "TrendingTicker",
 ]

@@ -4,8 +4,8 @@ import pandas as pd
 import pytest
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, TimeScale
+from liualgotrader.data.data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def test_apple_stock_current_price() -> bool:
 def test_apple_stock_current_price_range_int_minute() -> bool:
     logger.info("test_apple_stock_current_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"].close[-5:-1]  # type: ignore
+    last_price_range = dl["AAPL"].close[-5:-1]
 
     logger.info("%s", last_price_range)
     return True
@@ -82,7 +82,7 @@ def test_apple_stock_current_price_range_int_minute() -> bool:
 def test_apple_stock_current_price_range_int_day() -> bool:
     logger.info("test_apple_stock_current_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"].close[-6:-1]  # type: ignore
+    last_price_range = dl["AAPL"].close[-6:-1]
     logger.info("%s", last_price_range)
 
     return True
@@ -92,7 +92,7 @@ def test_apple_stock_current_price_range_int_day() -> bool:
 def test_day_num_data_points() -> bool:
     logger.info("test_day_num_data_points")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
-    data = dl["AAPL"].close[-90:]  # type: ignore
+    data = dl["AAPL"].close[-90:]
 
     if 90 >= len(data) >= 89:
         return True
@@ -104,7 +104,7 @@ def test_day_num_data_points() -> bool:
 def test_day_num_data_points_w_date() -> bool:
     logger.info("test_day_num_data_points")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
-    data = dl["AAPL"].close[-90 : ny("2021-09-10 09:30:00")]  # type: ignore
+    data = dl["AAPL"].close[-90 : ny("2021-09-10 09:30:00")]
 
     if len(data) != 90:
         raise AssertionError(
@@ -148,9 +148,7 @@ def test_negative_current_price() -> bool:
 def test_apple_stock_close_price_range_timestamp_day() -> bool:
     logger.info("test_apple_stock_close_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"].close[
-        ny("2021-01-01") : ny("2021-01-05")  # type: ignore
-    ]  # type: ignore
+    last_price_range = dl["AAPL"].close[ny("2021-01-01") : ny("2021-01-05")]
     logger.info("%s", last_price_range)
 
     return True
@@ -161,7 +159,7 @@ def test_apple_stock_close_price_range_timestamp_minute() -> bool:
     logger.info("test_apple_stock_close_price_range_timestamp_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
     last_price_range = dl["AAPL"].close[
-        ny("2021-01-05 09:45:00") : ny("2021-01-05 09:50:00")  # type: ignore
+        ny("2021-01-05 09:45:00") : ny("2021-01-05 09:50:00")
     ]
     logger.info("%s", last_price_range)
 
@@ -172,9 +170,7 @@ def test_apple_stock_close_price_range_timestamp_minute() -> bool:
 def test_apple_stock_close_price_range_timestamp_minute_int() -> bool:
     logger.info("test_apple_stock_close_price_range_timestamp_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"].close[
-        ny("2021-12-15 09:45:00") : -1  # type: ignore
-    ]  # type: ignore
+    last_price_range = dl["AAPL"].close[ny("2021-12-15 09:45:00") : -1]
     logger.info("%s", last_price_range)
 
     return True
@@ -184,7 +180,7 @@ def test_apple_stock_close_price_range_timestamp_minute_int() -> bool:
 def test_apple_stock_price_range_int_minute() -> bool:
     logger.info("test_apple_stock_close_price_range_timestamp_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"][-5:-1]  # type: ignore
+    last_price_range = dl["AAPL"][-5:-1]
     logger.info("%s", last_price_range)
 
     return True
@@ -194,7 +190,7 @@ def test_apple_stock_price_range_int_minute() -> bool:
 def test_apple_stock_price_range_int_day() -> bool:
     logger.info("test_apple_stock_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"][-5:-1]  # type: ignore
+    last_price_range = dl["AAPL"][-5:-1]
     logger.info("%s", last_price_range)
 
     return True
@@ -214,7 +210,7 @@ def test_apple_stock_price_range_date_day() -> bool:
 def test_apple_stock_price_range_date_int_day() -> bool:
     logger.info("test_apple_stock_price_range_date_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"][ny("2020-10-05") : -1]  # type: ignore
+    last_price_range = dl["AAPL"][ny("2020-10-05") : -1]
     logger.info("%s", last_price_range)
 
     return True
@@ -224,7 +220,7 @@ def test_apple_stock_price_range_date_int_day() -> bool:
 def test_apple_stock_price_range_date_int_min() -> bool:
     logger.info("test_apple_stock_price_range_date_int_min")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"][ny("2020-10-05") : -1]  # type: ignore
+    last_price_range = dl["AAPL"][ny("2020-10-05") : -1]
     logger.info("%s", last_price_range)
     return True
 
@@ -233,7 +229,7 @@ def test_apple_stock_price_range_date_int_min() -> bool:
 def test_apple_stock_price_range_date_int_min_open() -> bool:
     logger.info("test_apple_stock_price_range_date_int_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"][ny("2020-10-05") :]  # type: ignore
+    last_price_range = dl["AAPL"][ny("2020-10-05") :]
     logger.info("%s", last_price_range)
     return True
 
@@ -242,7 +238,7 @@ def test_apple_stock_price_range_date_int_min_open() -> bool:
 def test_apple_stock_price_open_range_date_int_min_open() -> bool:
     logger.info("test_apple_stock_price_close_range_date_int_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
-    last_price_range = dl["AAPL"].open[ny("2020-10-05") :]  # type: ignore
+    last_price_range = dl["AAPL"].open[ny("2020-10-05") :]
     logger.info("%s", last_price_range)
     return True
 
@@ -252,7 +248,7 @@ def test_apple_stock_price_range_date_min_open() -> bool:
     logger.info("test_apple_stock_price_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
     try:
-        last_price_range = dl["AAPL"][:]  # type: ignore
+        last_price_range = dl["AAPL"][:]
         logger.info("%s", last_price_range)
     except ValueError:
         return True
@@ -264,7 +260,7 @@ def test_apple_stock_price_open_range_date_min_open() -> bool:
     logger.info("test_apple_stock_price_open_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
     try:
-        last_price_range = dl["AAPL"].open[:]  # type: ignore
+        last_price_range = dl["AAPL"].open[:]
         logger.info("%s", last_price_range)
     except ValueError:
         return True
@@ -289,8 +285,8 @@ def test_apple_stock_price_open_range_timestamp_min() -> bool:
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
     last_price_range = (
         dl["AAPL"]
-        .open[ny("2021-02-01 03:00") : ny("2021-02-01 21:00")]  # type: ignore
-        .between_time("9:30", "16:00")  # type: ignore
+        .open[ny("2021-02-01 03:00") : ny("2021-02-01 21:00")]
+        .between_time("9:30", "16:00")
     )
     logger.info("%s", last_price_range)
 

@@ -287,8 +287,7 @@ class AlpacaData(DataAPI):
     ) -> List[Dict]:
         """Return the market snapshots for the given symbols.
 
-        Drop snapshots that lack a component when filter_func is set, and
-        return them as None otherwise.
+        Drop snapshots that lack a component.
 
         Parameters
         ----------
@@ -324,8 +323,8 @@ class AlpacaData(DataAPI):
         def _parse_snapshot_and_filter(_symbols: List[str]) -> List[Dict]:
             """Return the parsed snapshots for a chunk of symbols.
 
-            When the enclosing filter_func is set, keep only the snapshots it
-            accepts, excluding missing ones.
+            Exclude missing snapshots, and when the enclosing filter_func is
+            set, keep only the snapshots it accepts.
 
             Parameters
             ----------
@@ -338,20 +337,16 @@ class AlpacaData(DataAPI):
                     StockSnapshotRequest(symbol_or_symbols=_symbols)
                 ),
             )
-            processed_tickers_snapshot = map(
-                lambda key_and_val: _parse_ticker_snapshot(*key_and_val),
-                snapshots.items(),
+            parsed = (
+                _parse_ticker_snapshot(ticker, snapshot)
+                for ticker, snapshot in snapshots.items()
             )
-            return list(
-                filter(
-                    lambda snapshot: (  # type: ignore
-                        (snapshot is not None) and (filter_func(snapshot))
-                    ),
-                    list(processed_tickers_snapshot),  # type : ignore
-                )
-                if filter_func is not None
-                else processed_tickers_snapshot
-            )
+            return [
+                snapshot
+                for snapshot in parsed
+                if snapshot is not None
+                and (filter_func is None or filter_func(snapshot))
+            ]
 
         # request snapshots per chunk of tickers by concurrency
         with concurrent.futures.ThreadPoolExecutor() as executor:

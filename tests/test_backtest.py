@@ -4,11 +4,11 @@ from datetime import date
 import pytest
 
 from liualgotrader.common import config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType, TimeScale
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.enhanced_backtest import Backtest
-from liualgotrader.strategy.new_base import Context
+from liualgotrader.strategy.base import Context
 from liualgotrader.strategy.runtime import RunState
 from liualgotrader.strategy.tradeplan import create_strategies, load_tradeplan
 

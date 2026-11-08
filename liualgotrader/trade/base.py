@@ -160,7 +160,7 @@ class TraderAPI:
         Return False if either of them is None.
         """
         if not hasattr(self, "market_open"):
-            self.market_open, self.market_close = self.get_market_schedule()  # type: ignore
+            self.market_open, self.market_close = self.get_market_schedule()
         return (
             False
             if not self.market_open or not self.market_close
@@ -258,7 +258,7 @@ class TraderAPI:
         side: str,
         order_type: OrderType,
         time_in_force: str,
-        limit_price: str = None,
+        limit_price: Optional[str] = None,
         stop_price: str = None,
         client_order_id: str = None,
         extended_hours: bool = None,
@@ -286,7 +286,7 @@ class TraderAPI:
             The order type, such as OrderType.MARKET or OrderType.LIMIT.
         time_in_force: str
             The order duration, such as day.
-        limit_price: str, default None
+        limit_price: Optional[str], default None
             The limit price, for limit orders.
         stop_price: str, default None
             The stop price, for stop orders.
@@ -358,12 +358,12 @@ class TraderAPI:
         """
         raise NotImplementedError("cancel_order")
 
-    async def run(self) -> Optional[asyncio.Task]:
+    async def run(self) -> asyncio.Task:
         """Start the listener that receives trade updates from the broker.
 
         Implementations must forward order and trade events to the queues
-        attribute and return a handle to the listener, such as an asyncio Task.
-        A repeated call should return the existing listener.
+        attribute and return the listener as an asyncio Task. A repeated call
+        should return the existing listener.
         """
         raise NotImplementedError("run")
 
@@ -385,4 +385,4 @@ class TraderAPI:
         if not cls.__instance:
             raise AssertionError("Must instantiate before usage")
 
-        return cls.__instance  # type: ignore
+        return cls.__instance

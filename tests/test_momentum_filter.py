@@ -3,11 +3,11 @@ import logging
 import pytest
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.filters.momentum import Momentum
-from liualgotrader.strategy.new_base import Context
+from liualgotrader.strategy.base import Context
 from liualgotrader.trade.factory import trader_factory
 
 logger = logging.getLogger(__name__)

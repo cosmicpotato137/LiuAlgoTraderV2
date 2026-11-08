@@ -82,7 +82,7 @@ class StreamingAPI:
         if not cls.__instance:
             raise AssertionError("Must instantiate before usage")
 
-        return cls.__instance  # type: ignore
+        return cls.__instance
 
     async def unsubscribe(self, symbol: str) -> bool:
         """Cancel the subscriptions for a symbol.

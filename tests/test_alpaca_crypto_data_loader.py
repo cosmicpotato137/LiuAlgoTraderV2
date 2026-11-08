@@ -6,8 +6,8 @@ import pytest
 from alpaca.data.timeframe import TimeFrame
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, TimeScale
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.vendors.alpaca.data import AlpacaData
 from liualgotrader.vendors.alpaca.streaming import AlpacaStream
 
@@ -39,7 +39,7 @@ def test_crypto_get_symbol() -> bool:
 def test_btc_data_loader_day() -> bool:
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
 
-    data = dl["BTCUSD"][may_1:oct_1]  # type: ignore
+    data = dl["BTCUSD"][may_1:oct_1]
     logger.info("%s", data)
     return True
 
@@ -48,7 +48,7 @@ def test_btc_data_loader_day() -> bool:
 def test_btc_data_loader_min() -> bool:
     dl = DataLoader(connector=DataConnectorType.alpaca)
 
-    data = dl["BTCUSD"][may_1:oct_1]  # type: ignore
+    data = dl["BTCUSD"][may_1:oct_1]
     logger.info("%s", data)
     return True
 
@@ -57,7 +57,7 @@ def test_btc_data_loader_min() -> bool:
 def test_eth_data_loader_day() -> bool:
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
 
-    data = dl["ETH/USD"][may_1:oct_1]  # type: ignore
+    data = dl["ETH/USD"][may_1:oct_1]
     logger.info("%s", data)
     return True
 
@@ -66,7 +66,7 @@ def test_eth_data_loader_day() -> bool:
 def test_eth_data_loader_minute_offset() -> bool:
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)
 
-    data = dl["ETH/USD"][-1500:]  # type: ignore
+    data = dl["ETH/USD"][-1500:]
     logger.info("%s %s", len(data), data)
     return True
 
@@ -90,7 +90,7 @@ def test_eth_data_loader_length() -> bool:
 
     end = pd.Timestamp("2022-07-28 21:20", tz=clock.NY)
     logger.info("end: %s", end)
-    data = dl["ETH/USD"][end - pd.Timedelta(minutes=1500) : end]  # type: ignore
+    data = dl["ETH/USD"][end - pd.Timedelta(minutes=1500) : end]
 
     expected = eth_minute_bars(end - pd.Timedelta(minutes=1500), end)
     if len(data) != expected:
@@ -107,9 +107,11 @@ def test_eth_data_loader_length2() -> bool:
     end = pd.Timestamp("2022-07-28 21:20", tz=clock.NY)
     logger.info("end: %s", end)
 
-    data = dl["ETH/USD"][end - pd.Timedelta(minutes=2000) : end - pd.Timedelta(minutes=100)]  # type: ignore
+    data = dl["ETH/USD"][
+        end - pd.Timedelta(minutes=2000) : end - pd.Timedelta(minutes=100)
+    ]
 
-    data = dl["ETH/USD"][end - pd.Timedelta(minutes=1500) : end]  # type: ignore
+    data = dl["ETH/USD"][end - pd.Timedelta(minutes=1500) : end]
 
     expected = eth_minute_bars(end - pd.Timedelta(minutes=1500), end)
     if len(data) != expected:
@@ -123,6 +125,6 @@ def test_eth_data_loader_length2() -> bool:
 def test_eth_data_loader_day_offset() -> bool:
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.alpaca)
 
-    data = dl["ETH/USD"][-1500:]  # type: ignore
+    data = dl["ETH/USD"][-1500:]
     logger.info("%s %s", len(data), data)
     return True

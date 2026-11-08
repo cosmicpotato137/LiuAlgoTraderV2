@@ -33,7 +33,7 @@ import pandas as pd
 from liualgotrader.common import clock
 from liualgotrader.common.types import Order, OrderType, Trade
 from liualgotrader.fincalcs.support_resistance import find_stop
-from liualgotrader.strategy.new_base import (Indicator, OrderRequest, Signal,
+from liualgotrader.strategy.base import (Indicator, OrderRequest, Signal,
                                              SymbolRule)
 
 logger = logging.getLogger(__name__)

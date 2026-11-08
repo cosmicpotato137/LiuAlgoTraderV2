@@ -50,12 +50,12 @@ import logging
 import math
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import Callable, Optional, Self, TypeVar
+from typing import Callable, Optional, Self, TypeVar, cast
 
 import pandas as pd
 
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType, Order, OrderType, Trade
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.market_calendar.base import MarketCalendarAPI
 from liualgotrader.market_calendar.factory import market_calendar_factory
 from liualgotrader.trade.base import TraderAPI
@@ -472,7 +472,8 @@ class Indicator(_Memoized):
         )
         if key not in ctx.indicators:
             ctx.indicators[key] = cls(ctx=ctx, name=key, **params)
-        return ctx.indicators[key]  # type: ignore
+        # the key names cls, so the cached indicator is an instance of it
+        return cast(Self, ctx.indicators[key])
 
     def compute(self, symbol: str, now: pd.Timestamp) -> pd.DataFrame:
         """Return the indicator values for a symbol through a time.

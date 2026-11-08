@@ -707,7 +707,7 @@ class AlpacaTrader(TraderAPI):
         side: str,
         order_type: OrderType,
         time_in_force: str,
-        limit_price: str = None,
+        limit_price: Optional[str] = None,
         stop_price: str = None,
         client_order_id: str = None,
         extended_hours: bool = None,
@@ -734,7 +734,7 @@ class AlpacaTrader(TraderAPI):
             The order type.
         time_in_force: str
             The order duration, such as day.
-        limit_price: str, default None
+        limit_price: Optional[str], default None
             The limit price, for limit and stop-limit orders.
         stop_price: str, default None
             The stop price, for stop and stop-limit orders.
@@ -952,7 +952,7 @@ class AlpacaTrader(TraderAPI):
         side: str,
         order_type: OrderType,
         time_in_force: str,
-        limit_price: str = None,
+        limit_price: Optional[str] = None,
         stop_price: str = None,
         client_order_id: str = None,
         extended_hours: bool = None,
@@ -977,7 +977,7 @@ class AlpacaTrader(TraderAPI):
             The order type, such as OrderType.MARKET or OrderType.LIMIT.
         time_in_force: str
             The order duration, such as day.
-        limit_price: str, default None
+        limit_price: Optional[str], default None
             The limit price, for limit orders.
         stop_price: str, default None
             Ignored.
@@ -1046,7 +1046,7 @@ class AlpacaTrader(TraderAPI):
         side: str,
         order_type: OrderType,
         time_in_force: str = "day",
-        limit_price: str = None,
+        limit_price: Optional[str] = None,
         stop_price: str = None,
         client_order_id: str = None,
         extended_hours: bool = None,
@@ -1075,7 +1075,7 @@ class AlpacaTrader(TraderAPI):
             The order type.
         time_in_force: str, default "day"
             The order duration.
-        limit_price: str, default None
+        limit_price: Optional[str], default None
             The limit price, for limit orders.
         stop_price: str, default None
             The stop price, for stop orders.

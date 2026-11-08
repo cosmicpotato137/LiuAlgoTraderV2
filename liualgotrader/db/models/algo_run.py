@@ -244,4 +244,4 @@ class AlgoRun(Base):
                 .where(cls.batch_id == batch_id)
                 .order_by(cls.start_time.desc(), cls.algo_run_id.desc())
             )
-            return [tuple(row) for row in rows]  # type: ignore
+            return [tuple(row) for row in rows]

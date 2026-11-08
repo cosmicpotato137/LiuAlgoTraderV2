@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, TimeScale
+from liualgotrader.data.data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
 

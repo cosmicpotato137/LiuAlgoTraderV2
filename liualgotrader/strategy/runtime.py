@@ -15,7 +15,7 @@ import pandas as pd
 from liualgotrader.common.exceptions import OwnershipCollision
 from liualgotrader.common.types import Order, Trade
 from liualgotrader.common.utils import notify
-from liualgotrader.strategy.new_base import (OpenOrder, OrderRequest,
+from liualgotrader.strategy.base import (OpenOrder, OrderRequest,
                                              PortfolioRule, Strategy,
                                              SymbolRule)
 

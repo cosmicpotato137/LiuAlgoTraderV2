@@ -3,6 +3,7 @@
 - [ ] Update database schema - not sure what's going on there
 - [ ] Is it a vulnerability to accept num_consumers blindly from config without checking the cpu capacity? (liualgotrader/scripts/trader.py)
 - [ ] enum for order side
+- [ ] Indicators are currently run out of Context. Should they instead be managed by RunState?
 - [x] Restructure classes to follow the pattern: Filters, Indicators, Signals, Rules. These classes are composed as part of a Strategy
 - [x] Update to use SQLite with optional postgres and MySQL
 - [x] Add docstrings

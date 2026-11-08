@@ -36,7 +36,15 @@
        stops its rule, signal and filter, or
        stops the run if
        `LIU_HALT_ON_COLLISION=1`; back-test
-       results are reported by strategy.
+       results are reported by strategy,
+    6. The `StockOhlc` model is removed. The
+       first run after upgrading drops the
+       `stock_ohlc` and
+       `trade_plan_execution_audit` tables,
+    7. `DataLoader` and `SymbolData` move to
+       `liualgotrader.data.data_loader`, and
+       `liualgotrader.common.market_data` is
+       removed.
 * - 0.4.35
   - 1. Switch to PDM for depency management
        and build.

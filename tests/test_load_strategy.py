@@ -9,7 +9,7 @@ import toml
 from liualgotrader import enhanced_backtest
 from liualgotrader.common import config
 from liualgotrader.scripts import backtester, optimizer, trader
-from liualgotrader.strategy.new_base import (Context, Filter, Signal,
+from liualgotrader.strategy.base import (Context, Filter, Signal,
                                              SymbolRule)
 from liualgotrader.strategy.tradeplan import (create_strategies,
                                               load_tradeplan,

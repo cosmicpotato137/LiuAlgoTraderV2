@@ -4,8 +4,6 @@ Classes
 -------
 TradePlan
     Strategy assigned to a portfolio, stored in the trade_plan table.
-TradePlanExecutionAudit
-    Execution of a trade plan entry, stored in trade_plan_execution_audit.
 """
 
 import uuid
@@ -107,35 +105,3 @@ class TradePlan(Base):
                 )
             )
             return list(entries)
-
-
-class TradePlanExecutionAudit(Base):
-    """Execution of a trade plan entry, stored in trade_plan_execution_audit.
-
-    Attributes
-    ----------
-    execution_id: int
-        The record identifier, or None until the record is saved.
-    trade_plan_id: Optional[uuid.UUID]
-        The identifier of the executed trade plan entry, or None.
-    details: Optional[Dict[str, Any]]
-        Details of the execution, or None.
-    started_on: Optional[pd.Timestamp]
-        The start time, which defaults to the time the record is saved.
-    ended_on: Optional[pd.Timestamp]
-        The end time, which defaults to the time the record is saved.
-    """
-
-    __tablename__ = "trade_plan_execution_audit"
-
-    execution_id: Mapped[int] = mapped_column(primary_key=True)
-    trade_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        Uuid(), ForeignKey("trade_plan.trade_plan_id")
-    )
-    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonDict)
-    started_on: Mapped[Optional[pd.Timestamp]] = mapped_column(
-        server_default=CurrentTimestamp()
-    )
-    ended_on: Mapped[Optional[pd.Timestamp]] = mapped_column(
-        server_default=CurrentTimestamp()
-    )

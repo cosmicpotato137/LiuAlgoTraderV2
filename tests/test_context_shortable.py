@@ -1,6 +1,6 @@
 import pytest
 
-from liualgotrader.strategy.new_base import Context
+from liualgotrader.strategy.base import Context
 
 
 class FakeTrader:

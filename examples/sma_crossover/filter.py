@@ -10,7 +10,7 @@ from typing import Optional
 
 import pandas as pd
 
-from liualgotrader.strategy.new_base import Filter
+from liualgotrader.strategy.base import Filter
 
 
 class MyFilter(Filter):

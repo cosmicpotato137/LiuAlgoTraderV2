@@ -4,8 +4,8 @@ import pandas as pd
 import pytest
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, TimeScale
+from liualgotrader.data.data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def test_apple_stock_current_price() -> bool:
 def test_apple_stock_current_price_range_int_minute() -> bool:
     logger.info("test_apple_stock_current_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, DataConnectorType.finnhub)
-    last_price_range = dl["AAPL"].close[-5:-1]  # type: ignore
+    last_price_range = dl["AAPL"].close[-5:-1]
     logger.info("%s", last_price_range)
     return True
 
@@ -56,7 +56,7 @@ def test_apple_stock_current_price_range_int_day() -> bool:
     config.data_connector = DataConnectorType.finnhub
     logger.info("test_apple_stock_current_price_range_int_day")
     dl = DataLoader(TimeScale.day, DataConnectorType.finnhub)
-    last_price_range = dl["AAPL"].close[-6:-1]  # type: ignore
+    last_price_range = dl["AAPL"].close[-6:-1]
     logger.info("%s", last_price_range)
 
     return True
@@ -153,7 +153,7 @@ def test_apple_stock_price_range_int_minute() -> bool:
     logger.info("test_apple_stock_close_price_range_str_minute")
     config.data_connector = DataConnectorType.finnhub
     dl = DataLoader(TimeScale.minute, DataConnectorType.finnhub)
-    last_price_range = dl["AAPL"][-5:-1]  # type: ignore
+    last_price_range = dl["AAPL"][-5:-1]
     logger.info("%s", last_price_range)
 
     return True
@@ -164,7 +164,7 @@ def test_apple_stock_price_range_int_day() -> bool:
     logger.info("test_apple_stock_price_range_int_day")
     config.data_connector = DataConnectorType.finnhub
     dl = DataLoader(TimeScale.day, DataConnectorType.finnhub)
-    last_price_range = dl["AAPL"][-5:-1]  # type: ignore
+    last_price_range = dl["AAPL"][-5:-1]
     logger.info("%s", last_price_range)
 
     return True
@@ -234,7 +234,7 @@ def test_apple_stock_price_range_date_min_open() -> bool:
     config.data_connector = DataConnectorType.finnhub
     dl = DataLoader(TimeScale.minute, DataConnectorType.finnhub)
     try:
-        last_price_range = dl["AAPL"][:]  # type: ignore
+        last_price_range = dl["AAPL"][:]
         logger.info("%s", last_price_range)
     except ValueError:
         return True
@@ -247,7 +247,7 @@ def test_apple_stock_price_open_range_date_min_open() -> bool:
     config.data_connector = DataConnectorType.finnhub
     dl = DataLoader(TimeScale.minute, DataConnectorType.finnhub)
     try:
-        last_price_range = dl["AAPL"].open[:]  # type: ignore
+        last_price_range = dl["AAPL"].open[:]
         logger.info("%s", last_price_range)
     except ValueError:
         return True
@@ -261,9 +261,7 @@ def test_apple_stock_price_range_date_min() -> bool:
     dl = DataLoader(TimeScale.minute, DataConnectorType.finnhub)
     d1 = pd.Timestamp("2021-02-01", tz=clock.NY)
     d2 = pd.Timestamp("2021-02-02", tz=clock.NY)
-    last_price_range = dl["AAPL"][d1:d2].between_time(  # type: ignore
-        "9:30", "16:00"
-    )  # type: ignore
+    last_price_range = dl["AAPL"][d1:d2].between_time("9:30", "16:00")
     logger.info("%s", last_price_range)
 
     return True
@@ -277,9 +275,7 @@ def test_apple_stock_price_range_date_min_mixed() -> bool:
     d1 = pd.Timestamp("2021-02-01", tz=clock.NY)
     last_price_range = dl["AAPL"][
         d1 : pd.Timestamp("2021-02-02", tz=clock.NY)
-    ].between_time(
-        "9:30", "16:00"
-    )  # type: ignore
+    ].between_time("9:30", "16:00")
     logger.info("%s", last_price_range)
 
     return True
@@ -306,7 +302,7 @@ def test_apple_stock_price_open_range_date_min_mixed() -> bool:
     last_price_range = (
         dl["AAPL"]
         .open[d1 : pd.Timestamp("2021-02-02", tz=clock.NY)]
-        .between_time("9:30", "16:00")  # type: ignore
+        .between_time("9:30", "16:00")
     )
     logger.info("%s", last_price_range)
 

@@ -28,12 +28,12 @@ from typing import Dict, Optional, cast
 import pandas as pd
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.exceptions import OwnershipCollision
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import Order, QueueMessageType, Trade
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategy.new_base import (Context, OpenOrder, OrderRequest,
+from liualgotrader.strategy.base import (Context, OpenOrder, OrderRequest,
                                              PortfolioRule, Strategy)
 from liualgotrader.strategy.runtime import RunState
 from liualgotrader.strategy.tradeplan import create_strategies
@@ -174,7 +174,7 @@ class Consumer:
             order_type=request.type,
             time_in_force="day",
             limit_price=(
-                None  # type: ignore[arg-type]
+                None
                 if request.limit_price is None
                 else str(request.limit_price)
             ),

@@ -30,7 +30,7 @@ import os
 import sys
 import uuid
 from datetime import date
-from typing import Dict, List
+from typing import Any, Dict, Iterable, List, Tuple
 
 from liualgotrader.backtesting.optimizer import backtest_iteration
 from liualgotrader.common import clock, config
@@ -95,14 +95,14 @@ def create_hyperparameters(parameters: Dict) -> Hyperparameters:
     return Hyperparameters(params)
 
 
-def realize(config: Dict, parameters: tuple) -> Dict:
+def realize(config: Dict, parameters: Iterable[Tuple[str, Any]]) -> Dict:
     """Return a copy of a configuration with parameter values applied.
 
     Parameters
     ----------
     config: Dict
         The configuration; not modified.
-    parameters: tuple
+    parameters: Iterable[Tuple[str, Any]]
         Pairs of a dotted configuration path and its value.
     """
     d = copy.deepcopy(config)
@@ -166,7 +166,11 @@ def optimize(
                 optimizer_session_id,
                 start_date,
                 end_date,
-                [realize(realize(strategy, hyperparameter), parameters_values)],  # type: ignore
+                [
+                    realize(
+                        realize(strategy, hyperparameter), parameters_values
+                    )
+                ],
                 hyperparameter,
             ),
         )

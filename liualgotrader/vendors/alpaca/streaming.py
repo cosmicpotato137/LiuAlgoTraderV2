@@ -20,7 +20,7 @@ from alpaca.data.live import CryptoDataStream, StockDataStream
 from alpaca.data.live.websocket import DataStream
 
 from liualgotrader.common import clock
-from liualgotrader.common.list_utils import chunks
+from liualgotrader.common.list_utils import list_chunks
 from liualgotrader.common.types import (QueueMessageType, SymbolQueueMap,
                                         WSEventType)
 from liualgotrader.stream.base import StreamingAPI
@@ -464,7 +464,7 @@ class AlpacaStream(StreamingAPI):
         logger.info("Starting subscription for %s symbols", len(symbols))
         upper_symbols = [symbol.upper() for symbol in symbols]
         stock, crypto = self.stock_ws_client, self.crypto_ws_client
-        for syms in chunks(upper_symbols, 1000):
+        for syms in list_chunks(upper_symbols, 1000):
             logger.info("\tsubscribe %s/%s", len(syms), len(upper_symbols))
 
             crypto_symbols = list(filter(is_crypto_symbol, syms))

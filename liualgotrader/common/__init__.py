@@ -8,8 +8,6 @@ concurrency
     Determine how many consumer processes to run.
 config
     Framework-wide configuration settings.
-data_loader
-    Market data containers that load bar data on demand.
 database
     Database connection pool and SQL results as pandas DataFrames.
 exceptions
@@ -18,8 +16,6 @@ hyperparameter
     Hyper-parameter definitions for the back-test optimizer.
 list_utils
     Sequence utilities.
-market_data
-    Market data and trading calendar lookups.
 log
     Logging set-up for the framework's processes.
 types

@@ -8,6 +8,7 @@ GeminiTrader
     Trader implementation for the Gemini cryptocurrency exchange.
 """
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -53,8 +54,8 @@ class GeminiTrader(TraderAPI):
     ----------
     config: GeminiConfig
         The connection settings.
-    running_task: Optional[Thread]
-        The order event listener thread, or None.
+    running_task: Optional[asyncio.Task]
+        The order event listener, or None.
     hb_task: Optional[Thread]
         The heartbeat thread, or None.
     send_hb
@@ -88,7 +89,7 @@ class GeminiTrader(TraderAPI):
     get_time_market_close
         Return the time left in the day (overrides Trader).
     reconnect
-        Restart the listener and heartbeat threads (overrides Trader).
+        Restart the listener and heartbeat thread (overrides Trader).
     _heartbeat
         Send heartbeats to Gemini until told to stop.
     on_message
@@ -98,9 +99,9 @@ class GeminiTrader(TraderAPI):
     on_close
         Log the closing of the stream.
     run
-        Start the listener and heartbeat threads (overrides Trader).
+        Start the listener and heartbeat thread (overrides Trader).
     close
-        Stop the listener and heartbeat threads (overrides Trader).
+        Stop the listener and heartbeat thread (overrides Trader).
     get_tradeable_symbols
         Return the symbols traded on Gemini (overrides Trader).
     get_shortable_symbols
@@ -126,10 +127,10 @@ class GeminiTrader(TraderAPI):
             The queue mapper that receives trade updates.
         """
         self.config = config
-        self.running_task: Optional[Thread] = None
+        self.running_task: Optional[asyncio.Task] = None
         self.hb_task: Optional[Thread] = None
         self.send_hb = True
-        self.ws = None
+        self.ws: Optional[websocket.WebSocketApp] = None
         self.flags: Optional[ThreadFlags] = None
         self.last_nonce: Optional[int] = None
         super().__init__(qm)
@@ -490,7 +491,7 @@ class GeminiTrader(TraderAPI):
         )
 
     async def reconnect(self):
-        """Restart the order event listener and heartbeat threads."""
+        """Restart the order event listener and heartbeat thread."""
         await self.close()
         await self.run()
 
@@ -608,13 +609,15 @@ class GeminiTrader(TraderAPI):
             "on_close(): status=%s, close_msg=%s", close_status_code, close_msg
         )
 
-    async def run(self):
-        """Start the order event listener and heartbeat threads.
+    async def run(self) -> asyncio.Task:
+        """Start the order event listener and the heartbeat thread.
+
+        The blocking WebSocket client runs in a thread, wrapped in a task.
 
         Returns
         -------
-        Return the listener thread; if it already exists, return it without
-        starting new threads.
+        Return the listener task; if it already exists, return it without
+        starting another.
 
         Raises
         ------
@@ -632,28 +635,28 @@ class GeminiTrader(TraderAPI):
                 on_close=self.on_close,
                 header=headers,
             )
-            self.running_task = Thread(
-                target=self.ws.run_forever,
-                args=(None, {"cert_reqs": ssl.CERT_NONE}),
+            self.running_task = asyncio.create_task(
+                asyncio.to_thread(
+                    self.ws.run_forever, sslopt={"cert_reqs": ssl.CERT_NONE}
+                )
             )
             self.flags = ThreadFlags(run=True)
             self.hb_task = Thread(target=self._heartbeat, args=(self.flags,))
-            self.running_task.start()
             self.hb_task.start()
 
         return self.running_task
 
     async def close(self):
-        """Stop the listener and heartbeat threads if the listener is running.
+        """Stop the listener and heartbeat thread if the listener is running.
 
-        Block until both threads have finished.
+        Wait until both have finished.
         """
-        if self.running_task and self.running_task.is_alive():
+        if self.running_task and not self.running_task.done():
             logger.info("close task %s", self.running_task)
             self.ws.keep_running = False
             self.flags.run = False
-            self.running_task.join()
-            self.hb_task.join()
+            await self.running_task
+            await asyncio.to_thread(self.hb_task.join)
             logger.info("task terminated")
             self.ws = None
             self.running_task = None
@@ -729,7 +732,7 @@ class GeminiTrader(TraderAPI):
         side: str,
         order_type: OrderType,
         time_in_force: str = None,
-        limit_price: str = None,
+        limit_price: Optional[str] = None,
         stop_price: str = None,
         client_order_id: str = None,
         extended_hours: bool = None,
@@ -742,7 +745,7 @@ class GeminiTrader(TraderAPI):
     ) -> Order:
         """Submit an exchange limit order to Gemini.
 
-        A failed request also stops the listener threads.
+        A failed request also stops the listener and heartbeat thread.
 
         Parameters
         ----------
@@ -756,7 +759,7 @@ class GeminiTrader(TraderAPI):
             The order type; market orders are rejected.
         time_in_force: str, default None
             Ignored.
-        limit_price: str, default None
+        limit_price: Optional[str], default None
             The price of a limit order; other order types get a placeholder
             price.
         stop_price: str, default None
@@ -801,7 +804,7 @@ class GeminiTrader(TraderAPI):
         endpoint = "/v1/order/new"
         url = self.config.trading_base_url + endpoint
         qty = round_asset(symbol, qty)
-        payload = {
+        payload: Dict = {
             "request": endpoint,
             "symbol": symbol,
             "amount": str(qty),

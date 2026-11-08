@@ -6,6 +6,8 @@ Modules
 -------
 base
     Abstract interface for historical market data providers.
+data_loader
+    Market data containers that load bar data on demand.
 factory
     Create the configured market data provider.
 """

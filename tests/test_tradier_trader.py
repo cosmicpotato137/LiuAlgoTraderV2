@@ -6,9 +6,9 @@ import pandas as pd
 import pytest
 
 from liualgotrader.common import clock, config
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import (DataConnectorType, Order, OrderType,
                                         TimeScale)
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.tradier.trader import TradierTrader
 

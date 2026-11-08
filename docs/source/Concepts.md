@@ -160,12 +160,11 @@ files for a future developer.
 │   ├── common
 |   |   ├── types.py
 |   |   ├── config.py
-|   |   ├── market_data.py
-|   |   ├── log.py
-|   |   └── data_loader.py
+|   |   └── log.py
 |   ├── data
-|   |   ├── data_base.py
-|   |   └── data_factory.py
+|   |   ├── base.py
+|   |   ├── data_loader.py
+|   |   └── factory.py
 |   ├── market_calendar
 |   |   ├── base.py
 |   |   └── factory.py
@@ -279,7 +278,6 @@ The main database tables are as follows:
 
 | Name                | Description |
 | ------------------- | ----------- |
-| stock_ohlc          | Daily OHLC "cache" for back-testing. |
 | trending_tickers    | Tracks of selected stocks per `batch_id`, including time-stamp and filter name. |
 | algo_run            | Strategy execution log, per `batch_id` and consumer process, of earlier releases. More details below. |
 | new_trades          | Tracks of each executed order (including partial), per `algo_run`, of earlier releases. |
@@ -287,18 +285,6 @@ The main database tables are as follows:
 | portfolio_batch_ids | Table associating portfolio to batches. |
 | keystore            | Key/Value repository. Convenient for Strategies to track values cross batch executions. |
 | accounts            | Bank-account equivalent. Mostly used to keep track of portfolio cash amounts. |
-
-#### `stock_ohlc` table
-- symbol
-- symbol_date
-- open
-- high
-- low
-- close
-- volume
-- indicators JSONB,
-
-The table holds daily OHLC values, per stock, including indicators.
 
 #### `algo_run` table
 

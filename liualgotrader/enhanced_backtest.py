@@ -27,10 +27,10 @@ import pandas as pd
 
 from liualgotrader.common import config
 from liualgotrader.common.concurrency import reset_event_loop
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
-from liualgotrader.common.types import AssetType, Order, OrderType, TimeScale
+from liualgotrader.common.types import AssetType, Order, TimeScale
+from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategy.new_base import (Context, OrderRequest,
+from liualgotrader.strategy.base import (Context, OrderRequest,
                                              PortfolioRule, Strategy)
 from liualgotrader.strategy.runtime import RunState
 from liualgotrader.strategy.tradeplan import create_strategies
@@ -217,8 +217,8 @@ class Backtest:
             # bar trades through it later, and not at all otherwise.
             is_buy = request.side == Order.FillSide.buy
             price = float(bar["open"])
-            if request.type != OrderType.MARKET:
-                limit = float(request.limit_price)  # type: ignore
+            if request.limit_price is not None:
+                limit = float(request.limit_price)
                 fills = bar["low"] <= limit if is_buy else bar["high"] >= limit
                 if not fills:
                     await self.state.cancel_order(order_id)

@@ -220,10 +220,9 @@ async def producer_async_main(
                 filter_queue, SymbolRouter(queues, portfolio_strategy_names, stream)
             ),
             name="filter_input",
-        )
+        ),
+        trade_updates_task,
     ]
-    if trade_updates_task:
-        tasks.append(trade_updates_task)
 
     await asyncio.gather(*tasks, return_exceptions=True)
 

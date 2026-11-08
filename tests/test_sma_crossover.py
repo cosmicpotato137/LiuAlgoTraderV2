@@ -9,7 +9,7 @@ import pytest
 from liualgotrader.common import clock
 from liualgotrader.common.types import TimeScale
 from liualgotrader.enhanced_backtest import Backtest
-from liualgotrader.strategy.new_base import Context
+from liualgotrader.strategy.base import Context
 from liualgotrader.strategy.runtime import RunState
 from liualgotrader.strategy.tradeplan import create_strategies, load_tradeplan
 

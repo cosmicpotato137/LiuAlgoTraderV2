@@ -4,8 +4,8 @@ import pandas as pd
 import pytest
 
 from liualgotrader.common import clock
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import DataConnectorType, TimeScale
+from liualgotrader.data.data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def test_btc_current_price() -> bool:
 def test_stock_current_price_range_int_minute() -> bool:
     logger.info("test_stock_current_price_range_int_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.gemini)
-    last_price_range = dl["BTCUSD"].close[-5:-1]  # type: ignore
+    last_price_range = dl["BTCUSD"].close[-5:-1]
     logger.info("%s", last_price_range)
     return True
 
@@ -122,7 +122,7 @@ def test_stock_close_price_range_str_minute_int() -> bool:
 def test_stock_price_range_int_minute() -> bool:
     logger.info("test_stock_close_price_range_str_minute")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.gemini)
-    last_price_range = dl["ETHUSD"][-5:-1]  # type: ignore
+    last_price_range = dl["ETHUSD"][-5:-1]
     logger.info("%s", last_price_range)
 
     return True
@@ -132,7 +132,7 @@ def test_stock_price_range_int_minute() -> bool:
 def test_stock_price_range_int_day() -> bool:
     logger.info("test_stock_price_range_int_day")
     dl = DataLoader(TimeScale.day, connector=DataConnectorType.gemini)
-    last_price_range = dl["ETHUSD"][-5:-1]  # type: ignore
+    last_price_range = dl["ETHUSD"][-5:-1]
     logger.info("%s", last_price_range)
 
     return True
@@ -192,7 +192,7 @@ def test_stock_price_range_date_min_open() -> bool:
     logger.info("test_stock_price_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.gemini)
     try:
-        last_price_range = dl["ETHUSD"][:]  # type: ignore
+        last_price_range = dl["ETHUSD"][:]
         logger.info("%s", last_price_range)
     except ValueError:
         return True
@@ -204,7 +204,7 @@ def test_stock_price_open_range_date_min_open() -> bool:
     logger.info("test_stock_price_open_range_date_min_open")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.gemini)
     try:
-        last_price_range = dl["BTCUSD"].open[:]  # type: ignore
+        last_price_range = dl["BTCUSD"].open[:]
         logger.info("%s", last_price_range)
     except ValueError:
         return True

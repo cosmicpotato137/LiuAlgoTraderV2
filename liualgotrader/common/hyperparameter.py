@@ -141,7 +141,9 @@ class Parameter:
                     f"midding `delta` parameter for hyper-parameter {self.name}"
                 )
             self.value = (
-                self.value + self.delta if self.value else float(self.initial_value)  # type: ignore
+                self.value + self.delta
+                if self.value
+                else float(self.initial_value)
             )
         else:
             raise NotImplementedError(

@@ -15,7 +15,7 @@ from sqlalchemy import select
 from liualgotrader.common import clock, config
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import session_scope
-from liualgotrader.strategy.new_base import Filter
+from liualgotrader.strategy.base import Filter
 from liualgotrader.vendors.alpaca.data import AlpacaData
 from liualgotrader.vendors.polygon.data import PolygonData
 

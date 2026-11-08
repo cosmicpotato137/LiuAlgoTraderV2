@@ -1,4 +1,3 @@
-# type: ignore
 """Market data containers that load bar data on demand.
 
 Classes
@@ -791,7 +790,7 @@ class SymbolData:
             self,
             data_api: DataAPI,
             name: str,
-            data: object,
+            data: "SymbolData",
             scale: TimeScale,
             concurrency: int,
         ):
@@ -803,7 +802,7 @@ class SymbolData:
                 The data source used to fetch missing data.
             name: str
                 The column name.
-            data: object
+            data: SymbolData
                 The parent SymbolData instance.
             scale: TimeScale
                 The time scale of the data.
@@ -930,7 +929,7 @@ class SymbolData:
         self.symbol = symbol
         self.scale = scale
         self.concurrency = concurrency
-        self.columns: Dict[str, self._Column] = {}  # type: ignore
+        self.columns: Dict[str, "SymbolData._Column"] = {}
 
         self.symbol_data = (
             prefetched_data
@@ -1057,7 +1056,7 @@ class DataLoader:
         The SymbolData containers, by symbol.
     scale: TimeScale
         The time scale of the data.
-    concurrency: Optional[int]
+    concurrency: int
         Nonzero to fetch in parallel.
 
     Methods
@@ -1074,7 +1073,7 @@ class DataLoader:
         self,
         scale: TimeScale = TimeScale.minute,
         connector: DataConnectorType = config.data_connector,
-        concurrency: Optional[int] = 0,
+        concurrency: int = 0,
     ):
         """Initialize the loader and its data source.
 
@@ -1084,7 +1083,7 @@ class DataLoader:
             The time scale of the data.
         connector: DataConnectorType, default config.data_connector
             The data provider, by default the one configured at import time.
-        concurrency: Optional[int], default 0
+        concurrency: int, default 0
             Nonzero to fetch in parallel.
 
         Raises

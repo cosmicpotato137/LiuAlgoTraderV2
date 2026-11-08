@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import linregress
 
-from liualgotrader.common.data_loader import DataLoader  # type: ignore
+from liualgotrader.data.data_loader import DataLoader
 
 
 class SeriesTrendType(Enum):
@@ -106,7 +106,7 @@ def volatility(
     """
     return (
         data_loader[symbol]
-        .close[now - pd.Timedelta(days=30) : now]  # type: ignore
+        .close[now - pd.Timedelta(days=30) : now]
         .pct_change()
         .rolling(20)
         .std()

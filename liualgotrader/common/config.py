@@ -46,9 +46,13 @@ tradeplan_folder: str = (
 env: str
 
 
-data_connector: DataConnectorType = DataConnectorType[os.getenv("DATA_CONNECTOR", "alpaca")]  # type: ignore
+data_connector: DataConnectorType = DataConnectorType[
+    os.getenv("DATA_CONNECTOR", "alpaca")
+]
 # The vendor of the US equities market calendar
-calendar_connector: DataConnectorType = DataConnectorType[os.getenv("CALENDAR_CONNECTOR", "alpaca")]  # type: ignore
+calendar_connector: DataConnectorType = DataConnectorType[
+    os.getenv("CALENDAR_CONNECTOR", "alpaca")
+]
 
 # Performance, Debugging & Logging
 trace_enabled = bool(int(os.getenv("LIU_TRACE_ENABLED", 0)))
