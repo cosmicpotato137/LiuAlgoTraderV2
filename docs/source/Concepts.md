@@ -300,7 +300,7 @@ back-testing:
 - `batch_id`
 - start and end time-stamps. If an end-date is missing, it means execution was stopped during the trading day.
 - strategy name
-- environment (PAPER, BACKTEST, PROD)
+- environment (PAPER or LIVE, and PROD or BACKTEST in earlier releases)
 
 #### `new_trades` table
 

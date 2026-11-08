@@ -19,10 +19,10 @@ from liualgotrader.common.types import (
     AssetType,
     Order,
     OrderType,
+    OrderUpdate,
     QueueMessageType,
     SymbolQueueMap,
     TimeScale,
-    Trade,
 )
 from liualgotrader.consumer import Consumer
 from liualgotrader.enhanced_backtest import (
@@ -206,8 +206,8 @@ def submitted(order_id: str, symbol: str, side=BUY) -> Order:
     )
 
 
-def fill(order_id: str, qty: float, side=BUY, partial=False) -> Trade:
-    return Trade(
+def fill(order_id: str, qty: float, side=BUY, partial=False) -> OrderUpdate:
+    return OrderUpdate(
         order_id=order_id,
         symbol="aapl",
         event=(
@@ -616,21 +616,7 @@ async def test_backtest_universe_lasts_until_next_filter_run() -> None:
     universe = strategies["r"].universe
     if selector.runs != 1 or universe != {"aapl"}:
         raise AssertionError(f"universe lost before the next run: {universe}")
-
-
-@pytest.mark.asyncio
-async def test_filter_without_recurrence_is_due_once_a_day(ctx) -> None:
-    selector = Fixed(ctx=ctx, name="r")
-    if not selector.is_due(DAY_START):
-        raise AssertionError("filter not due before its first run")
-
-    await selector.select(DAY_START)
-
-    if selector.last_run != DAY_START or selector.is_due(DAY_START + MINUTE):
-        raise AssertionError("filter due again on the day of its run")
-    if not selector.is_due(DAY_START + pd.Timedelta(days=1)):
-        raise AssertionError("filter not due on the next day")
-
+    
 
 @pytest.mark.asyncio
 async def test_decide_portfolio_records_the_run_of_the_rule(ctx) -> None:

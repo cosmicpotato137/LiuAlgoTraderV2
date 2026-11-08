@@ -30,7 +30,7 @@ trending_tickers
 from liualgotrader.db.models.accounts import Account, AccountTransaction
 from liualgotrader.db.models.algo_run import AlgoRun
 from liualgotrader.db.models.keystore import KeyStore
-from liualgotrader.db.models.new_trades import NewTrade
+from liualgotrader.db.models.new_trades import Trade
 from liualgotrader.db.models.optimizer import OptimizerRun
 from liualgotrader.db.models.portfolio import Portfolio, PortfolioBatchId
 from liualgotrader.db.models.tradeplan import TradePlan
@@ -41,10 +41,10 @@ __all__ = [
     "AccountTransaction",
     "AlgoRun",
     "KeyStore",
-    "NewTrade",
     "OptimizerRun",
     "Portfolio",
     "PortfolioBatchId",
+    "Trade",
     "TradePlan",
     "TrendingTicker",
 ]

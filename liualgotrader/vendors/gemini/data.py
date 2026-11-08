@@ -35,25 +35,29 @@ logger = logging.getLogger(__name__)
 _session = requests.Session()
 
 
-def requests_get(url):
+def requests_get(url, config: GeminiConfig):
     """Return the response to an unauthenticated GET request.
 
-    Retry without limit, pausing between attempts, while the server responds
-    with status 429 or 502.
+    Try up to config.request_attempts times, sleeping
+    config.request_retry_seconds between tries, while the server responds
+    with status 429 or 502, and return the last response.
 
     Parameters
     ----------
     url
         The URL to request.
+    config: GeminiConfig
+        The settings that give the number of tries and the wait between them.
     """
-    r = _session.get(url)
-
-    if r.status_code in (429, 502):
-        logger.warning(
-            "%s return %s, waiting and re-trying", url, r.status_code
-        )
-        time.sleep(10)
-        return requests_get(url)
+    for attempt in range(1, config.request_attempts + 1):
+        r = _session.get(url)
+        if r.status_code not in (429, 502):
+            break
+        if attempt < config.request_attempts:
+            logger.warning(
+                "%s return %s, waiting and re-trying", url, r.status_code
+            )
+            time.sleep(config.request_retry_seconds)
 
     return r
 
@@ -268,6 +272,7 @@ class GeminiData(DataAPI):
                     executor,
                     requests_get,
                     f"{self.config.base_url}{endpoint}?timestamp={int(current_timestamp.timestamp())}&limit_trades=500",
+                    self.config,
                 )
                 for current_timestamp in ranges[:-1]
             ]

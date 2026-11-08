@@ -344,7 +344,7 @@ A rule hears about its own orders through two callbacks, which do nothing in
 the base class:
 
 * `on_fill(trade)` is called after a full or partial fill, once the framework
-  updated the strategy's position. `trade` is a `Trade` from
+  updated the strategy's position. `trade` is an `OrderUpdate` from
   `liualgotrader.common.types`, with the side, quantity, price and fee of the
   execution,
 * `on_cancel(order)` is called when an order is canceled, rejected or expires

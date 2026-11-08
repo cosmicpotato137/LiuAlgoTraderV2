@@ -38,6 +38,12 @@ class AlpacaConfig:
         Whether to log the traceback of errors in event handlers.
     detailed_dl_debug_enabled: bool
         Whether to log each historical data request.
+    request_attempts: int
+        How many times to send a request that is rejected as rate-limited or
+        unavailable, such as with status 429.
+    request_retry_seconds: float
+        The seconds to wait between tries, unless a Broker API response gives
+        the time its rate limit resets.
     """
 
     api_key: str = ""
@@ -51,3 +57,5 @@ class AlpacaConfig:
     broker_api_secret: Optional[str] = None
     debug_enabled: bool = False
     detailed_dl_debug_enabled: bool = False
+    request_attempts: int = 6
+    request_retry_seconds: float = 10.0

@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
+from liualgotrader.common import config
 from liualgotrader.common.types import Order, OrderType, SymbolQueueMap
 from liualgotrader.db.models.algo_run import AlgoRun
 
@@ -98,6 +99,8 @@ class TraderAPI:
     async def create_session(self, strategy_name: str) -> AlgoRun:
         """Create a new strategy run and save it to the database.
 
+        Record the run under config.env.
+
         Parameters
         ----------
         strategy_name: str
@@ -109,7 +112,7 @@ class TraderAPI:
         """
         new_batch_id = str(uuid.uuid4())
         algo_run = AlgoRun(strategy_name=strategy_name, batch_id=new_batch_id)
-        await algo_run.save()
+        await algo_run.save(env=config.env.value)
         return algo_run
 
     def get_market_schedule(

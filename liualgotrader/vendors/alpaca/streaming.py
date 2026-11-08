@@ -20,9 +20,9 @@ from alpaca.data.live import CryptoDataStream, StockDataStream
 from alpaca.data.live.websocket import DataStream
 
 from liualgotrader.common import clock
-from liualgotrader.common.list_utils import list_chunks
 from liualgotrader.common.types import (QueueMessageType, SymbolQueueMap,
                                         WSEventType)
+from liualgotrader.common.utils import list_chunks
 from liualgotrader.stream.base import StreamingAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
 from liualgotrader.vendors.alpaca.util import (alpaca_time, crypto_pair,

@@ -17,7 +17,7 @@ To use the `optimizer` application, a new section should be added to the strateg
 
 * Note the [optimizer] section is added to the strategy file, with `parameters` and `hyperparameters` tables,
 * `start_date` & `end_date` specify the time-window for back-testing,
-* The `optimizer` always runs in daily time-scale, on US equities and without fees,
+* `scale` (`day` or `minute`), `asset` (`equity` or `crypto`), `buy_fee_percentage` and `sell_fee_percentage` set the time-scale, asset type and fees of the back-tests, like the `backtester` options of the same names. They are optional, and default to `day`, `equity` and no fees,
 * Parameters and hyper-parameters are named by the table of the strategy file they apply to: `filter`, `signal` or `rule`. For example, `[optimizer.hyperparameters.rule]` lists the hyper-parameters of the strategy's rule, and `[optimizer.hyperparameters.signal]` those of its signal,
 * The `optimizer` optimizes each strategy file of the trade plan that has an [optimizer] section, one strategy after the other, each with its own dates. It back-tests each strategy alone, without the other strategies of the trade plan.
 

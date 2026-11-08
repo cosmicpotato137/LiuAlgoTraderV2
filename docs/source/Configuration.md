@@ -60,6 +60,19 @@ entries written to STDOUT by all `LiuAlgoTrader`
 applications: `DEBUG`, `INFO` (default), `WARNING`
 or `ERROR`.
 
+`LIU_ENV` names the environment that algorithm
+runs are recorded under in the `algo_run` table:
+`PAPER` (default) or `LIVE`.
+
+`LIU_REQUEST_ATTEMPTS` sets how many times a
+request is sent when the Alpaca, Gemini or Tradier
+API rejects it as rate-limited or unavailable,
+such as with status 429 (default `6`), and
+`LIU_REQUEST_RETRY_SECONDS` how many seconds to
+wait between tries (default `10`). The Alpaca
+Broker API waits until the time its response gives
+for its rate limit to reset, if it gives one.
+
 `LIU_HALT_ON_COLLISION` sets what happens when a
 strategy requests a symbol that another strategy
 owns: `0` (default) deactivates the strategy with

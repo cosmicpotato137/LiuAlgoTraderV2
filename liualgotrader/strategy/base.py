@@ -54,7 +54,7 @@ from typing import Callable, Optional, Self, TypeVar, cast
 
 import pandas as pd
 
-from liualgotrader.common.types import AssetType, Order, OrderType, Trade
+from liualgotrader.common.types import AssetType, Order, OrderType, OrderUpdate
 from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.market_calendar.base import MarketCalendarAPI
 from liualgotrader.market_calendar.factory import market_calendar_factory
@@ -733,7 +733,7 @@ class Rule(Component):
         super().__init__(**kwargs)
         self.signal = signal
 
-    async def on_fill(self, trade: Trade) -> None:
+    async def on_fill(self, trade: OrderUpdate) -> None:
         """Handle a full or partial fill of one of the rule's orders.
 
         The runtime calls this method after it updates the position of the
@@ -741,7 +741,7 @@ class Rule(Component):
 
         Parameters
         ----------
-        trade: Trade
+        trade: OrderUpdate
             The execution.
         """
 

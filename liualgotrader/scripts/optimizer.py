@@ -4,7 +4,8 @@ Usage: optimizer [--concurrency=<processes>]
 For each strategy file of the trade plan, in TRADEPLAN_DIR or the current
 directory, that has an optimizer section, backtest the strategy alone with
 each hyperparameter combination of the section, with at most 4 concurrent
-backtests by default.
+backtests by default. The section sets the time scale, asset type and fees of
+the backtests, as the backtester options do.
 
 Functions
 ---------
@@ -14,6 +15,8 @@ create_parameters
     Return the parameters defined in a configuration.
 create_hyperparameters
     Return the hyperparameters defined in a configuration.
+create_backtest_settings
+    Return the backtest settings of an optimizer section.
 realize
     Return a copy of a configuration with parameter values applied.
 optimize
@@ -32,11 +35,14 @@ import uuid
 from datetime import date
 from typing import Any, Dict, Iterable, List, Tuple
 
-from liualgotrader.backtesting.optimizer import backtest_iteration
+from liualgotrader.backtesting.optimizer import (BacktestSettings,
+                                                 backtest_iteration)
 from liualgotrader.common import clock, config
 from liualgotrader.common.hyperparameter import Hyperparameters, Parameter
 from liualgotrader.common.log import configure_logging
+from liualgotrader.common.types import TimeScale
 from liualgotrader.common.utils import date_from_string
+from liualgotrader.scripts.backtester import ASSET_TYPES
 from liualgotrader.strategy.tradeplan import COMPONENTS, load_tradeplan
 
 logger = logging.getLogger(__name__)
@@ -95,6 +101,47 @@ def create_hyperparameters(parameters: Dict) -> Hyperparameters:
     return Hyperparameters(params)
 
 
+def create_backtest_settings(optimizer: Dict) -> BacktestSettings:
+    """Return the backtest settings of an optimizer section.
+
+    Read the optional scale (day or minute), asset (equity or crypto),
+    buy_fee_percentage and sell_fee_percentage settings, which default to day,
+    equity and no fees, like the backtester options of the same names.
+
+    Parameters
+    ----------
+    optimizer: Dict
+        The optimizer section of a strategy file.
+
+    Raises
+    ------
+    Raise ValueError if a setting has an invalid value.
+    """
+    scale = optimizer.get("scale", TimeScale.day.name)
+    if scale not in TimeScale.__members__:
+        raise ValueError(
+            f"scale must be one of {list(TimeScale.__members__)}, got "
+            f"{scale!r}"
+        )
+    asset = optimizer.get("asset", "equity")
+    if not isinstance(asset, str) or asset.lower() not in ASSET_TYPES:
+        raise ValueError(
+            f"asset must be one of {list(ASSET_TYPES)}, got {asset!r}"
+        )
+    fees = {}
+    for key in ("buy_fee_percentage", "sell_fee_percentage"):
+        fee = optimizer.get(key, 0.0)
+        if isinstance(fee, bool) or not isinstance(fee, (int, float)):
+            raise ValueError(f"{key} must be a number, got {fee!r}")
+        fees[key] = float(fee)
+
+    return BacktestSettings(
+        scale=TimeScale[scale],
+        asset_type=ASSET_TYPES[asset.lower()],
+        **fees,
+    )
+
+
 def realize(config: Dict, parameters: Iterable[Tuple[str, Any]]) -> Dict:
     """Return a copy of a configuration with parameter values applied.
 
@@ -125,6 +172,7 @@ def optimize(
     parameters: List[Parameter],
     strategy: Dict,
     concurrency: int,
+    settings: BacktestSettings = BacktestSettings(),
 ):
     """Run a backtest of a strategy for each hyperparameter combination in
     parallel.
@@ -147,6 +195,8 @@ def optimize(
         The strategy file to apply the values to.
     concurrency: int
         The maximum number of backtests to run at the same time.
+    settings: BacktestSettings, default BacktestSettings()
+        The time scale, asset type and fees of the backtests.
     """
     optimizer_session_id = str(uuid.uuid4())
     logger.info(
@@ -172,6 +222,7 @@ def optimize(
                     )
                 ],
                 hyperparameter,
+                settings,
             ),
         )
         processes.append(p)
@@ -191,7 +242,7 @@ def main_cli() -> None:
     Run optimize for each strategy with an optimizer section, taking an
     optional --concurrency option (default 4) for the number of parallel
     backtests. Exit early on invalid arguments, a missing trade plan, no
-    optimizer section or unparsable dates.
+    optimizer section, unparsable dates or invalid backtest settings.
 
     Raises
     ------
@@ -234,7 +285,14 @@ def main_cli() -> None:
                 "failed to load start & end dates of %s", strategy["name"]
             )
             sys.exit(0)
-        runs.append((strategy, start_date, end_date))
+        try:
+            settings = create_backtest_settings(strategy["optimizer"])
+        except ValueError as error:
+            logger.error(
+                "invalid optimizer settings of %s: %s", strategy["name"], error
+            )
+            sys.exit(0)
+        runs.append((strategy, start_date, end_date, settings))
 
     if not runs:
         logger.error(
@@ -243,7 +301,7 @@ def main_cli() -> None:
         )
         sys.exit(0)
 
-    for strategy, start_date, end_date in runs:
+    for strategy, start_date, end_date, settings in runs:
         logger.info("optimizing strategy %s", strategy["name"])
         optimize(
             start_date=start_date,
@@ -256,6 +314,7 @@ def main_cli() -> None:
             ),
             strategy=strategy,
             concurrency=concurrency,
+            settings=settings,
         )
 
     sys.exit(0)

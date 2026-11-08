@@ -14,8 +14,6 @@ exceptions
     Exceptions raised by the framework.
 hyperparameter
     Hyper-parameter definitions for the back-test optimizer.
-list_utils
-    Sequence utilities.
 log
     Logging set-up for the framework's processes.
 types

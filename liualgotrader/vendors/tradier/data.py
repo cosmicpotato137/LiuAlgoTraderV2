@@ -74,8 +74,9 @@ class TradierData(DataAPI):
     def _get(self, url: str, params: Dict = None):
         """Return the response to an authenticated Tradier GET request.
 
-        Retry without limit, pausing between attempts, while the server
-        responds with status 429 or 502.
+        Try up to config.request_attempts times, sleeping
+        config.request_retry_seconds between tries, while the server responds
+        with status 429 or 502.
 
         Parameters
         ----------
@@ -83,25 +84,35 @@ class TradierData(DataAPI):
             The URL to request.
         params: Dict, default None
             The query parameters, or None for none.
+
+        Raises
+        ------
+        Raise ValueError if the server still responds with status 429 or 502
+        after the last try.
         """
         if params is None:
             params = {}
-        r = requests.get(
-            url,
-            params=params,
-            headers={
-                "Authorization": f"Bearer {self.config.access_token}",
-                "Accept": "application/json",
-            },
-        )
-        if r.status_code in (429, 502):
-            logger.warning(
-                "%s return %s, waiting and re-trying", url, r.status_code
+        for attempt in range(1, self.config.request_attempts + 1):
+            r = requests.get(
+                url,
+                params=params,
+                headers={
+                    "Authorization": f"Bearer {self.config.access_token}",
+                    "Accept": "application/json",
+                },
             )
-            time_action.sleep(10)
-            return self._get(url, params)
+            if r.status_code not in (429, 502):
+                return r
+            if attempt < self.config.request_attempts:
+                logger.warning(
+                    "%s return %s, waiting and re-trying", url, r.status_code
+                )
+                time_action.sleep(self.config.request_retry_seconds)
 
-        return r
+        raise ValueError(
+            f"HTTP ERROR {url} {r.status_code} after "
+            f"{self.config.request_attempts} tries"
+        )
 
     def get_symbol_data(
         self,

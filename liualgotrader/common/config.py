@@ -15,7 +15,7 @@ import os
 from importlib.metadata import PackageNotFoundError, version
 from typing import List
 
-from liualgotrader.common.types import BrokerType, DataConnectorType
+from liualgotrader.common.types import BrokerType, DataConnectorType, EnvType
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
 from liualgotrader.vendors.finnhub.config import FinnhubConfig
 from liualgotrader.vendors.gemini.config import GeminiConfig
@@ -43,7 +43,9 @@ tradeplan_folder: str = (
     if len(os.getenv("TRADEPLAN_DIR", ".")) > 0
     else "."
 )
-env: str
+# The environment that algorithm runs are recorded under: PAPER (DEFAULT) or
+# LIVE
+env: EnvType = EnvType[os.getenv("LIU_ENV", "PAPER").upper()]
 
 
 data_connector: DataConnectorType = DataConnectorType[
@@ -82,6 +84,16 @@ batch_id: str
 #
 # Data providers and brokers
 #
+# How many times to send a request that a data provider or broker rejects as
+# rate-limited or unavailable, such as with status 429 (DEFAULT 6), and how
+# many seconds to wait between tries (DEFAULT 10)
+request_attempts: int = int(os.getenv("LIU_REQUEST_ATTEMPTS", "6"))
+request_retry_seconds: float = float(
+    os.getenv("LIU_REQUEST_RETRY_SECONDS", "10")
+)
+if request_attempts < 1:
+    raise ValueError("LIU_REQUEST_ATTEMPTS must be at least 1")
+
 # Replace these with your API connection info from the dashboard
 alpaca = AlpacaConfig(
     api_key=os.getenv("APCA_API_KEY_ID", AlpacaConfig.api_key),
@@ -99,6 +111,8 @@ alpaca = AlpacaConfig(
         "ALPACA_BROKER_API_SECRET", AlpacaConfig.broker_api_secret
     ),
     debug_enabled=debug_enabled,
+    request_attempts=request_attempts,
+    request_retry_seconds=request_retry_seconds,
 )
 
 polygon = PolygonConfig(
@@ -109,6 +123,8 @@ gemini = GeminiConfig(
     api_key=os.getenv("GEMINI_API_KEY", GeminiConfig.api_key),
     api_secret=os.getenv("GEMINI_API_SECRET", GeminiConfig.api_secret),
     debug_enabled=debug_enabled,
+    request_attempts=request_attempts,
+    request_retry_seconds=request_retry_seconds,
 )
 
 tradier = TradierConfig(
@@ -118,6 +134,8 @@ tradier = TradierConfig(
         "TRADIER_ACCOUNT_NUMBER", TradierConfig.account_number
     ),
     access_token=os.getenv("TRADIER_ACCESS_TOKEN", TradierConfig.access_token),
+    request_attempts=request_attempts,
+    request_retry_seconds=request_retry_seconds,
 )
 
 finnhub = FinnhubConfig(

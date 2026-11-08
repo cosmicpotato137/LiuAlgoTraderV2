@@ -44,7 +44,29 @@
     7. `DataLoader` and `SymbolData` move to
        `liualgotrader.data.data_loader`, and
        `liualgotrader.common.market_data` is
-       removed.
+       removed,
+    8. The `[optimizer]` section sets the
+       `scale`, `asset`, `buy_fee_percentage`
+       and `sell_fee_percentage` of its
+       back-tests, which default to `day`,
+       `equity` and no fees,
+    9. Requests that the Alpaca, Gemini or
+       Tradier APIs reject as rate-limited
+       or unavailable, such as with status
+       429, are tried at most
+       `LIU_REQUEST_ATTEMPTS` times (by
+       default 6), `LIU_REQUEST_RETRY_SECONDS`
+       apart (by default 10), in place of
+       without limit,
+    10. `LIU_ENV` records runs as `PAPER` (by
+        default) or `LIVE`, and is checked at
+        startup,
+    11. `liualgotrader.common.types.Trade` is
+        renamed `OrderUpdate`, so strategies
+        that type `on_fill(trade)` import
+        `OrderUpdate`, and the `NewTrade`
+        model is renamed `Trade`. The table
+        is still `new_trades`.
 * - 0.4.35
   - 1. Switch to PDM for depency management
        and build.

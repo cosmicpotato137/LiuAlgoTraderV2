@@ -24,7 +24,7 @@ async def _calc_account_transactions(portfolio_id: str, account_id: int):
     account_id: int
         The account that receives the transactions.
     """
-    _df = load_trades_by_portfolio(portfolio_id)
+    _df = await load_trades_by_portfolio(portfolio_id)
     for _, row in _df.iterrows():
         await Account.add_transaction(
             account_id,
@@ -43,13 +43,22 @@ def account_transactions(portfolio_id: str):
     ----------
     portfolio_id: str
         The portfolio to rebuild.
+
+    Raises
+    ------
+    Raise ValueError if the portfolio does not exist or has no account.
     """
     loop = get_event_loop()
-    _ = loop.run_until_complete(Portfolio.load_by_portfolio_id(portfolio_id))
-    account_id, account_size = loop.run_until_complete(
-        Portfolio.load_details(portfolio_id)
+    portfolio = loop.run_until_complete(
+        Portfolio.load_by_portfolio_id(portfolio_id)
     )
-    loop.run_until_complete(Account.clear_balance(account_id, account_size))
+    if portfolio is None or portfolio.account_id is None:
+        raise ValueError(f"portfolio {portfolio_id} has no account")
+
+    account_id = portfolio.account_id
+    loop.run_until_complete(
+        Account.clear_balance(account_id, portfolio.portfolio_size)
+    )
     loop.run_until_complete(Account.clear_account_transactions(account_id))
 
     loop.run_until_complete(

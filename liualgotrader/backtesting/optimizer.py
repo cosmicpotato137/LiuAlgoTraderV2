@@ -1,15 +1,21 @@
 """Run and record the back-tests of a hyper-parameter optimizer session.
 
+Classes
+-------
+BacktestSettings
+    The time scale, asset type and fees of the back-tests.
+
 Functions
 ---------
 save_optimizer_session
     Record a back-test batch in an optimizer session.
 backtest_iteration
-    Run one daily US-equities back-test and record it.
+    Run one back-test and record it.
 """
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import date
 
 from liualgotrader import enhanced_backtest
@@ -21,6 +27,28 @@ from liualgotrader.common.types import AssetType, TimeScale
 from liualgotrader.db.models.optimizer import OptimizerRun
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class BacktestSettings:
+    """The time scale, asset type and fees of an optimizer's back-tests.
+
+    Attributes
+    ----------
+    scale: TimeScale, default TimeScale.day
+        The time scale of the simulation.
+    asset_type: AssetType, default AssetType.US_EQUITIES
+        The type of assets traded, which sets the market schedule.
+    buy_fee_percentage: float, default 0.0
+        The buy fee, as a percentage of the trade value.
+    sell_fee_percentage: float, default 0.0
+        The sell fee, as a percentage of the trade value.
+    """
+
+    scale: TimeScale = TimeScale.day
+    asset_type: AssetType = AssetType.US_EQUITIES
+    buy_fee_percentage: float = 0.0
+    sell_fee_percentage: float = 0.0
 
 
 async def save_optimizer_session(
@@ -51,8 +79,9 @@ def backtest_iteration(
     end_date: date,
     tradeplan: list[dict],
     hypers: Hyperparameters,
+    settings: BacktestSettings = BacktestSettings(),
 ):
-    """Run one daily US-equities back-test and record it in the session.
+    """Run one back-test and record it in the session.
 
     Intended as the target of a separate process. Record the batch, scored by
     its net cash flow, only if the back-test succeeds. Log any exception
@@ -70,6 +99,8 @@ def backtest_iteration(
         The strategy files of the trade plan.
     hypers: Hyperparameters
         The hyper-parameter values being tested.
+    settings: BacktestSettings, default BacktestSettings()
+        The time scale, asset type and fees of the back-test.
     """
     configure_logging()
     logger.info(
@@ -87,11 +118,11 @@ def backtest_iteration(
                 uid,
                 start_date,
                 end_date,
-                TimeScale.day,
+                settings.scale,
                 tradeplan,
-                0.0,
-                0.0,
-                AssetType.US_EQUITIES,
+                settings.buy_fee_percentage,
+                settings.sell_fee_percentage,
+                settings.asset_type,
             )
         )
     except KeyboardInterrupt:

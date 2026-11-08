@@ -30,7 +30,7 @@ import pandas as pd
 from liualgotrader.common import clock, config
 from liualgotrader.common.exceptions import OwnershipCollision
 from liualgotrader.common.log import configure_logging
-from liualgotrader.common.types import Order, QueueMessageType, Trade
+from liualgotrader.common.types import Order, OrderUpdate, QueueMessageType
 from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.strategy.base import (Context, OpenOrder, OrderRequest,
@@ -304,7 +304,7 @@ class Consumer:
                         case QueueMessageType.TRADE_UPDATE:
                             logger.info("received trade_update: %s", data)
                             await self.state.handle_trade(
-                                Trade(**data["trade"])
+                                OrderUpdate(**data["trade"])
                             )
                         case QueueMessageType.FILTER_RESULT:
                             self.state.set_universe(

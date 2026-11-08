@@ -15,7 +15,7 @@ import queue
 import time as time_action
 from datetime import date, time
 from enum import StrEnum
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
@@ -23,8 +23,8 @@ import websocket
 
 from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
-from liualgotrader.common.types import (Order, OrderType, QueueMessageType,
-                                        SymbolQueueMap, Trade)
+from liualgotrader.common.types import (Order, OrderType, OrderUpdate,
+                                        QueueMessageType, SymbolQueueMap)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.tradier.config import TradierConfig
 
@@ -142,6 +142,57 @@ class TradierTrader(TraderAPI):
         self.ws_session_id: Optional[str] = None
         super().__init__(qm)
 
+    def _request(
+        self, send: Callable, url: str, params: Optional[Dict]
+    ) -> requests.Response:
+        """Send an authenticated request to the Tradier API.
+
+        Try up to config.request_attempts times, sleeping
+        config.request_retry_seconds between tries, while the server responds
+        with status 429 or 502.
+
+        Parameters
+        ----------
+        send: Callable
+            The requests function of the HTTP method, such as requests.get.
+        url: str
+            The endpoint URL.
+        params: Optional[Dict]
+            The query parameters, or None for none.
+
+        Returns
+        -------
+        Return the response.
+
+        Raises
+        ------
+        Raise ValueError if the request fails, including when the server
+        still responds with status 429 or 502 after the last try.
+        """
+        for attempt in range(1, self.config.request_attempts + 1):
+            r = send(
+                url,
+                params=params or {},
+                headers={
+                    "Authorization": f"Bearer {self.config.access_token}",
+                    "Accept": "application/json",
+                },
+            )
+            if r.status_code not in (429, 502):
+                break
+            if attempt < self.config.request_attempts:
+                logger.warning(
+                    "%s return %s, waiting and re-trying",
+                    r.url,
+                    r.status_code,
+                )
+                time_action.sleep(self.config.request_retry_seconds)
+
+        if r.status_code != 200:
+            raise ValueError(f"HTTP ERROR {r.url} {r.status_code} {r.text}")
+
+        return r
+
     def _get(self, url: str, params: Optional[Dict] = None):
         """Send an authenticated GET request to the Tradier API.
 
@@ -158,28 +209,9 @@ class TradierTrader(TraderAPI):
 
         Raises
         ------
-        Raise ValueError if the request fails.
+        Raise ValueError if the request fails, see _request.
         """
-        if params is None:
-            params = {}
-        r = requests.get(
-            url,
-            params=params,
-            headers={
-                "Authorization": f"Bearer {self.config.access_token}",
-                "Accept": "application/json",
-            },
-        )
-        if r.status_code in (429, 502):
-            logger.warning(
-                "%s return %s, waiting and re-trying", r.url, r.status_code
-            )
-            time_action.sleep(10)
-            return self._get(url, params)
-        elif r.status_code != 200:
-            raise ValueError(f"HTTP ERROR {r.url} {r.status_code} {r.text}")
-
-        return r
+        return self._request(requests.get, url, params)
 
     def _post(self, url: str, params: Optional[Dict] = None):
         """Send an authenticated POST request to the Tradier API.
@@ -197,28 +229,9 @@ class TradierTrader(TraderAPI):
 
         Raises
         ------
-        Raise ValueError if the request fails.
+        Raise ValueError if the request fails, see _request.
         """
-        if params is None:
-            params = {}
-        r = requests.post(
-            url,
-            params=params,
-            headers={
-                "Authorization": f"Bearer {self.config.access_token}",
-                "Accept": "application/json",
-            },
-        )
-        if r.status_code in (429, 502):
-            logger.warning(
-                "%s return %s, waiting and re-trying", r.url, r.status_code
-            )
-            time_action.sleep(10)
-            return self._post(url, params)
-        elif r.status_code != 200:
-            raise ValueError(f"HTTP ERROR {r.url} {r.status_code} {r.text}")
-
-        return r
+        return self._request(requests.post, url, params)
 
     def _delete(self, url: str, params: Optional[Dict] = None):
         """Send an authenticated DELETE request to the Tradier API.
@@ -236,28 +249,9 @@ class TradierTrader(TraderAPI):
 
         Raises
         ------
-        Raise ValueError if the request fails.
+        Raise ValueError if the request fails, see _request.
         """
-        if params is None:
-            params = {}
-        r = requests.delete(
-            url,
-            params=params,
-            headers={
-                "Authorization": f"Bearer {self.config.access_token}",
-                "Accept": "application/json",
-            },
-        )
-        if r.status_code in (429, 502):
-            logger.warning(
-                "%s return %s, waiting and re-trying", r.url, r.status_code
-            )
-            time_action.sleep(10)
-            return self._delete(url, params)
-        elif r.status_code != 200:
-            raise ValueError(f"HTTP ERROR {r.url} {r.status_code} {r.text}")
-
-        return r
+        return self._request(requests.delete, url, params)
 
     async def is_fractionable(self, symbol: str) -> bool:
         """Return False, since fractional shares are not supported.
@@ -834,8 +828,8 @@ class TradierTrader(TraderAPI):
             self.ws_session_id = None
 
     @classmethod
-    def _trade_from_dict(cls, trade_dict: Dict) -> Trade:
-        """Return a Trade built from a Tradier order event.
+    def _trade_from_dict(cls, trade_dict: Dict) -> OrderUpdate:
+        """Return an OrderUpdate built from a Tradier order event.
 
         The fee is zero, and a missing fill quantity or price is reported as
         zero.
@@ -849,7 +843,7 @@ class TradierTrader(TraderAPI):
         ------
         Raise KeyError if the order was not submitted through submit_order.
         """
-        return Trade(
+        return OrderUpdate(
             order_id=trade_dict["id"],
             symbol=TradierTrader.order_symbol[trade_dict["id"]],
             event=cls._get_event(trade_dict["status"]),

@@ -13,7 +13,7 @@ from typing import Awaitable, Callable, Iterable, Optional, cast
 import pandas as pd
 
 from liualgotrader.common.exceptions import OwnershipCollision
-from liualgotrader.common.types import Order, Trade
+from liualgotrader.common.types import Order, OrderUpdate
 from liualgotrader.common.utils import notify
 from liualgotrader.strategy.base import (OpenOrder, OrderRequest,
                                              PortfolioRule, Strategy,
@@ -314,12 +314,12 @@ class RunState:
             and o.order.submitted_at < before
         ]
 
-    async def handle_trade(self, trade: Trade) -> bool:
+    async def handle_trade(self, trade: OrderUpdate) -> bool:
         """Apply an execution report for an open order.
 
         Parameters
         ----------
-        trade: Trade
+        trade: OrderUpdate
             The execution report.
 
         Returns
@@ -333,12 +333,12 @@ class RunState:
             return await self.cancel_order(trade.order_id, trade.event)
         return False
 
-    async def _fill_and_notify(self, trade: Trade) -> bool:
+    async def _fill_and_notify(self, trade: OrderUpdate) -> bool:
         """Apply a fill of an open order and notify its rule.
 
         Parameters
         ----------
-        trade: Trade
+        trade: OrderUpdate
             The fill, with the quantity of this execution.
 
         Returns
@@ -395,7 +395,7 @@ class RunState:
         """
         request = open_order.request
         await self._fill_and_notify(
-            Trade(
+            OrderUpdate(
                 order_id=open_order.order.order_id,
                 symbol=request.symbol,
                 event=(

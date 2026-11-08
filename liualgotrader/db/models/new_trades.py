@@ -2,7 +2,7 @@
 
 Classes
 -------
-NewTrade
+Trade
     Trade operation made by a strategy run, stored in the new_trades table.
 """
 
@@ -22,11 +22,11 @@ from liualgotrader.db.session import session_scope
 logger = logging.getLogger(__name__)
 
 
-class NewTrade(Base):
+class Trade(Base):
     """Trade operation made by a strategy run, stored in the new_trades table.
 
     Create an unsaved trade with keyword arguments, such as
-    NewTrade(algo_run_id=..., symbol=..., operation=..., qty=..., price=...,
+    Trade(algo_run_id=..., symbol=..., operation=..., qty=..., price=...,
     indicators=...).
 
     Attributes

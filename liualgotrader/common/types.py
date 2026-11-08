@@ -6,6 +6,8 @@ DataConnectorType
     Enumeration of the supported market-data providers.
 BrokerType
     Enumeration of the supported brokerage integrations.
+EnvType
+    Enumeration of the environments that runs are recorded under.
 TimeScale
     Enumeration of bar time scales, valued by length in seconds.
 WSEventType
@@ -22,7 +24,7 @@ Order
     Broker-neutral record of an order and its latest status event.
 ThreadFlags
     Shared flag that tells a worker thread whether to keep running.
-Trade
+OrderUpdate
     Broker-neutral record of a single execution against an order.
 QueueMapper
     Case-insensitive mapping from symbols to multiprocessing queues.
@@ -52,6 +54,13 @@ class BrokerType(Enum):
     alpaca = 1
     gemini = 2
     tradier = 3
+
+
+class EnvType(StrEnum):
+    """Enumeration of the environments that runs are recorded under."""
+
+    PAPER = "PAPER"
+    LIVE = "LIVE"
 
 
 class TimeScale(Enum):
@@ -190,7 +199,7 @@ class ThreadFlags:
 
 
 @dataclass
-class Trade:
+class OrderUpdate:
     """A broker-neutral record of a single execution against an order.
 
     Attributes

@@ -31,7 +31,7 @@ from typing import Optional
 import pandas as pd
 
 from liualgotrader.common import clock
-from liualgotrader.common.types import Order, OrderType, Trade
+from liualgotrader.common.types import Order, OrderType, OrderUpdate
 from liualgotrader.fincalcs.support_resistance import find_stop
 from liualgotrader.strategy.base import (Indicator, OrderRequest, Signal,
                                              SymbolRule)
@@ -627,12 +627,12 @@ class MomentumLongRule(SymbolRule):
             )
         ]
 
-    async def on_fill(self, trade: Trade) -> None:
+    async def on_fill(self, trade: OrderUpdate) -> None:
         """Record the price of a fill as the cost or scalp basis.
 
         Parameters
         ----------
-        trade: Trade
+        trade: OrderUpdate
             The execution.
         """
         if trade.side == Order.FillSide.buy:

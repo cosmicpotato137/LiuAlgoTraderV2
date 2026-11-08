@@ -11,7 +11,7 @@ import concurrent.futures
 import logging
 import time
 from datetime import date, datetime
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar, cast
 
 import numpy as np
 import pandas as pd
@@ -58,6 +58,43 @@ _SNAPSHOT_FIELDS = {
     "daily_bar": "dailyBar",
     "prev_daily_bar": "prevDailyBar",
 }
+
+# The HTTP statuses of the transient errors that requests are retried on
+_TRANSIENT_STATUS_CODES = (429, 500, 502, 504)
+
+T = TypeVar("T")
+
+
+def _retry_transient_errors(
+    config: AlpacaConfig, request: Callable[[], T]
+) -> T:
+    """Return the result of an Alpaca request, retrying transient errors.
+
+    Try up to config.request_attempts times, sleeping
+    config.request_retry_seconds between tries, while the request raises an
+    APIError with a status in _TRANSIENT_STATUS_CODES.
+
+    Parameters
+    ----------
+    config: AlpacaConfig
+        The settings that give the number of tries and the wait between them.
+    request: Callable[[], T]
+        The function that sends the request.
+
+    Raises
+    ------
+    Raise the APIError of the last try, or of any other failed request.
+    """
+    for _ in range(config.request_attempts - 1):
+        try:
+            return request()
+        except APIError as e:
+            if e.status_code not in _TRANSIENT_STATUS_CODES:
+                raise
+            logger.warning("received APIError: %s, retrying", e)
+            time.sleep(config.request_retry_seconds)
+
+    return request()
 
 
 def _request_time(value: Optional[pd.Timestamp]) -> Optional[datetime]:
@@ -656,7 +693,7 @@ class AlpacaData(DataAPI):
     ) -> Dict[str, pd.DataFrame]:
         """Return historical bars for several symbols.
 
-        Retry on transient HTTP errors.
+        Retry on transient HTTP errors, see _retry_transient_errors.
 
         Parameters
         ----------
@@ -677,7 +714,8 @@ class AlpacaData(DataAPI):
         Raises
         ------
         Raise AssertionError if symbols is not a list, and APIError if a
-        request fails for a reason other than a transient HTTP error.
+        request fails, or still fails with a transient HTTP error after the
+        last try.
         """
         if not self.stock_data_client:
             raise AssertionError("Must call w/ authenticated Alpaca client")
@@ -689,10 +727,12 @@ class AlpacaData(DataAPI):
             start,
             end + pd.Timedelta(days=1) if scale == TimeScale.minute else end,
         )
-        try:
-            data = cast(
+        client = self.stock_data_client
+        data = _retry_transient_errors(
+            self.config,
+            lambda: cast(
                 BarSet,
-                self.stock_data_client.get_stock_bars(
+                client.get_stock_bars(
                     StockBarsRequest(
                         symbol_or_symbols=symbols,
                         timeframe=(
@@ -704,14 +744,8 @@ class AlpacaData(DataAPI):
                         adjustment=Adjustment.ALL,
                     )
                 ),
-            ).df
-        except APIError as e:
-            logger.warning("received APIError: %s", e)
-            if e.status_code in (500, 502, 504, 429):
-                logger.warning("retrying")
-                time.sleep(10)
-                return self.get_symbols_data(symbols, start, end, scale)
-            raise
+            ).df,
+        )
 
         if data.empty:
             return {}
@@ -732,7 +766,7 @@ class AlpacaData(DataAPI):
     ) -> pd.DataFrame:
         """Return historical bars for an equity symbol or crypto pair.
 
-        Retry on transient HTTP errors.
+        Retry on transient HTTP errors, see _retry_transient_errors.
 
         Parameters
         ----------
@@ -772,23 +806,20 @@ class AlpacaData(DataAPI):
                     _end or "now",
                 )
 
-            data = (
-                self._crypto_get_symbol_data(
-                    symbol=symbol, start=_start, end=_end, timeframe=t
-                )
-                if is_crypto_symbol(symbol)
-                else self._get_stock_bars(symbol, t, _start, _end)
+            data = _retry_transient_errors(
+                self.config,
+                lambda: (
+                    self._crypto_get_symbol_data(
+                        symbol=symbol, start=_start, end=_end, timeframe=t
+                    )
+                    if is_crypto_symbol(symbol)
+                    else self._get_stock_bars(symbol, t, _start, _end)
+                ),
             )
         except APIError as e:
-            logger.warning("received APIError: %s", e)
-            if e.status_code in (500, 502, 504, 429):
-                logger.warning("retrying")
-                time.sleep(10)
-                return self.get_symbol_data(symbol, start, end, scale)
-            else:
-                raise ValueError(
-                    f"[EXCEPTION] {e} for {symbol} could not obtain data for {_start} to {_end or 'now'} w {scale.name}"
-                ) from e
+            raise ValueError(
+                f"[EXCEPTION] {e} for {symbol} could not obtain data for {_start} to {_end or 'now'} w {scale.name}"
+            ) from e
 
         except Exception as e:
             raise ValueError(

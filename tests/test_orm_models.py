@@ -6,16 +6,17 @@ import pytest
 from sqlalchemy import select, update
 
 from liualgotrader.analytics import analysis
-from liualgotrader.common import clock
-from liualgotrader.common.types import AssetType
+from liualgotrader.common import clock, config
+from liualgotrader.common.types import AssetType, EnvType
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
-from liualgotrader.db.models.new_trades import NewTrade
+from liualgotrader.db.models.new_trades import Trade
 from liualgotrader.db.models.optimizer import OptimizerRun
 from liualgotrader.db.models.portfolio import Portfolio
 from liualgotrader.db.models.tradeplan import TradePlan
 from liualgotrader.db.models.trending_tickers import TrendingTicker
 from liualgotrader.db.session import create_db_connection, session_scope
+from liualgotrader.trade.base import TraderAPI
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +35,7 @@ async def new_run(strategy_name: str, batch_id: str, **kwargs) -> AlgoRun:
 
 
 def new_trade(run: AlgoRun, symbol: str, operation: str, price, indicators):
-    return NewTrade(
+    return Trade(
         algo_run_id=run.algo_run_id,
         symbol=symbol,
         operation=operation,
@@ -104,28 +105,26 @@ async def test_new_trade() -> bool:
     if sell.indicators != {}:
         raise AssertionError("NaN indicators not replaced")
 
-    latest = await NewTrade.load_latest(symbol, strategy)
+    latest = await Trade.load_latest(symbol, strategy)
     if latest[:5] != (run.algo_run_id, 105.25, 0.0, 0.0, {}):
         raise AssertionError(f"unexpected latest trade {latest}")
 
     with pytest.raises(ValueError):
-        await NewTrade.load_latest(symbol, unique("strategy"))
+        await Trade.load_latest(symbol, unique("strategy"))
 
-    if await NewTrade.get_run_symbols(run.algo_run_id) != [symbol]:
+    if await Trade.get_run_symbols(run.algo_run_id) != [symbol]:
         raise AssertionError("run symbols missing")
-    await NewTrade.expire_trade(buy.trade_id)
-    await NewTrade.expire_trade(sell.trade_id)
-    if await NewTrade.get_run_symbols(run.algo_run_id) != []:
+    await Trade.expire_trade(buy.trade_id)
+    await Trade.expire_trade(sell.trade_id)
+    if await Trade.get_run_symbols(run.algo_run_id) != []:
         raise AssertionError("expired trades still listed")
 
-    if await NewTrade.get_latest_algo_run_id(symbol) != run.algo_run_id:
+    if await Trade.get_latest_algo_run_id(symbol) != run.algo_run_id:
         raise AssertionError("wrong latest run")
-    await NewTrade.rename_algo_run_id(
-        other.algo_run_id, run.algo_run_id, symbol
-    )
-    if await NewTrade.get_latest_algo_run_id(symbol) != other.algo_run_id:
+    await Trade.rename_algo_run_id(other.algo_run_id, run.algo_run_id, symbol)
+    if await Trade.get_latest_algo_run_id(symbol) != other.algo_run_id:
         raise AssertionError("trades not moved")
-    if await NewTrade.get_latest_algo_run_id(unique("SYM")) is not None:
+    if await Trade.get_latest_algo_run_id(unique("SYM")) is not None:
         raise AssertionError("unknown symbol should have no run")
 
     return True
@@ -267,7 +266,7 @@ async def test_analysis_loaders() -> bool:
     await new_trade(run, symbol, "sell", 11.0, {}).save(
         pd.Timestamp("2026-01-05 11:00", tz=clock.NY)
     )
-    day = (await NewTrade.load_latest(symbol, strategy))[5].date()
+    day = (await Trade.load_latest(symbol, strategy))[5].date()
 
     trades = await analysis.load_trades(day)
     ours = trades[trades.symbol == symbol]
@@ -318,9 +317,7 @@ async def test_tz_datetime_round_trip() -> bool:
 
     async with session_scope() as session:
         stored = await session.scalar(
-            select(NewTrade.client_time).where(
-                NewTrade.trade_id == trade.trade_id
-            )
+            select(Trade.client_time).where(Trade.trade_id == trade.trade_id)
         )
     if not isinstance(stored, pd.Timestamp) or stored.tz != clock.NY:
         raise AssertionError(f"not read back in New York time: {stored!r}")
@@ -337,3 +334,12 @@ async def test_tz_datetime_round_trip() -> bool:
             await new_trade(run, unique("SYM"), "buy", 1.0, {}).save(invalid)
 
     return True
+
+
+async def test_create_session_records_config_env(monkeypatch):
+    monkeypatch.setattr(config, "env", EnvType.LIVE)
+    run = await TraderAPI().create_session(unique("strategy"))
+
+    async with session_scope() as session:
+        record = await session.get_one(AlgoRun, run.algo_run_id)
+    assert record.env == "LIVE"

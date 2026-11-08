@@ -22,7 +22,7 @@ import math
 
 import pandas as pd
 
-from liualgotrader.common.types import Order, Trade
+from liualgotrader.common.types import Order, OrderUpdate
 from liualgotrader.strategy.base import (Indicator, OrderRequest, Signal,
                                              SymbolRule)
 
@@ -205,12 +205,12 @@ class SmaCrossoverRule(SymbolRule):
             return [OrderRequest(symbol, Order.FillSide.sell, position)]
         return []
 
-    async def on_fill(self, trade: Trade) -> None:
+    async def on_fill(self, trade: OrderUpdate) -> None:
         """Log a fill of one of the rule's orders.
 
         Parameters
         ----------
-        trade: Trade
+        trade: OrderUpdate
             The execution.
         """
         logger.info(

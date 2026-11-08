@@ -62,7 +62,7 @@ from liualgotrader.common.types import AssetType
 from liualgotrader.data.data_loader import DataLoader
 from liualgotrader.db.models.accounts import Account
 from liualgotrader.db.models.algo_run import AlgoRun
-from liualgotrader.db.models.new_trades import NewTrade
+from liualgotrader.db.models.new_trades import Trade
 from liualgotrader.db.models.optimizer import OptimizerRun
 from liualgotrader.db.models.portfolio import Portfolio, PortfolioBatchId
 from liualgotrader.db.session import fetch_as_dataframe
@@ -73,9 +73,9 @@ logger = logging.getLogger(__name__)
 
 def _trades_with_runs(*columns) -> Select:
     return select(*columns).join_from(
-        NewTrade,
+        Trade,
         AlgoRun,
-        NewTrade.algo_run_id == AlgoRun.algo_run_id,
+        Trade.algo_run_id == AlgoRun.algo_run_id,
     )
 
 
@@ -100,20 +100,20 @@ async def load_trades_for_period(
     """
     return await fetch_as_dataframe(
         _trades_with_runs(
-            NewTrade.client_time,
-            NewTrade.symbol,
-            NewTrade.operation,
-            NewTrade.qty,
-            NewTrade.price,
+            Trade.client_time,
+            Trade.symbol,
+            Trade.operation,
+            Trade.qty,
+            Trade.price,
             AlgoRun.strategy_name,
         )
         .where(
-            NewTrade.tstamp >= pd.Timestamp(from_date, tz=clock.NY),
-            NewTrade.tstamp < pd.Timestamp(to_date, tz=clock.NY),
-            NewTrade.expire_tstamp.is_(None),
+            Trade.tstamp >= pd.Timestamp(from_date, tz=clock.NY),
+            Trade.tstamp < pd.Timestamp(to_date, tz=clock.NY),
+            Trade.expire_tstamp.is_(None),
             AlgoRun.env == env,
         )
-        .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
+        .order_by(Trade.symbol, Trade.tstamp, Trade.trade_id)
     )
 
 
@@ -206,17 +206,17 @@ async def load_trades(
     """
     return await fetch_as_dataframe(
         _trades_with_runs(
-            NewTrade.__table__, AlgoRun.batch_id, AlgoRun.strategy_name
+            Trade.__table__, AlgoRun.batch_id, AlgoRun.strategy_name
         )
         .where(
-            NewTrade.tstamp >= pd.Timestamp(day, tz=clock.NY),
-            NewTrade.tstamp
+            Trade.tstamp >= pd.Timestamp(day, tz=clock.NY),
+            Trade.tstamp
             < pd.Timestamp(
                 end_date or day + pd.Timedelta(days=1), tz=clock.NY
             ),
-            NewTrade.expire_tstamp.is_(None),
+            Trade.expire_tstamp.is_(None),
         )
-        .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
+        .order_by(Trade.symbol, Trade.tstamp, Trade.trade_id)
     )
 
 
@@ -235,17 +235,17 @@ async def load_trades_by_batch_id(batch_id: str) -> pd.DataFrame:
     """
     return await fetch_as_dataframe(
         _trades_with_runs(
-            NewTrade.__table__,
+            Trade.__table__,
             AlgoRun.batch_id,
             AlgoRun.start_time,
             AlgoRun.strategy_name,
         )
         .where(
             AlgoRun.batch_id == batch_id,
-            NewTrade.expire_tstamp.is_(None),
-            NewTrade.price != 0.0,
+            Trade.expire_tstamp.is_(None),
+            Trade.price != 0.0,
         )
-        .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
+        .order_by(Trade.symbol, Trade.tstamp, Trade.trade_id)
     )
 
 
@@ -265,7 +265,7 @@ async def load_trades_by_portfolio(portfolio_id: str) -> pd.DataFrame:
     """
     return await fetch_as_dataframe(
         _trades_with_runs(
-            NewTrade.__table__,
+            Trade.__table__,
             AlgoRun.batch_id,
             AlgoRun.start_time,
             AlgoRun.strategy_name,
@@ -276,12 +276,12 @@ async def load_trades_by_portfolio(portfolio_id: str) -> pd.DataFrame:
         )
         .where(
             PortfolioBatchId.portfolio_id == portfolio_id,
-            NewTrade.price != 0.0,
-            NewTrade.target_price.is_not(None),
-            NewTrade.expire_tstamp.is_(None),
+            Trade.price != 0.0,
+            Trade.target_price.is_not(None),
+            Trade.expire_tstamp.is_(None),
         )
         .distinct()
-        .order_by(NewTrade.symbol, NewTrade.tstamp, NewTrade.trade_id)
+        .order_by(Trade.symbol, Trade.tstamp, Trade.trade_id)
     )
 
 
@@ -333,10 +333,10 @@ async def load_batch_list(day: date, env: str) -> pd.DataFrame:
     return await fetch_as_dataframe(
         _trades_with_runs(AlgoRun.batch_id, AlgoRun.start_time)
         .where(
-            NewTrade.tstamp >= pd.Timestamp(day, tz=clock.NY),
-            NewTrade.tstamp
+            Trade.tstamp >= pd.Timestamp(day, tz=clock.NY),
+            Trade.tstamp
             < pd.Timestamp(day + pd.Timedelta(days=1), tz=clock.NY),
-            NewTrade.expire_tstamp.is_(None),
+            Trade.expire_tstamp.is_(None),
         )
         .distinct()
     )
@@ -357,7 +357,7 @@ async def load_traded_symbols(batch_id: str) -> pd.DataFrame:
     Return a DataFrame with a single symbol column.
     """
     return await fetch_as_dataframe(
-        _trades_with_runs(NewTrade.symbol)
+        _trades_with_runs(Trade.symbol)
         .where(AlgoRun.batch_id == batch_id)
         .distinct()
     )

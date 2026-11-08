@@ -11,7 +11,7 @@ import logging
 import queue
 from datetime import date
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 import pandas as pd
 import requests
@@ -32,8 +32,8 @@ from alpaca.trading.stream import TradingStream
 from requests.auth import HTTPBasicAuth
 
 from liualgotrader.common import clock
-from liualgotrader.common.types import (Order, OrderType, QueueMessageType,
-                                        SymbolQueueMap, Trade)
+from liualgotrader.common.types import (Order, OrderType, OrderUpdate,
+                                        QueueMessageType, SymbolQueueMap)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.alpaca.config import AlpacaConfig
 from liualgotrader.vendors.alpaca.util import alpaca_time
@@ -129,6 +129,58 @@ def _seconds_until(epoch_seconds: str) -> float:
     """
     reset = pd.Timestamp(int(epoch_seconds), unit="s", tz="UTC")
     return max((reset - clock.now()).total_seconds(), 0.0)
+
+
+async def _send_brokerage_request(
+    config: AlpacaConfig,
+    send: Callable[[], requests.Response],
+) -> requests.Response:
+    """Send a Broker API request, retrying while it is pushed back.
+
+    Try up to config.request_attempts times while the response has status 429
+    or 504, waiting before each retry until the time in its x-ratelimit-reset
+    header, or for config.request_retry_seconds if it has none.
+
+    Parameters
+    ----------
+    config: AlpacaConfig
+        The settings that give the number of tries and the wait between them.
+    send: Callable[[], requests.Response]
+        The function that sends the request.
+
+    Returns
+    -------
+    Return the last response.
+    """
+    for attempt in range(1, config.request_attempts + 1):
+        response = send()
+        if response.status_code not in (429, 504):
+            break
+        if attempt == config.request_attempts:
+            logger.warning(
+                "ALPACA BROKERAGE still pushing back w/ %s after %s tries",
+                response.status_code,
+                config.request_attempts,
+            )
+            break
+
+        if "x-ratelimit-reset" in response.headers:
+            logger.info(
+                "ALPACA BROKERAGE rate-limit till %s",
+                response.headers["x-ratelimit-reset"],
+            )
+            await asyncio.sleep(
+                _seconds_until(response.headers["x-ratelimit-reset"])
+            )
+            logger.warning("ALPACA BROKERAGE going to retry")
+        else:
+            logger.info(
+                "ALPACA BROKERAGE push-back w/ %s and no x-ratelimit-reset header",
+                response.status_code,
+            )
+            await asyncio.sleep(config.request_retry_seconds)
+
+    return response
 
 
 class AlpacaTrader(TraderAPI):
@@ -817,35 +869,19 @@ class AlpacaTrader(TraderAPI):
 
         Raises
         ------
-        Retry rate-limited requests (status 429 or 504), and raise
-        AssertionError for any other failed status.
+        Raise AssertionError if the request fails, including when it is
+        still pushed back after the last try, see _send_brokerage_request.
         """
-        response = requests.post(
-            url=url,
-            json=payload,
-            auth=HTTPBasicAuth(
-                self.config.broker_api_key, self.config.broker_api_secret
+        response = await _send_brokerage_request(
+            self.config,
+            lambda: requests.post(
+                url=url,
+                json=payload,
+                auth=HTTPBasicAuth(
+                    self.config.broker_api_key, self.config.broker_api_secret
+                ),
             ),
         )
-
-        if response.status_code in (429, 504):
-            if "x-ratelimit-reset" in response.headers:
-                logger.info(
-                    "ALPACA BROKERAGE rate-limit till %s",
-                    response.headers["x-ratelimit-reset"],
-                )
-                await asyncio.sleep(
-                    _seconds_until(response.headers["x-ratelimit-reset"])
-                )
-                logger.warning("ALPACA BROKERAGE going to retry")
-            else:
-                logger.info(
-                    "ALPACA BROKERAGE push-back w/ %s and no x-ratelimit-reset header",
-                    response.status_code,
-                )
-                await asyncio.sleep(10.0)
-
-            return await self._post_request(url, payload)
 
         if response.status_code in (200, 201, 204):
             return response.json()
@@ -868,34 +904,18 @@ class AlpacaTrader(TraderAPI):
 
         Raises
         ------
-        Retry rate-limited requests (status 429 or 504), and raise
-        AssertionError for any other failed status.
+        Raise AssertionError if the request fails, including when it is
+        still pushed back after the last try, see _send_brokerage_request.
         """
-        response = requests.get(
-            url=url,
-            auth=HTTPBasicAuth(
-                self.config.broker_api_key, self.config.broker_api_secret
+        response = await _send_brokerage_request(
+            self.config,
+            lambda: requests.get(
+                url=url,
+                auth=HTTPBasicAuth(
+                    self.config.broker_api_key, self.config.broker_api_secret
+                ),
             ),
         )
-
-        if response.status_code in (429, 504):
-            if "x-ratelimit-reset" in response.headers:
-                logger.info(
-                    "ALPACA BROKERAGE rate-limit till %s",
-                    response.headers["x-ratelimit-reset"],
-                )
-                await asyncio.sleep(
-                    _seconds_until(response.headers["x-ratelimit-reset"])
-                )
-                logger.warning("ALPACA BROKERAGE going to retry")
-            else:
-                logger.info(
-                    "ALPACA BROKERAGE push-back w/ %s and no x-ratelimit-reset header",
-                    response.status_code,
-                )
-                await asyncio.sleep(10.0)
-
-            return await self._get_request(url)
 
         if response.status_code in (200, 201, 204):
             return response.json()
@@ -907,7 +927,7 @@ class AlpacaTrader(TraderAPI):
     async def _delete_request(self, url: str) -> int:
         """Send an authenticated DELETE request to the Alpaca Broker API.
 
-        Retry rate-limited requests (status 429 or 504).
+        Retry while the request is pushed back, see _send_brokerage_request.
 
         Parameters
         ----------
@@ -916,33 +936,17 @@ class AlpacaTrader(TraderAPI):
 
         Returns
         -------
-        Return the HTTP status code.
+        Return the HTTP status code of the last try.
         """
-        response = requests.delete(
-            url=url,
-            auth=HTTPBasicAuth(
-                self.config.broker_api_key, self.config.broker_api_secret
+        response = await _send_brokerage_request(
+            self.config,
+            lambda: requests.delete(
+                url=url,
+                auth=HTTPBasicAuth(
+                    self.config.broker_api_key, self.config.broker_api_secret
+                ),
             ),
         )
-        if response.status_code in (429, 504):
-            if "x-ratelimit-reset" in response.headers:
-                logger.info(
-                    "ALPACA BROKERAGE rate-limit till %s",
-                    response.headers["x-ratelimit-reset"],
-                )
-                await asyncio.sleep(
-                    _seconds_until(response.headers["x-ratelimit-reset"])
-                )
-                logger.warning("ALPACA BROKERAGE going to retry")
-            else:
-                logger.info(
-                    "ALPACA BROKERAGE push-back w/ %s and no x-ratelimit-reset header",
-                    response.status_code,
-                )
-                await asyncio.sleep(10.0)
-
-            return await self._delete_request(url)
-
         return response.status_code
 
     async def _order_on_behalf(
@@ -1147,13 +1151,15 @@ class AlpacaTrader(TraderAPI):
             )
 
     @classmethod
-    def _trade_from_dict(cls, trade_dict: TradeUpdate) -> Optional[Trade]:
-        """Convert an Alpaca trade update into a Trade.
+    def _trade_from_dict(
+        cls, trade_dict: TradeUpdate
+    ) -> Optional[OrderUpdate]:
+        """Convert an Alpaca trade update into an OrderUpdate.
 
-        The Trade has the order identifier as a string, a lowercased symbol
-        without slashes and the order's update time in New York time. It
-        reports suspended, expired and cancel_rejected events as canceled, and
-        has a zero quantity unless the event is a fill.
+        The OrderUpdate has the order identifier as a string, a lowercased
+        symbol without slashes and the order's update time in New York time.
+        It reports suspended, expired and cancel_rejected events as canceled,
+        and has a zero quantity unless the event is a fill.
 
         Parameters
         ----------
@@ -1170,7 +1176,7 @@ class AlpacaTrader(TraderAPI):
 
         order = trade_dict.order
         symbol = (order.symbol or "").lower().replace("/", "")
-        return Trade(
+        return OrderUpdate(
             order_id=str(order.id),
             symbol=symbol,
             event=_TRADE_EVENTS.get(event, Order.EventType.other),
@@ -1190,8 +1196,8 @@ class AlpacaTrader(TraderAPI):
     async def _trade_update_handler(cls, data: TradeUpdate):
         """Forward an Alpaca trade update to every consumer queue.
 
-        Send a trade_update message with the symbol and Trade fields, ignoring
-        updates that yield no Trade.
+        Send a trade_update message with the symbol and OrderUpdate fields,
+        ignoring updates that yield no OrderUpdate.
 
         Parameters
         ----------

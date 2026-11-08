@@ -24,7 +24,9 @@ st.markdown(
 )
 
 day_to_analyze = st.date_input("pick day to analyze", value=clock.today())
-env = st.sidebar.selectbox("Select environment", ("PAPER", "BACKTEST", "PROD"))
+env = st.sidebar.selectbox(
+    "Select environment", ("PAPER", "LIVE", "BACKTEST", "PROD")
+)
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)

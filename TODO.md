@@ -1,8 +1,9 @@
-## Structural changes
+# TODO
 
-- [ ] Update database schema - not sure what's going on there
+- [ ] Make every = None parameter on submit_order Optional
+- [ ] A shared helper for starting and stopping websocket listeners: it's about three lines at each of two places, and each broker does something different around them.
+- [ ] Refactor all side variables to use an enum rather than a string.
 - [ ] Is it a vulnerability to accept num_consumers blindly from config without checking the cpu capacity? (liualgotrader/scripts/trader.py)
-- [ ] enum for order side
 - [ ] Indicators are currently run out of Context. Should they instead be managed by RunState?
 - [x] Restructure classes to follow the pattern: Filters, Indicators, Signals, Rules. These classes are composed as part of a Strategy
 - [x] Update to use SQLite with optional postgres and MySQL
@@ -17,16 +18,8 @@
 ## Future plans
 
 - [ ] Handling for multiple simultaneous brokers and accounts
+- [ ] Update database schema - not sure what's going on there
 
 ## Possible bugs
 
-- Tradier always fails: trade/trader_factory.py:26-27 stores the Tradier trader under "TRADIER" but returns traders["TradierTrader"], so every call raises KeyError.
-- Invalid SQL: models/algo_run.py's get_batch_list_by_date puts ORDER BY before WHERE, which Postgres rejects.
-- Broken queries: analytics/analysis.py:94,149 has literal \x1f control characters instead of newlines in the SQL f-strings of load_trades and load_runs, so those queries are likely broken.
-- GeminiTrader.cancel_order returns a dict despite its -> bool annotation.
-- Several queue.Full handlers raise KeyError on event['sym'], because that key no longer exists by then.
-- reprocess/portfolio.py is missing an await and calls a Portfolio.load_details method that doesn't exist.
-- SQL is built with f-strings from arguments in a few places, which is an injection risk.
-- Retries on 429 and 502 responses have no limit.
-- Runs recorded as env "unknown": Trader.create_session in trade/base.py calls AlgoRun.save() without env, so every run is saved with env "unknown" and filters on env (analytics/analysis.py load_trades_for_period and calc_revenue) miss new runs. Passing config.env would fix it.
-- The optimizer always uses TimeScale.day (backtesting/optimizer.py:91) and has no way to change it. This a problem: it tunes hyperparameters against a simulation that may differ from how live trading behaves.
+- Runs and trades aren't recorded: since the strategy refactor (197bdeb), nothing calls TraderAPI.create_session or saves a Trade, in trading or back-testing. The analytics in analytics/analysis.py, the portfolio app (including recalc) and the analysis notebooks only see runs and trades recorded before it.

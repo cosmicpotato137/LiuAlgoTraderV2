@@ -145,7 +145,7 @@ The producer no longer polls the `TradePlan` table or sends `new_strategy` messa
    1. Run the filters of the active strategies that are due with `run(now)`, and replace their universes with the symbols they select. A filter with no recurrence runs once per day.
    2. For symbols that just joined a universe, prefetch the day's bars, then prime each of their signals with `signal.get(symbol, day_end)`. Because `compute()` is causal, this computes the whole day at once, and later steps read from the cache.
    3. Evaluate the symbol rules exactly as the consumer does, with fired signals, ownership and open orders. Run the portfolio rule of each active strategy whose `recurrence` has elapsed.
-   4. Fill the orders from the previous step at this bar's open: market orders always, and limit orders only if this bar trades through the limit. Apply the fees, update the strategy's position and the symbol's owner, and call `rule.on_fill` with a `Trade`. Don't save `NewTrade` rows.
+   4. Fill the orders from the previous step at this bar's open: market orders always, and limit orders only if this bar trades through the limit. Apply the fees, update the strategy's position and the symbol's owner, and call `rule.on_fill` with an `OrderUpdate`. Don't save `Trade` rows.
 6. Write the results to files named by batch ID: `<batch_id>-trades.csv`, with one row per fill (time, strategy, symbol, side, quantity, price, fee), and `<batch_id>-summary.txt`, with each strategy's profit and number of trades. `backtest_main` also returns the trades as a DataFrame, so the optimizer can score the run.
 
 ## `optimizer [--concurrency=N]`
@@ -153,7 +153,7 @@ The producer no longer polls the `TradePlan` table or sends `new_strategy` messa
 1. Load the trade plan with `load_tradeplan`, raising `ValueError` before any backtest starts if a strategy file isn't valid. Find the strategy files that have an `[optimizer]` section with dates, `hyperparameters` and `parameters`. Log an error and exit if there are none, or if the dates of one don't parse.
 2. Optimize each of these strategies in turn, with its own dates and its own optimizer session ID. Build an iterator over every hyperparameter combination. Also build the `Parameter`s, which get new values for every run (for example, a new portfolio).
 3. For each combination: copy the strategy file, write the values into their `filter.<param>`, `signal.<param>` or `rule.<param>` paths, which `[optimizer.hyperparameters.rule]` and the like name relative to the strategy file (previously `rules.<name>.<param>` and the like), and start a `backtest_iteration` process. The process back-tests the strategy alone, not with the other strategies of the trade plan.
-4. Each process runs `backtest_main` (daily steps, US equities, no fees). If it succeeds, it saves an `OptimizerRun` row linking the session, the batch ID, the hyperparameter values and a score computed from the returned trades, since the trades are no longer in `NewTrade`.
+4. Each process runs `backtest_main` (daily steps, US equities, no fees). If it succeeds, it saves an `OptimizerRun` row linking the session, the batch ID, the hyperparameter values and a score computed from the returned trades, since the trades are no longer in `Trade`.
 5. Processes run in batches: start N, wait for all N to finish, then start the next N.
 
 ## `liu`
@@ -174,7 +174,7 @@ The producer no longer polls the `TradePlan` table or sends `new_strategy` messa
 - `trades <id>`: shows the trade log.
 - `recalc <id>`: resets the account balance to its starting size, deletes its transactions, and replays every trade as a cash transaction (buys negative, sells positive).
 
-`equity`, `trades` and `recalc` read `NewTrade`, so they show nothing new unless live trading keeps recording trades.
+`equity`, `trades` and `recalc` read `Trade`, so they show nothing new unless live trading keeps recording trades.
 
 ## Known issues to fix
 
@@ -192,7 +192,7 @@ The producer no longer polls the `TradePlan` table or sends `new_strategy` messa
 
 ## Open questions
 
-- **Recording live trades.** The old consumer saved a `NewTrade` row for each order and fill, linked to an `AlgoRun`. Without it, the portfolio commands go stale. A restart also loses track of which strategy owns which position: broker positions come back with no owner, so no strategy exits them. The strategy name could fill `AlgoRun.strategy_name`.
+- **Recording live trades.** The old consumer saved a `Trade` row for each order and fill, linked to an `AlgoRun`. Without it, the portfolio commands go stale. A restart also loses track of which strategy owns which position: broker positions come back with no owner, so no strategy exits them. The strategy name could fill `AlgoRun.strategy_name`.
 - **Symbols already held.** At startup, symbols with open positions aren't subscribed unless a filter selects them again. One option is a built-in filter that returns the broker's open positions. `TraderAPI` has no method that lists positions yet.
 - **Portfolio rules across consumers.** `PortfolioRule` answers how whole-portfolio strategies fit: the rule reads the latest signal values for all its symbols on a timer. But a symbol lives on one consumer, so that ownership stays inside one process. If a non-portfolio filter selects a symbol first, it's assigned to another consumer, and the portfolio rule on consumer 0 never sees it. The producer should at least log a warning. Alternatives: run one consumer when the plan has portfolio rules, or let consumer 0 fetch those bars itself on each recurrence. The old `run_all` had the same problem, because each consumer passed only its own symbols.
 - **End-of-day liquidation.** `market_liquidation_end_time_minutes` is read into `config` but nothing uses it. Either rules handle it in `decide` (it's called every bar while they hold a position), or the runtime sends closing orders for day-trading rules.

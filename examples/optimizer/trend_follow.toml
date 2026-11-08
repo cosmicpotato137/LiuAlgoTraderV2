@@ -26,6 +26,12 @@ stock_count = 10
 [optimizer]
 end_date = '2021-06-19'
 start_date = '2021-01-01'
+# optional, like the backtester options: scale is day or minute, asset is
+# equity or crypto, and the fees are percentages of the trade value
+scale = 'day'
+asset = 'equity'
+buy_fee_percentage = 0.0
+sell_fee_percentage = 0.0
 
 # parameters get a new value for every backtest, such as a new portfolio
 [optimizer.parameters.rule]

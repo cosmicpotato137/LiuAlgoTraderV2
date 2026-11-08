@@ -28,8 +28,9 @@ import websocket
 
 from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
-from liualgotrader.common.types import (Order, OrderType, QueueMessageType,
-                                        SymbolQueueMap, ThreadFlags, Trade)
+from liualgotrader.common.types import (Order, OrderType, OrderUpdate,
+                                        QueueMessageType, SymbolQueueMap,
+                                        ThreadFlags)
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
 
@@ -286,8 +287,8 @@ class GeminiTrader(TraderAPI):
         )
 
     @classmethod
-    def _trade_from_dict(cls, trade_dict: Dict) -> Trade:
-        """Return a Trade built from a Gemini order event, and log the event.
+    def _trade_from_dict(cls, trade_dict: Dict) -> OrderUpdate:
+        """Log a Gemini order event and return its OrderUpdate.
 
         Values missing from the event are reported as zero or an empty string.
 
@@ -297,7 +298,7 @@ class GeminiTrader(TraderAPI):
             An order event received from the WebSocket stream.
         """
         logger.info("GEMINI GOING TO SEND %s", trade_dict)
-        return Trade(
+        return OrderUpdate(
             order_id=trade_dict["order_id"],
             symbol=trade_dict["symbol"].lower(),
             event=cls._get_trade_event_type(trade_dict),
@@ -704,7 +705,7 @@ class GeminiTrader(TraderAPI):
 
         Returns
         -------
-        Return the status of the canceled order as reported by Gemini.
+        Return True if Gemini reports the order as cancelled.
 
         Raises
         ------
@@ -719,7 +720,7 @@ class GeminiTrader(TraderAPI):
         if response.status_code == 200:
             order_status = response.json()
             self._check_error(order_status)
-            return order_status
+            return bool(order_status.get("is_cancelled"))
 
         raise AssertionError(
             f"HTTP ERROR {response.status_code} {response.text}"
