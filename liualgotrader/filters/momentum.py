@@ -51,15 +51,15 @@ class Momentum(Filter):
 
     Methods
     -------
-    apply_filter_on_market_snapshot
+    _apply_filter_on_market_snapshot
         Return the snapshot tickers that pass a filter.
-    load_from_db
+    _load_from_db
         Return the symbols recorded for the filter at a time.
-    momentum_filter
+    _momentum_filter
         Return whether a snapshot entry meets the criteria.
-    polygon_snapshot_details
+    _polygon_snapshot_details
         Return the filter values of a Polygon entry.
-    alpaca_snapshot_details
+    _alpaca_snapshot_details
         Return the filter values of an Alpaca entry.
     run
         Return the symbols selected by the filter (overrides Filter).
@@ -121,7 +121,7 @@ class Momentum(Filter):
         )
         return symbols
 
-    async def apply_filter_on_market_snapshot(
+    async def _apply_filter_on_market_snapshot(
         self, filter_func: Optional[Callable]
     ) -> List[str]:
         """Return the tickers in the market snapshot that pass a filter.
@@ -146,7 +146,7 @@ class Momentum(Filter):
 
         return [x["ticker"] for x in filtered]
 
-    async def load_from_db(self, back_time: pd.Timestamp) -> List[str]:
+    async def _load_from_db(self, back_time: pd.Timestamp) -> List[str]:
         """Return the symbols recorded for this filter around a given time.
 
         For midnight, return the symbols recorded from back_time to one day
@@ -181,7 +181,7 @@ class Momentum(Filter):
         logger.debug("load from db %s %s %s", start, end, len(symbols))
         return symbols
 
-    def momentum_filter(self, snapshot) -> bool:
+    def _momentum_filter(self, snapshot) -> bool:
         """Return whether a market snapshot entry meets the momentum criteria.
 
         Call only after run has set trade_able_symbols.
@@ -202,7 +202,7 @@ class Momentum(Filter):
                 prev_day_volume_price,
                 today_gap_up_pct,
                 today_volume,
-            ) = self.alpaca_snapshot_details(snapshot)
+            ) = self._alpaca_snapshot_details(snapshot)
         elif isinstance(self.ctx.data_loader.data_api, PolygonData):
             (
                 tradable,
@@ -210,7 +210,7 @@ class Momentum(Filter):
                 prev_day_volume_price,
                 today_gap_up_pct,
                 today_volume,
-            ) = self.polygon_snapshot_details(snapshot)
+            ) = self._polygon_snapshot_details(snapshot)
         else:
             raise ValueError(
                 f"Invalid data API: {type(self.ctx.data_loader.data_api)}"
@@ -227,7 +227,7 @@ class Momentum(Filter):
             and today_volume > self.min_volume
         )
 
-    def polygon_snapshot_details(
+    def _polygon_snapshot_details(
         self, snapshot
     ) -> Tuple[bool, float, float, float, float]:
         """Return the momentum filter values of a Polygon snapshot entry.
@@ -259,7 +259,7 @@ class Momentum(Filter):
             today_volume,
         )
 
-    def alpaca_snapshot_details(
+    def _alpaca_snapshot_details(
         self, snapshot
     ) -> Tuple[bool, float, float, float, float]:
         """Return the momentum filter values of an Alpaca snapshot entry.
@@ -309,11 +309,11 @@ class Momentum(Filter):
         """
         if not self.ctx.backtesting:
             self.trade_able_symbols = await self._get_trade_able_symbols()
-            return await self.apply_filter_on_market_snapshot(
-                self.momentum_filter
+            return await self._apply_filter_on_market_snapshot(
+                self._momentum_filter
             )
 
-        rows = await self.load_from_db(now)
+        rows = await self._load_from_db(now)
 
         logger.info(
             "Filter %s -> now=%s picked %s",

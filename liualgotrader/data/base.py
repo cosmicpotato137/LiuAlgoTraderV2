@@ -74,7 +74,7 @@ class DataAPI(metaclass=ABCMeta):
         at least the open, high, low, close and volume columns, and should
         raise ValueError if no data is available.
         """
-        ...
+        raise NotImplementedError("get_symbol_data")
 
     @abstractmethod
     async def get_market_snapshot(
@@ -91,12 +91,12 @@ class DataAPI(metaclass=ABCMeta):
             A predicate that selects the snapshots to keep, or None to keep
             all.
         """
-        ...
+        raise NotImplementedError("get_market_snapshot")
 
     @abstractmethod
     def get_symbols(self) -> List[str]:
         """Return the symbols that the provider offers."""
-        ...
+        raise NotImplementedError("get_symbols")
 
     @abstractmethod
     def get_symbols_data(
@@ -122,7 +122,7 @@ class DataAPI(metaclass=ABCMeta):
         scale: TimeScale, default TimeScale.minute
             The bar resolution.
         """
-        ...
+        raise NotImplementedError("get_symbols_data")
 
     @abstractmethod
     def get_last_trading(self, symbol: str) -> pd.Timestamp:
@@ -133,7 +133,7 @@ class DataAPI(metaclass=ABCMeta):
         symbol: str
             The symbol to look up.
         """
-        ...
+        raise NotImplementedError("get_last_trading")
 
     @abstractmethod
     def get_trading_day(
@@ -152,7 +152,7 @@ class DataAPI(metaclass=ABCMeta):
         offset: int
             The number of trading days to shift by.
         """
-        ...
+        raise NotImplementedError("get_trading_day")
 
     @abstractmethod
     def trading_days_slice(self, symbol: str, slice) -> slice:
@@ -168,7 +168,7 @@ class DataAPI(metaclass=ABCMeta):
         slice
             The timestamp slice to adjust.
         """
-        ...
+        raise NotImplementedError("trading_days_slice")
 
     @abstractmethod
     def num_trading_minutes(self, symbol: str, start: date, end: date) -> int:
@@ -183,7 +183,7 @@ class DataAPI(metaclass=ABCMeta):
         end: date
             The end of the date range.
         """
-        ...
+        raise NotImplementedError("num_trading_minutes")
 
     @abstractmethod
     def num_trading_days(self, symbol: str, start: date, end: date) -> int:
@@ -198,12 +198,12 @@ class DataAPI(metaclass=ABCMeta):
         end: date
             The last date of the range.
         """
-        ...
+        raise NotImplementedError("num_trading_days")
 
     @abstractmethod
     def get_max_data_points_per_load(self) -> int:
         """Return the maximum number of data points to request in one load."""
-        ...
+        raise NotImplementedError("get_max_data_points_per_load")
 
     def data_concurrency_ranges(
         self,

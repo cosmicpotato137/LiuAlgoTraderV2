@@ -82,5 +82,5 @@ async def test_buys_bullish_and_sells_bearish_crossover() -> None:
         bars.open[bearish + DAY],
     ]:
         raise AssertionError(f"unexpected prices {list(trades.price)}")
-    if session.state.positions["sma_cross_long"]:
+    if session.state.strategies["sma_cross_long"].positions:
         raise AssertionError("position left open after the bearish crossover")

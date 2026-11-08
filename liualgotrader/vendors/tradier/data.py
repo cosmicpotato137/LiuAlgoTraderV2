@@ -43,7 +43,7 @@ class TradierData(DataAPI):
     get_symbols
         Raise NotImplementedError.
     get_symbols_data
-        Return None.
+        Raise NotImplementedError.
     get_last_trading
         Return the most recent time the market was open.
     get_trading_day
@@ -222,7 +222,7 @@ class TradierData(DataAPI):
         end: Optional[date] = None,
         scale: TimeScale = TimeScale.minute,
     ) -> Dict[str, pd.DataFrame]:
-        """Return None, as loading several symbols at once is unimplemented.
+        """Raise NotImplementedError, as batch loading is unsupported.
 
         Parameters
         ----------
@@ -235,7 +235,7 @@ class TradierData(DataAPI):
         scale: TimeScale, default TimeScale.minute
             The bar size.
         """
-        ...
+        raise NotImplementedError("get_symbols_data")
 
     def _get_previous_month_last_trading(
         self, month: int, year: int

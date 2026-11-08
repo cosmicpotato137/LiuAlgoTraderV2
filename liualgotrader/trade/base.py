@@ -21,8 +21,9 @@ class TraderAPI:
     """Abstract base class for broker trading integrations.
 
     Subclasses must implement every public method except create_session,
-    is_market_open and get_instance, since the other base versions only return
-    None.
+    is_market_open and get_instance, since the other base versions raise
+    NotImplementedError; get_account_order is required only of those that
+    support external accounts.
 
     Attributes
     ----------
@@ -119,7 +120,7 @@ class TraderAPI:
         Implementations must return an (open, close) tuple of timestamps, or
         (None, None) if the market does not trade today.
         """
-        ...
+        raise NotImplementedError("get_market_schedule")
 
     def get_trading_days(
         self, start_date: date, end_date: Optional[date] = None
@@ -137,11 +138,11 @@ class TraderAPI:
             The last date of the range, inclusive, or None for today in New
             York.
         """
-        ...
+        raise NotImplementedError("get_trading_days")
 
     def is_market_open_today(self) -> bool:
         """Return True if a trading session is scheduled for today."""
-        ...
+        raise NotImplementedError("is_market_open_today")
 
     def is_market_open(self, now: pd.Timestamp) -> bool:
         """Return True if now falls within today's trading session.
@@ -171,7 +172,7 @@ class TraderAPI:
 
         Implementations must return None if the closing time is unknown.
         """
-        ...
+        raise NotImplementedError("get_time_market_close")
 
     def get_position(self, symbol: str) -> float:
         """Return the quantity of symbol held in the account.
@@ -188,7 +189,7 @@ class TraderAPI:
         When no position is held, they may return zero or raise an exception,
         which the consumer treats as zero.
         """
-        ...
+        raise NotImplementedError("get_position")
 
     async def reconnect(self):
         """Re-establish the connection to the broker.
@@ -196,11 +197,11 @@ class TraderAPI:
         Used by the consumer after a ConnectionError. Implementations must
         restore any client state that later broker requests need.
         """
-        ...
+        raise NotImplementedError("reconnect")
 
     async def get_tradeable_symbols(self) -> List[str]:
         """Return the symbols that can be traded through the broker."""
-        ...
+        raise NotImplementedError("get_tradeable_symbols")
 
     async def get_shortable_symbols(self) -> List[str]:
         """Return the symbols that can be sold short through the broker.
@@ -208,7 +209,7 @@ class TraderAPI:
         Implementations must return an empty list if the broker does not
         support short selling.
         """
-        ...
+        raise NotImplementedError("get_shortable_symbols")
 
     async def is_shortable(self, symbol: str) -> bool:
         """Return True if symbol can currently be sold short.
@@ -218,7 +219,7 @@ class TraderAPI:
         symbol: str
             The asset symbol.
         """
-        ...
+        raise NotImplementedError("is_shortable")
 
     async def is_order_completed(
         self, order_id: str, external_order_id: Optional[str] = None
@@ -238,7 +239,7 @@ class TraderAPI:
             The order's external account identifier, which implementations may
             ignore.
         """
-        ...
+        raise NotImplementedError("is_order_completed")
 
     async def is_fractionable(self, symbol: str) -> bool:
         """Return True if symbol can be traded in fractional quantities.
@@ -248,7 +249,7 @@ class TraderAPI:
         symbol: str
             The asset symbol.
         """
-        ...
+        raise NotImplementedError("is_fractionable")
 
     async def submit_order(
         self,
@@ -312,7 +313,7 @@ class TraderAPI:
         Return the Order as recorded by the broker, and raise an exception if
         the request fails.
         """
-        ...
+        raise NotImplementedError("submit_order")
 
     async def get_order(self, order_id: str) -> Order:
         """Return the current state of an order.
@@ -325,7 +326,7 @@ class TraderAPI:
         order_id: str
             The broker order identifier.
         """
-        ...
+        raise NotImplementedError("get_order")
 
     async def get_account_order(
         self, external_account_id: str, order_id: str
@@ -341,7 +342,7 @@ class TraderAPI:
         order_id: str
             The order identifier within that account.
         """
-        ...
+        raise NotImplementedError("get_account_order")
 
     async def cancel_order(self, order: Order) -> bool:
         """Request cancellation of an order with the broker.
@@ -355,7 +356,7 @@ class TraderAPI:
             The order to cancel, identified by its order_id and, where
             supported, its external_account_id.
         """
-        ...
+        raise NotImplementedError("cancel_order")
 
     async def run(self) -> Optional[asyncio.Task]:
         """Start the listener that receives trade updates from the broker.
@@ -364,11 +365,11 @@ class TraderAPI:
         attribute and return a handle to the listener, such as an asyncio Task.
         A repeated call should return the existing listener.
         """
-        ...
+        raise NotImplementedError("run")
 
     async def close(self):
         """Stop the trade-update listener and release its connection."""
-        ...
+        raise NotImplementedError("close")
 
     @classmethod
     def get_instance(cls):

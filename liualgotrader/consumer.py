@@ -33,9 +33,9 @@ from liualgotrader.common.exceptions import OwnershipCollision
 from liualgotrader.common.log import configure_logging
 from liualgotrader.common.types import Order, QueueMessageType, Trade
 from liualgotrader.db.session import create_db_connection
-from liualgotrader.strategy.new_base import (Context, OrderRequest,
+from liualgotrader.strategy.new_base import (Context, OpenOrder, OrderRequest,
                                              PortfolioRule, Strategy)
-from liualgotrader.strategy.runtime import OpenOrder, RunState
+from liualgotrader.strategy.runtime import RunState
 from liualgotrader.strategy.tradeplan import create_strategies
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.trade.factory import trader_factory
@@ -119,7 +119,7 @@ class Consumer:
     trader: TraderAPI
         The trader of the context, which submits and cancels orders.
     state: RunState
-        The universes, positions, open orders and owners of the run.
+        The strategies, open orders and symbol owners of the run.
     run_portfolio_rules: bool
         Whether this consumer runs the portfolio rules.
 
@@ -131,9 +131,9 @@ class Consumer:
         Add a bar to the data and run the symbol rules on a minute bar.
     queue_consumer
         Consume and dispatch the messages of the producer.
-    portfolio_runner
+    _portfolio_runner
         Run a portfolio rule at its recurrence.
-    cancel_lingering_orders
+    _cancel_lingering_orders
         Check the stale orders once a minute.
     run
         Run the tasks of the consumer.
@@ -225,7 +225,7 @@ class Consumer:
                 order.submitted_at,
             )
             if await self.trader.cancel_order(order):
-                await self.state.cancel(order.order_id)
+                await self.state.cancel_order(order.order_id)
         except Exception:
             logger.exception("check_order() failed for %s", order)
 
@@ -265,7 +265,7 @@ class Consumer:
         await aggregate_bar_data(self.ctx.data_loader, data, second)
         self.ctx.invalidate(symbol)
 
-        for open_order in self.state.stale_orders(
+        for open_order in self.state.get_stale_orders(
             second - _STALE_ORDER_AGE, symbol
         ):
             await self.check_order(open_order, second)
@@ -274,7 +274,7 @@ class Consumer:
             minute = second.replace(second=0)
             self.ctx.set_horizon(minute)
             decisions = await self.state.decide_symbol(symbol, minute)
-            await self.state.submit(decisions, self._place)
+            await self.state.submit_order(decisions, self._place)
 
     async def queue_consumer(self, queue: Queue) -> None:
         """Consume and dispatch the messages of the producer until cancelled.
@@ -342,7 +342,7 @@ class Consumer:
         finally:
             logger.info("queue_consumer() task done.")
 
-    async def portfolio_runner(self, strategy: Strategy) -> None:
+    async def _portfolio_runner(self, strategy: Strategy) -> None:
         """Run a portfolio strategy at the recurrence of its rule until
         cancelled or inactive.
 
@@ -361,7 +361,7 @@ class Consumer:
         strategy owns and the run state halts on collisions.
         """
         rule = cast(PortfolioRule, strategy.rule)
-        logger.info("portfolio_runner(%s) task starting", strategy)
+        logger.info("_portfolio_runner(%s) task starting", strategy)
         while strategy.active:
             await asyncio.sleep(rule.recurrence.total_seconds())
             try:
@@ -372,34 +372,36 @@ class Consumer:
                 decisions = await self.state.decide_portfolio(
                     strategy, latest_bar
                 )
-                await self.state.submit(decisions, self._place)
+                await self.state.submit_order(decisions, self._place)
             except OwnershipCollision:
                 raise
             except Exception:
-                logger.exception("portfolio_runner(%s) failed", strategy)
+                logger.exception("_portfolio_runner(%s) failed", strategy)
         logger.info(
-            "portfolio_runner(%s) task done, strategy inactive", strategy
+            "_portfolio_runner(%s) task done, strategy inactive", strategy
         )
 
-    async def cancel_lingering_orders(self) -> None:
+    async def _cancel_lingering_orders(self) -> None:
         """Check the stale open orders once a minute until cancelled.
 
         Act only while the market is open.
         """
-        logger.info("cancel_lingering_orders() task starting")
+        logger.info("_cancel_lingering_orders() task starting")
 
         while True:
             await asyncio.sleep(60)
 
-            if not self.state.open_orders:
+            if not self.state.get_open_orders_by_id():
                 continue
 
             now = clock.now()
             if not self.trader.is_market_open(now):
-                logger.info("cancel_lingering_orders() market is closed")
+                logger.info("_cancel_lingering_orders() market is closed")
                 continue
 
-            for open_order in self.state.stale_orders(now - _STALE_ORDER_AGE):
+            for open_order in self.state.get_stale_orders(
+                now - _STALE_ORDER_AGE
+            ):
                 await self.check_order(open_order, now)
 
     async def run(self, queue: Queue) -> None:
@@ -420,10 +422,10 @@ class Consumer:
         Raise OwnershipCollision if a strategy requests a symbol that another
         strategy owns and the run state halts on collisions.
         """
-        coros = [self.queue_consumer(queue), self.cancel_lingering_orders()]
+        coros = [self.queue_consumer(queue), self._cancel_lingering_orders()]
         if self.run_portfolio_rules:
             coros += [
-                self.portfolio_runner(strategy)
+                self._portfolio_runner(strategy)
                 for strategy in self.state.strategies.values()
                 if isinstance(strategy.rule, PortfolioRule)
             ]

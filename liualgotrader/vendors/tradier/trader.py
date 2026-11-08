@@ -104,7 +104,7 @@ class TradierTrader(TraderAPI):
         Report whether a symbol is easy to borrow (overrides Trader).
     cancel_order
         Request the cancellation of an order (overrides Trader).
-    subscribe_order_status_update
+    _subscribe_order_status_update
         Subscribe the stream to order events.
     submit_order
         Submit an equity day order (overrides Trader).
@@ -635,7 +635,7 @@ class TradierTrader(TraderAPI):
 
         return Order.FillSide.sell
 
-    async def subscribe_order_status_update(self) -> None:
+    async def _subscribe_order_status_update(self) -> None:
         """Subscribe the streaming session to order status events.
 
         Do nothing unless the listener is running with an open session.
@@ -815,7 +815,7 @@ class TradierTrader(TraderAPI):
             )
             self.running_task.start()
             await asyncio.sleep(1.0)
-            await self.subscribe_order_status_update()
+            await self._subscribe_order_status_update()
 
         return self.running_task  # type: ignore
 

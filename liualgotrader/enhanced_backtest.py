@@ -21,7 +21,7 @@ import itertools
 import logging
 import uuid
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List
 
 import pandas as pd
 
@@ -31,8 +31,8 @@ from liualgotrader.common.data_loader import DataLoader  # type: ignore
 from liualgotrader.common.types import AssetType, Order, OrderType, TimeScale
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.strategy.new_base import (Context, OrderRequest,
-                                             PortfolioRule)
-from liualgotrader.strategy.runtime import OpenOrder, RunState
+                                             PortfolioRule, Strategy)
+from liualgotrader.strategy.runtime import RunState
 from liualgotrader.strategy.tradeplan import create_strategies
 from liualgotrader.trade.factory import trader_factory
 
@@ -55,7 +55,7 @@ class Backtest:
     ctx: Context
         The context of the session.
     state: RunState
-        The universes, positions, open orders and owners of the session.
+        The strategies, open orders and symbol owners of the session.
     scale: TimeScale
         The time between steps.
     buy_fee_percentage: float
@@ -154,8 +154,8 @@ class Backtest:
         for now in steps:
             await self.simulate_timestep(now)
         if self.scale != TimeScale.day:
-            for order_id in list(self.state.open_orders):
-                await self.state.cancel(order_id)
+            for order_id in list(self.state.get_open_orders_by_id()):
+                await self.state.cancel_order(order_id)
 
     async def simulate_timestep(self, now: pd.Timestamp) -> None:
         """Simulate the step of at the time of a bar.
@@ -179,7 +179,7 @@ class Backtest:
                 )
 
         decisions = []
-        for symbol in sorted(self.state.symbols()):
+        for symbol in sorted(self.state.get_all_symbols()):
             decisions += await self.state.decide_symbol(symbol, now)
         for strategy in strategies:
             rule = strategy.rule
@@ -196,7 +196,7 @@ class Backtest:
                 side=request.side,
             )
 
-        await self.state.submit(decisions, place)
+        await self.state.submit_order(decisions, place)
 
     async def _fill_open_orders(self, now: pd.Timestamp) -> None:
         """Fill the open orders at the open of the bar at now.
@@ -204,59 +204,50 @@ class Backtest:
         Leave an order open while its symbol has no bar at now. Cancel a limit
         order that the bar does not trade through.
         """
-        for order_id, open_order in list(self.state.open_orders.items()):
-            bars = self.ctx.bars(open_order.request.symbol, now, now)
+        open_orders = self.state.get_open_orders_by_id()
+        for order_id, open_order in list(open_orders.items()):
+            request = open_order.request
+            bars = self.ctx.bars(request.symbol, now, now)
             if bars.empty:
                 continue
-            price = _execution_price(open_order.request, bars.iloc[-1])
-            if price is None:
-                await self.state.cancel(order_id)
-            else:
-                await self._fill_open_order(open_order, price, now)
+            bar = bars.iloc[-1]
 
-    async def _fill_open_order(
-        self, open_order: OpenOrder, price: float, now: pd.Timestamp
-    ) -> None:
-        """Fill an open order completely at a price, and record the trade."""
-        request = open_order.request
-        is_buy = request.side == Order.FillSide.buy
-        fee = (
-            price
-            * request.qty
-            * (self.buy_fee_percentage if is_buy else self.sell_fee_percentage)
-            / 100.0
-        )
-        self.trades.append(
-            {
-                "time": now,
-                "strategy": open_order.strategy.name,
-                "symbol": request.symbol,
-                "side": request.side.name,
-                "qty": request.qty,
-                "price": price,
-                "fee": fee,
-            }
-        )
-        await self.state.fill_order(open_order, request.qty, price, fee, now)
+            # Fill a market order at the open. Fill a limit order at the open
+            # if the open is at or better than the limit, at the limit if the
+            # bar trades through it later, and not at all otherwise.
+            is_buy = request.side == Order.FillSide.buy
+            price = float(bar["open"])
+            if request.type != OrderType.MARKET:
+                limit = float(request.limit_price)  # type: ignore
+                fills = bar["low"] <= limit if is_buy else bar["high"] >= limit
+                if not fills:
+                    await self.state.cancel_order(order_id)
+                    continue
+                price = min(price, limit) if is_buy else max(price, limit)
 
-
-def _execution_price(request: OrderRequest, bar: pd.Series) -> Optional[float]:
-    """Return the price at which a bar fills an order, or None.
-
-    Fill a market order at the open. Fill a limit order at the open if the
-    open is at or better than the limit, at the limit if the bar trades
-    through it later, and not at all otherwise.
-    """
-    if request.type == OrderType.MARKET:
-        return float(bar["open"])
-    limit = float(request.limit_price)  # type: ignore
-    if request.side == Order.FillSide.buy:
-        return min(float(bar["open"]), limit) if bar["low"] <= limit else None
-    return max(float(bar["open"]), limit) if bar["high"] >= limit else None
+            # Fill the order completely at price, and record the trade.
+            fee_pct = (
+                self.buy_fee_percentage if is_buy else self.sell_fee_percentage
+            )
+            fee = price * request.qty * fee_pct / 100.0
+            self.trades.append(
+                {
+                    "time": now,
+                    "strategy": open_order.strategy.name,
+                    "symbol": request.symbol,
+                    "side": request.side.name,
+                    "qty": request.qty,
+                    "price": price,
+                    "fee": fee,
+                }
+            )
+            await self.state.fill_order(
+                open_order, request.qty, price, fee, now
+            )
 
 
 def write_results(
-    batch_id: str, trades: pd.DataFrame, positions: Dict[str, Dict]
+    batch_id: str, trades: pd.DataFrame, strategies: Iterable[Strategy]
 ) -> None:
     """Write the trades and the summary of a session to files.
 
@@ -270,19 +261,19 @@ def write_results(
         The batch identifier of the session.
     trades: pd.DataFrame
         The trades, with the columns of TRADE_COLUMNS.
-    positions: Dict[str, Dict]
-        The open positions of each strategy, by strategy name and symbol.
+    strategies: Iterable[Strategy]
+        The strategies of the session, with their open positions.
     """
     trades.to_csv(f"{batch_id}-trades.csv", index=False)
 
     lines = [f"batch-id: {batch_id}"]
-    for strategy, strategy_positions in positions.items():
-        strategy_trades = trades[trades.strategy == strategy]
+    for strategy in strategies:
+        strategy_trades = trades[trades.strategy == strategy.name]
         lines += [
-            f"strategy {strategy}:",
+            f"strategy {strategy.name}:",
             f"  net cash flow: {net_cash_flow(strategy_trades):.2f}",
             f"  trades: {len(strategy_trades)}",
-            f"  open positions: {strategy_positions}",
+            f"  open positions: {strategy.positions}",
         ]
     with open(f"{batch_id}-summary.txt", "w") as summary:
         summary.write("\n".join(lines) + "\n")
@@ -377,7 +368,7 @@ async def backtest_main(
     await session.simulate_range(from_date, to_date)
 
     trades = pd.DataFrame(session.trades, columns=TRADE_COLUMNS)
-    write_results(uid, trades, session.state.positions)
+    write_results(uid, trades, session.state.strategies.values())
     return trades
 
 

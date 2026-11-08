@@ -35,13 +35,14 @@ from liualgotrader.strategy import new_base
 from liualgotrader.strategy.new_base import (
     Context,
     Filter,
+    OpenOrder,
     OrderRequest,
     PortfolioRule,
     Signal,
     Strategy,
     SymbolRule,
 )
-from liualgotrader.strategy.runtime import RunState, sells_first
+from liualgotrader.strategy.runtime import RunState
 from liualgotrader.strategy.tradeplan import portfolio_strategy_names
 
 DAY_START = pd.Timestamp("2026-10-01 09:30", tz=clock.NY)
@@ -257,7 +258,10 @@ async def test_owner_and_open_orders_block_other_decisions(ctx) -> None:
     if [s for s, _ in decisions] != [first] or second.rule.calls:
         raise AssertionError("a second strategy traded a claimed symbol")
 
-    state.add_open_order(submitted("1", "aapl"), first, decisions[0][1])
+    order = submitted("1", "aapl")
+    first.open_orders[order.order_id] = OpenOrder(
+        order, first, decisions[0][1]
+    )
     if await state.decide_symbol("aapl", DAY_START + MINUTE):
         raise AssertionError("a rule decided while it had an open order")
     if len(first.rule.calls) != 1:
@@ -270,23 +274,25 @@ async def test_fills_update_positions_and_release_symbols(ctx) -> None:
     state.set_universe("r", ["aapl"])
     strategy = state.strategies["r"]
     [(_, request)] = await state.decide_symbol("aapl", DAY_START)
-    state.add_open_order(submitted("1", "aapl"), strategy, request)
+    order = submitted("1", "aapl")
+    strategy.open_orders[order.order_id] = OpenOrder(order, strategy, request)
 
     if await state.handle_trade(fill("other", 1.0)):
         raise AssertionError("applied another consumer's order")
     await state.handle_trade(fill("1", 0.4, partial=True))
     await state.handle_trade(fill("1", 0.6))
-    if state.positions["r"] != {"aapl": 1.0} or state.open_orders:
-        raise AssertionError(f"unexpected state {state.positions}")
+    if strategy.positions != {"aapl": 1.0} or state.get_open_orders_by_id():
+        raise AssertionError(f"unexpected positions {strategy.positions}")
     if len(strategy.rule.fills) != 2 or state.symbol_owners != {"aapl": "r"}:
         raise AssertionError("fills not reported or symbol released")
 
     # the owner keeps deciding on its symbol once its filter drops it
-    state.universes.clear()
+    strategy.universe.clear()
     [(_, sell)] = await state.decide_symbol("aapl", DAY_START + MINUTE)
-    state.add_open_order(submitted("2", "aapl", SELL), strategy, sell)
+    order = submitted("2", "aapl", SELL)
+    strategy.open_orders[order.order_id] = OpenOrder(order, strategy, sell)
     await state.handle_trade(fill("2", 1.0, SELL))
-    if state.positions["r"] or state.symbol_owners:
+    if strategy.positions or state.symbol_owners:
         raise AssertionError("flat strategy still owns its symbol")
 
 
@@ -296,12 +302,13 @@ async def test_cancel_notifies_rule_and_releases_symbol(ctx) -> None:
     state.set_universe("r", ["aapl"])
     strategy = state.strategies["r"]
     [(_, request)] = await state.decide_symbol("aapl", DAY_START)
-    state.add_open_order(submitted("1", "aapl"), strategy, request)
+    order = submitted("1", "aapl")
+    strategy.open_orders[order.order_id] = OpenOrder(order, strategy, request)
 
     rejected = fill("1", 0.0)
     rejected.event = Order.EventType.rejected
     await state.handle_trade(rejected)
-    if state.open_orders or state.symbol_owners:
+    if state.get_open_orders_by_id() or state.symbol_owners:
         raise AssertionError("rejected order kept")
     cancels = strategy.rule.cancels
     if [o.event for o in cancels] != [Order.EventType.rejected]:
@@ -395,7 +402,8 @@ async def test_inactive_strategy_keeps_its_positions_and_orders(ctx) -> None:
     strategy = state.strategies["p"]
     state.set_universe("p", ["msft"])
     [(_, request)] = await state.decide_portfolio(strategy, DAY_START)
-    state.add_open_order(submitted("1", "msft"), strategy, request)
+    order = submitted("1", "msft")
+    strategy.open_orders[order.order_id] = OpenOrder(order, strategy, request)
 
     state.set_universe("p", ["aapl"])
     state.symbol_owners["aapl"] = "r"
@@ -403,8 +411,8 @@ async def test_inactive_strategy_keeps_its_positions_and_orders(ctx) -> None:
     await state.handle_trade(fill("1", 1.0))
 
     # the fill still applies, and no other strategy may trade the position
-    if strategy.active or state.positions["p"] != {"msft": 1.0}:
-        raise AssertionError(f"unexpected positions {state.positions}")
+    if strategy.active or strategy.positions != {"msft": 1.0}:
+        raise AssertionError(f"unexpected positions {strategy.positions}")
     if state.symbol_owners != {"aapl": "r", "msft": "p"}:
         raise AssertionError(f"unexpected owners {state.symbol_owners}")
 
@@ -419,9 +427,9 @@ async def test_inactive_strategy_drops_its_universe_and_rule(ctx) -> None:
 
     state.set_universe("p", ["msft"])
     await state.decide_portfolio(strategy, DAY_START + MINUTE)
-    if strategy.active or "p" in state.universes:
-        raise AssertionError(f"inactive strategy kept {state.universes}")
-    if state.symbols() != {"aapl"} or len(strategy.rule.calls) != 1:
+    if strategy.active or strategy.universe:
+        raise AssertionError(f"inactive strategy kept {strategy.universe}")
+    if state.get_all_symbols() != {"aapl"} or len(strategy.rule.calls) != 1:
         raise AssertionError("inactive strategy still decides")
 
 
@@ -457,11 +465,25 @@ async def test_signal_is_not_evaluated_on_another_strategys_symbol(
         raise AssertionError("evaluated a signal for a symbol q owns")
 
 
-def test_sells_first() -> None:
-    buy = (None, OrderRequest("a", BUY, 1.0))
-    sell = (None, OrderRequest("b", SELL, 1.0))
-    if sells_first([buy, sell]) != [sell, buy]:
-        raise AssertionError("buys before sells")
+@pytest.mark.asyncio
+async def test_submit_places_sells_first(ctx) -> None:
+    state = RunState(make_strategies(ctx, "r"))
+    strategy = state.strategies["r"]
+    buy_a, sell, buy_c = (
+        OrderRequest("a", BUY, 1.0),
+        OrderRequest("b", SELL, 1.0),
+        OrderRequest("c", BUY, 1.0),
+    )
+    placed = []
+
+    async def place(request):
+        placed.append(request)
+
+    await state.submit_order(
+        [(strategy, r) for r in (buy_a, sell, buy_c)], place
+    )
+    if placed != [sell, buy_a, buy_c]:
+        raise AssertionError(f"unexpected order of submissions {placed}")
 
 
 @pytest.mark.asyncio
@@ -488,7 +510,7 @@ async def test_backtest_fills_at_next_open() -> None:
     if net_cash_flow(trades) != pytest.approx(12.0 - 11.0 - 0.11):
         raise AssertionError("unexpected cash flow")
     cancels = strategies["r"].rule.cancels
-    if len(cancels) != 1 or session.state.open_orders:
+    if len(cancels) != 1 or session.state.get_open_orders_by_id():
         raise AssertionError("open order survived the end of the day")
 
 
@@ -573,10 +595,9 @@ async def test_backtest_filter_run_replaces_universe() -> None:
 
     await session.simulate_day(DAY_START, DAY_START + 2 * MINUTE)
 
-    if session.state.universes != {"r": {"aapl"}}:
-        raise AssertionError(
-            f"dropped symbol stayed in universe: {session.state.universes}"
-        )
+    universe = strategies["r"].universe
+    if universe != {"aapl"}:
+        raise AssertionError(f"dropped symbol stayed in universe: {universe}")
 
 
 @pytest.mark.asyncio
@@ -592,10 +613,9 @@ async def test_backtest_universe_lasts_until_next_filter_run() -> None:
     next_day = DAY_START + pd.Timedelta(days=1)
     await session.simulate_day(next_day, next_day + MINUTE)
 
-    if selector.runs != 1 or session.state.universes != {"r": {"aapl"}}:
-        raise AssertionError(
-            f"universe lost before the next run: {session.state.universes}"
-        )
+    universe = strategies["r"].universe
+    if selector.runs != 1 or universe != {"aapl"}:
+        raise AssertionError(f"universe lost before the next run: {universe}")
 
 
 @pytest.mark.asyncio
@@ -684,7 +704,7 @@ def test_context_creates_its_calendar_on_first_use(monkeypatch) -> None:
         raise AssertionError(f"unexpected calendar creations {created}")
 
 
-def test_write_results(tmp_path, monkeypatch) -> None:
+def test_write_results(ctx, tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     trades = pd.DataFrame(
         [
@@ -693,7 +713,9 @@ def test_write_results(tmp_path, monkeypatch) -> None:
         ],
         columns=["time", "strategy", "symbol", "side", "qty", "price", "fee"],
     )
-    write_results("b", trades, {"r": {}, "idle": {"msft": 2.0}})
+    strategies = make_strategies(ctx, "r", "idle")
+    strategies["idle"].positions["msft"] = 2.0
+    write_results("b", trades, strategies.values())
 
     if len(pd.read_csv(tmp_path / "b-trades.csv")) != 2:
         raise AssertionError("trades not written")
@@ -786,7 +808,7 @@ class Messages:
 @pytest.mark.asyncio
 async def test_consumer_filter_result_replaces_universe(ctx) -> None:
     ctx.trader = FakeTrader()
-    consumer = Consumer(ctx, RunState(make_strategies(ctx, "r")), False)
+    consumer = Consumer(ctx, RunState(make_strategies(ctx, "f", "g")), False)
 
     def result(filter_name, symbols):
         return {
@@ -799,14 +821,16 @@ async def test_consumer_filter_result_replaces_universe(ctx) -> None:
         Messages(
             result("f", ["aapl", "msft"]),
             result("f", ["aapl"]),
+            result("g", ["msft"]),
             result("g", []),
+            result("h", ["aapl"]),
         )
     )
 
-    if consumer.state.universes != {"f": {"aapl"}, "g": set()}:
-        raise AssertionError(
-            f"unexpected universes {consumer.state.universes}"
-        )
+    # h has no strategy in this run
+    universes = {n: s.universe for n, s in consumer.state.strategies.items()}
+    if universes != {"f": {"aapl"}, "g": set()}:
+        raise AssertionError(f"unexpected universes {universes}")
 
 
 @pytest.mark.asyncio
@@ -850,12 +874,12 @@ async def test_consumer_submits_and_applies_trade_updates(ctx) -> None:
     consumer.state.set_universe("r", ["aapl"])
 
     decisions = await consumer.state.decide_symbol("aapl", DAY_START)
-    await consumer.state.submit(decisions, consumer._place)
+    await consumer.state.submit_order(decisions, consumer._place)
     if [o["side"] for o in trader.submitted] != ["buy"]:
         raise AssertionError(f"unexpected orders {trader.submitted}")
 
     await consumer.state.handle_trade(fill("1", 1.0))
-    if consumer.state.positions["r"] != {"aapl": 1.0}:
+    if consumer.state.strategies["r"].positions != {"aapl": 1.0}:
         raise AssertionError("trade update not applied")
 
 
@@ -866,15 +890,16 @@ async def test_consumer_cancels_stale_partially_filled_order(ctx) -> None:
     consumer = Consumer(ctx, RunState(make_strategies(ctx, "r")), False)
     consumer.state.set_universe("r", ["aapl"])
     decisions = await consumer.state.decide_symbol("aapl", DAY_START)
-    await consumer.state.submit(decisions, consumer._place)
+    await consumer.state.submit_order(decisions, consumer._place)
 
-    [stale] = consumer.state.stale_orders(DAY_START + MINUTE)
+    [stale] = consumer.state.get_stale_orders(DAY_START + MINUTE)
     await consumer.check_order(stale, DAY_START + MINUTE)
 
-    rule = consumer.state.strategies["r"].rule
-    if trader.canceled != ["1"] or consumer.state.open_orders:
+    strategy = consumer.state.strategies["r"]
+    rule = strategy.rule
+    if trader.canceled != ["1"] or consumer.state.get_open_orders_by_id():
         raise AssertionError("stale order not canceled")
-    if consumer.state.positions["r"] != {"aapl": 0.25}:
+    if strategy.positions != {"aapl": 0.25}:
         raise AssertionError("reported partial fill not applied")
     if [o.filled_qty for o in rule.cancels] != [0.25]:
         raise AssertionError(f"unexpected cancels {rule.cancels}")

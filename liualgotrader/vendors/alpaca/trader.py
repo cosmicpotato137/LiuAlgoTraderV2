@@ -167,7 +167,7 @@ class AlpacaTrader(TraderAPI):
         Return the Alpaca trading calendar for a date range.
     get_position
         Return the signed quantity held in a symbol.
-    to_order
+    _to_order
         Convert an Alpaca order into an Order.
     get_order
         Return an order in the configured account.
@@ -191,7 +191,7 @@ class AlpacaTrader(TraderAPI):
         Cancel an order in the account that holds it.
     submit_order
         Submit an order to Alpaca.
-    trade_update_handler
+    _trade_update_handler
         Forward a trade update to every consumer queue.
     """
 
@@ -229,7 +229,7 @@ class AlpacaTrader(TraderAPI):
                 url_override=f"{base_url.replace('http', 'ws', 1)}/stream",
             )
             self.alpaca_ws_client.subscribe_trade_updates(
-                AlpacaTrader.trade_update_handler
+                AlpacaTrader._trade_update_handler
             )
         self.running_task: Optional[asyncio.Task] = None
 
@@ -451,7 +451,7 @@ class AlpacaTrader(TraderAPI):
             else -1.0 * float(pos.qty)
         )
 
-    def to_order(self, alpaca_order: AlpacaOrder) -> Order:
+    def _to_order(self, alpaca_order: AlpacaOrder) -> Order:
         """Convert an Alpaca order into an Order.
 
         The Order has the order identifier as a string, a lowercased symbol,
@@ -489,7 +489,7 @@ class AlpacaTrader(TraderAPI):
     ) -> Order:
         """Convert a Broker API order response into an Order.
 
-        Fill fields as in to_order.
+        Fill fields as in _to_order.
 
         Parameters
         ----------
@@ -522,7 +522,7 @@ class AlpacaTrader(TraderAPI):
             The Alpaca order identifier.
         """
         alpaca_order = self.alpaca_rest_client.get_order_by_id(order_id)
-        return self.to_order(cast(AlpacaOrder, alpaca_order))
+        return self._to_order(cast(AlpacaOrder, alpaca_order))
 
     def is_market_open_today(self) -> bool:
         """Return True if a session opening time was recorded for today."""
@@ -799,7 +799,7 @@ class AlpacaTrader(TraderAPI):
 
         o = cast(AlpacaOrder, self.alpaca_rest_client.submit_order(request))
 
-        return self.to_order(o)
+        return self._to_order(o)
 
     async def _post_request(self, url: str, payload: Dict) -> Dict:
         """Send an authenticated POST request to the Alpaca Broker API.
@@ -1187,7 +1187,7 @@ class AlpacaTrader(TraderAPI):
         )
 
     @classmethod
-    async def trade_update_handler(cls, data: TradeUpdate):
+    async def _trade_update_handler(cls, data: TradeUpdate):
         """Forward an Alpaca trade update to every consumer queue.
 
         Send a trade_update message with the symbol and Trade fields, ignoring

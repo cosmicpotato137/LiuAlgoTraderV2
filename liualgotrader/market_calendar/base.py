@@ -41,7 +41,7 @@ class MarketCalendarAPI(metaclass=ABCMeta):
         to_date: date
             The last day of the range.
         """
-        ...
+        raise NotImplementedError("trading_days")
 
 
 class CryptoCalendar(MarketCalendarAPI):

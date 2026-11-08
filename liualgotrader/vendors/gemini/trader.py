@@ -70,7 +70,7 @@ class GeminiTrader(TraderAPI):
     -------
     is_fractionable
         Return True for every symbol (overrides Trader).
-    check_error
+    _check_error
         Raise AssertionError if a Gemini response reports an error.
     is_order_completed
         Return the status, price, quantity and fees of an order (overrides
@@ -89,7 +89,7 @@ class GeminiTrader(TraderAPI):
         Return the time left in the day (overrides Trader).
     reconnect
         Restart the listener and heartbeat threads (overrides Trader).
-    heartbeat
+    _heartbeat
         Send heartbeats to Gemini until told to stop.
     on_message
         Publish order events from the stream as trade updates.
@@ -332,7 +332,7 @@ class GeminiTrader(TraderAPI):
         """
         return True
 
-    def check_error(self, result: Dict):
+    def _check_error(self, result: Dict):
         """Raise AssertionError if a Gemini API response reports an error.
 
         Parameters
@@ -467,7 +467,7 @@ class GeminiTrader(TraderAPI):
 
         if response.status_code == 200:
             order_data = response.json()
-            self.check_error(order_data)
+            self._check_error(order_data)
 
             return self._order_from_dict(order_data)
 
@@ -494,7 +494,7 @@ class GeminiTrader(TraderAPI):
         await self.close()
         await self.run()
 
-    def heartbeat(self, flags: ThreadFlags):
+    def _heartbeat(self, flags: ThreadFlags):
         """Send heartbeats to Gemini until flags.run is cleared.
 
         Block until stopped, so run it in a dedicated thread.
@@ -637,7 +637,7 @@ class GeminiTrader(TraderAPI):
                 args=(None, {"cert_reqs": ssl.CERT_NONE}),
             )
             self.flags = ThreadFlags(run=True)
-            self.hb_task = Thread(target=self.heartbeat, args=(self.flags,))
+            self.hb_task = Thread(target=self._heartbeat, args=(self.flags,))
             self.running_task.start()
             self.hb_task.start()
 
@@ -715,7 +715,7 @@ class GeminiTrader(TraderAPI):
         response = requests.post(url, data=None, headers=headers)
         if response.status_code == 200:
             order_status = response.json()
-            self.check_error(order_status)
+            self._check_error(order_status)
             return order_status
 
         raise AssertionError(
@@ -825,7 +825,7 @@ class GeminiTrader(TraderAPI):
 
         if response.status_code == 200:
             new_order = response.json()
-            self.check_error(new_order)
+            self._check_error(new_order)
             return self._order_from_dict(new_order)
 
         if self.flags:

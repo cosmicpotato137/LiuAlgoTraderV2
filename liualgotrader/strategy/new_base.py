@@ -39,6 +39,8 @@ SymbolRule
     Rule that decides for one symbol at a time.
 PortfolioRule
     Rule that decides for all symbols of its signal at once.
+OpenOrder
+    An order that a strategy placed and that has not ended yet.
 Strategy
     A named filter, signal and rule that the runtime runs together.
 """
@@ -46,7 +48,7 @@ Strategy
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Callable, Optional, Self, TypeVar
 
@@ -854,6 +856,28 @@ class PortfolioRule(Rule, _Recurring):
         return []
 
 
+@dataclass
+class OpenOrder:
+    """An order that a strategy placed and that has not ended yet.
+
+    Attributes
+    ----------
+    order: Order
+        The order as submitted.
+    strategy: Strategy
+        The strategy whose rule requested the order.
+    request: OrderRequest
+        The request that the order executes.
+    filled_qty: float
+        The quantity filled so far.
+    """
+
+    order: Order
+    strategy: "Strategy"
+    request: OrderRequest
+    filled_qty: float = 0.0
+
+
 @dataclass(eq=False)
 class Strategy:
     """A named filter, signal and rule that the runtime runs together.
@@ -879,12 +903,24 @@ class Strategy:
         evaluates its signal and keeps the symbols that its filter selects,
         which a backtest also stops running. False once its rule requests a
         symbol that another strategy owns.
+    universe: set[str]
+        The symbols that the filter selected in its latest run, which the
+        runtime keeps; empty once the strategy is inactive.
+    positions: dict[str, float]
+        The open positions of the strategy, by symbol, which the runtime
+        keeps; negative when short.
+    open_orders: dict[str, OpenOrder]
+        The open orders of the strategy, by order ID, which the runtime
+        keeps.
     """
 
     name: str
     rule: Rule
     filter: Optional[Filter] = None
     active: bool = True
+    universe: set[str] = field(default_factory=set)
+    positions: dict[str, float] = field(default_factory=dict)
+    open_orders: dict[str, OpenOrder] = field(default_factory=dict)
 
     @property
     def signal(self) -> Signal:

@@ -89,3 +89,6 @@ target/
 # PDM
 .pdm-python
 .venv/
+
+# uv (project uses PDM; see pdm.lock)
+uv.lock
