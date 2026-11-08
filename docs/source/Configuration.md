@@ -44,6 +44,9 @@ calculation of optimal number of processes, and
 use a pre-defined number of consumer processes.
 To do so you can assign a positive integer
 to the environment variable `NUM_CONSUMERS`.
+`trader` logs a warning if it is more than
+five consumer processes per physical core,
+the most it would derive, but still starts them.
 
 `TRADEPLAN_DIR` specifies the folder of the
 trade plan's strategy files, by default the

@@ -19,12 +19,12 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
-import websocket
 
 from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
 from liualgotrader.common.types import (Order, OrderType, OrderUpdate,
                                         QueueMessageType, SymbolQueueMap)
+from liualgotrader.common.websocket_listener import WebSocketListener
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.tradier.config import TradierConfig
 
@@ -70,10 +70,8 @@ class TradierTrader(TraderAPI):
     ----------
     config: TradierConfig
         The connection settings, including the account number.
-    running_task: Optional[asyncio.Task]
+    listener: Optional[WebSocketListener]
         The account event listener, or None.
-    ws: Optional[websocket]
-        The account event WebSocket application, or None.
     ws_session_id: Optional[str]
         The streaming session identifier, or None.
 
@@ -137,8 +135,7 @@ class TradierTrader(TraderAPI):
             The queue mapper that receives trade updates.
         """
         self.config = config
-        self.running_task: Optional[asyncio.Task] = None
-        self.ws: Optional[websocket] = None
+        self.listener: Optional[WebSocketListener] = None
         self.ws_session_id: Optional[str] = None
         super().__init__(qm)
 
@@ -628,23 +625,46 @@ class TradierTrader(TraderAPI):
 
         return Order.FillSide.sell
 
+    def _get_order_side(self, symbol: str, side: Order.FillSide) -> str:
+        """Return the Tradier order side that trades a symbol on a side.
+
+        Tradier sells short and buys to cover with sides of their own, so
+        sell short a symbol that the account does not hold long, and buy to
+        cover a symbol that the account holds short.
+
+        Parameters
+        ----------
+        symbol: str
+            The stock symbol, in any letter case.
+        side: Order.FillSide
+            Whether to buy or sell.
+
+        Raises
+        ------
+        Raise ValueError if the position request fails.
+        """
+        position = float(self.get_position(symbol.upper()))
+        if side == Order.FillSide.buy:
+            return "buy_to_cover" if position < 0 else "buy"
+
+        return "sell" if position > 0 else "sell_short"
+
     async def _subscribe_order_status_update(self) -> None:
         """Subscribe the streaming session to order status events.
 
         Do nothing unless the listener is running with an open session.
         """
         if (
-            self.ws is not None
+            self.listener
             and self.ws_session_id
-            and self.running_task
-            and not self.running_task.done()
+            and not self.listener.task.done()
         ):
             payload = {
                 "events": ["order"],
                 "sessionid": self.ws_session_id,
                 "excludeAccounts": [],
             }
-            self.ws.send(json.dumps(payload))
+            self.listener.ws.send(json.dumps(payload))
             logger.info(
                 "subscribed for order update on session %s", self.ws_session_id
             )
@@ -653,19 +673,19 @@ class TradierTrader(TraderAPI):
         self,
         symbol: str,
         qty: float,
-        side: str,
+        side: Order.FillSide,
         order_type: OrderType,
-        time_in_force: str = None,
+        time_in_force: Optional[str] = None,
         limit_price: Optional[str] = None,
-        stop_price: str = None,
-        client_order_id: str = None,
-        extended_hours: bool = None,
-        order_class: str = None,
-        take_profit: dict = None,
-        stop_loss: dict = None,
-        trail_price: str = None,
-        trail_percent: str = None,
-        on_behalf_of: str = None,
+        stop_price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        extended_hours: Optional[bool] = None,
+        order_class: Optional[str] = None,
+        take_profit: Optional[dict] = None,
+        stop_loss: Optional[dict] = None,
+        trail_price: Optional[str] = None,
+        trail_percent: Optional[str] = None,
+        on_behalf_of: Optional[str] = None,
     ) -> Order:
         """Submit an equity day order to Tradier.
 
@@ -675,31 +695,33 @@ class TradierTrader(TraderAPI):
             The stock symbol.
         qty: float
             The quantity, truncated to whole shares.
-        side: str
-            The Tradier order side, such as buy or sell.
+        side: Order.FillSide
+            Whether to buy or sell. A sell of a symbol that the account does
+            not hold long sells it short, and a buy of a symbol that the
+            account holds short buys it to cover.
         order_type: OrderType
             The order type, such as OrderType.MARKET or OrderType.LIMIT.
-        time_in_force: str, default None
+        time_in_force: Optional[str], default None
             Ignored.
         limit_price: Optional[str], default None
             The limit price, rounded to cents.
-        stop_price: str, default None
+        stop_price: Optional[str], default None
             The stop price, rounded to cents.
-        client_order_id: str, default None
+        client_order_id: Optional[str], default None
             Ignored.
-        extended_hours: bool, default None
+        extended_hours: Optional[bool], default None
             Ignored.
-        order_class: str, default None
+        order_class: Optional[str], default None
             Ignored.
-        take_profit: dict, default None
+        take_profit: Optional[dict], default None
             Ignored.
-        stop_loss: dict, default None
+        stop_loss: Optional[dict], default None
             Ignored.
-        trail_price: str, default None
+        trail_price: Optional[str], default None
             Ignored.
-        trail_percent: str, default None
+        trail_percent: Optional[str], default None
             Ignored.
-        on_behalf_of: str, default None
+        on_behalf_of: Optional[str], default None
             The external account, sent as the order tag.
 
         Returns
@@ -709,7 +731,7 @@ class TradierTrader(TraderAPI):
 
         Raises
         ------
-        Raise ValueError if Tradier does not support the order type, the
+        Raise ValueError if Tradier does not support the order type, a
         request fails or Tradier reports errors.
         """
         tradier_type = _TRADIER_ORDER_TYPES.get(order_type)
@@ -721,7 +743,7 @@ class TradierTrader(TraderAPI):
         params: Dict = {
             "class": "equity",
             "symbol": symbol,
-            "side": side,
+            "side": self._get_order_side(symbol, side),
             "quantity": str(int(qty)),
             "duration": "day",
             "type": tradier_type.value,
@@ -743,12 +765,11 @@ class TradierTrader(TraderAPI):
         if "errors" in data:
             raise ValueError(f"order failed with {data['errors']}")
 
-        event_side = self._get_event_side(side)
         o = Order(
             symbol=symbol,
             order_id=data["order"]["id"],
             event=Order.EventType.pending,
-            side=event_side,
+            side=side,
             submitted_at=clock.now(),
             remaining_amount=qty,
         )
@@ -759,7 +780,7 @@ class TradierTrader(TraderAPI):
             o.price = float(limit_price)
 
         TradierTrader.order_symbol[int(o.order_id)] = symbol
-        TradierTrader.order_side[int(o.order_id)] = event_side
+        TradierTrader.order_side[int(o.order_id)] = side
         return o
 
     async def reconnect(self):
@@ -774,14 +795,14 @@ class TradierTrader(TraderAPI):
 
         Returns
         -------
-        Return the listener task; if it already exists, return it without
-        starting another.
+        Return the listener task; if the listener exists, return its task
+        without starting another.
 
         Raises
         ------
         Raise ValueError if no streaming session can be created.
         """
-        if not self.running_task:
+        if not self.listener:
             logger.info("starting Tradier Account listener")
 
             url = f"{self.config.base_url}accounts/events/session"
@@ -799,32 +820,25 @@ class TradierTrader(TraderAPI):
                 ws_url,
                 self.ws_session_id,
             )
-            self.ws = websocket.WebSocketApp(
-                ws_url,
-                on_message=self.on_message,
-                on_error=self.on_error,
-                on_close=self.on_close,
-            )
-            self.running_task = asyncio.create_task(
-                asyncio.to_thread(self.ws.run_forever)
+            self.listener = WebSocketListener(
+                ws_url, self.on_message, self.on_error, self.on_close
             )
             await asyncio.sleep(1.0)
             await self._subscribe_order_status_update()
 
-        return self.running_task
+        return self.listener.task
 
     async def close(self):
-        """Stop the account event listener if it is running.
+        """Stop the account event listener if it was started.
 
-        Wait until the listener has finished.
+        Wait until the listener has finished, so that run starts a new one,
+        even if the connection had already closed.
         """
-        if self.running_task and not self.running_task.done():
-            logger.info("close task %s", self.running_task)
-            self.ws.keep_running = False
-            await self.running_task
+        if self.listener:
+            logger.info("close task %s", self.listener.task)
+            await self.listener.stop()
             logger.info("task terminated")
-            self.ws = None
-            self.running_task = None
+            self.listener = None
             self.ws_session_id = None
 
     @classmethod

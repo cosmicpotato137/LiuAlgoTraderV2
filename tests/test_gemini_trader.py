@@ -4,7 +4,7 @@ import logging
 import pytest
 
 from liualgotrader.common import config
-from liualgotrader.common.types import OrderType
+from liualgotrader.common.types import Order, OrderType
 from liualgotrader.db.session import create_db_connection
 from liualgotrader.vendors.gemini.trader import GeminiTrader
 
@@ -58,7 +58,7 @@ async def test_market_buy_order():
         order = await gemini_trader.submit_order(
             symbol="btcusd",
             qty=0.1,
-            side="buy",
+            side=Order.FillSide.buy,
             order_type=OrderType.MARKET,
         )
     except AssertionError:
@@ -82,7 +82,7 @@ async def test_limit_buy_order():
     order = await gemini_trader.submit_order(
         symbol="btcusd",
         qty=0.1,
-        side="buy",
+        side=Order.FillSide.buy,
         order_type=OrderType.LIMIT,
         limit_price="500",
     )
@@ -128,7 +128,7 @@ async def test_order_completed():
     order = await gemini_trader.submit_order(
         symbol="btcusd",
         qty=0.1,
-        side="buy",
+        side=Order.FillSide.buy,
         limit_price="20000",
         order_type=OrderType.LIMIT,
     )
@@ -158,7 +158,7 @@ async def test_buy_websocket1():
         order = await gemini_trader.submit_order(
             symbol="btcusd",
             qty=1,
-            side="buy",
+            side=Order.FillSide.buy,
             order_type=OrderType.LIMIT,
             limit_price="100000",
         )

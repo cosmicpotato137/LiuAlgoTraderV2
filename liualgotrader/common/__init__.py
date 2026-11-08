@@ -18,4 +18,6 @@ log
     Logging set-up for the framework's processes.
 types
     Enumerations and broker-neutral data types shared by the framework.
+websocket_listener
+    Listen on a websocket-client connection from asynchronous code.
 """

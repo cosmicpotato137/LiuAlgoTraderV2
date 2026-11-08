@@ -138,7 +138,10 @@ async def test_aapl_order_market_long():
     logger.info("Open position in Apple is %s", open_position)
     try:
         order = await tradier_trader.submit_order(
-            symbol="AAPL", qty=10, side="buy", order_type=OrderType.MARKET
+            symbol="AAPL",
+            qty=10,
+            side=Order.FillSide.buy,
+            order_type=OrderType.MARKET,
         )
     except ValueError as e:
         logger.info("ValueError Exception : %s", e)
@@ -160,7 +163,10 @@ async def test_aapl_order_market_long():
 
     try:
         order = await tradier_trader.submit_order(
-            symbol="AAPL", qty=10, side="sell", order_type=OrderType.MARKET
+            symbol="AAPL",
+            qty=10,
+            side=Order.FillSide.sell,
+            order_type=OrderType.MARKET,
         )
     except ValueError as e:
         logger.info("ValueError Exception : %s", e)
@@ -205,7 +211,7 @@ async def test_aapl_order_limit_long():
         order = await tradier_trader.submit_order(
             symbol="AAPL",
             qty=10,
-            side="buy",
+            side=Order.FillSide.buy,
             order_type=OrderType.LIMIT,
             limit_price=last_price,
         )
@@ -235,7 +241,7 @@ async def test_aapl_order_limit_long():
             order = await tradier_trader.submit_order(
                 symbol="AAPL",
                 qty=10,
-                side="sell",
+                side=Order.FillSide.sell,
                 order_type=OrderType.LIMIT,
                 limit_price=last_price,
             )
@@ -281,7 +287,7 @@ async def test_tsla_order_market_short():
         order = await tradier_trader.submit_order(
             symbol="TSLA",
             qty=10,
-            side="sell_short",
+            side=Order.FillSide.sell,
             order_type=OrderType.MARKET,
         )
     except ValueError as e:
@@ -313,7 +319,7 @@ async def test_tsla_order_market_short():
             order = await tradier_trader.submit_order(
                 symbol="TSLA",
                 qty=10,
-                side="buy_to_cover",
+                side=Order.FillSide.buy,
                 order_type=OrderType.MARKET,
             )
         except ValueError as e:
@@ -353,7 +359,10 @@ async def test_tsla_cancel_order():
 
     try:
         order = await tradier_trader.submit_order(
-            symbol="AAPL", qty=10, side="buy", order_type=OrderType.MARKET
+            symbol="AAPL",
+            qty=10,
+            side=Order.FillSide.buy,
+            order_type=OrderType.MARKET,
         )
     except ValueError as e:
         logger.info("ValueError Exception : %s", e)
@@ -391,7 +400,7 @@ async def test_aapl_order_limit_long_websocket():
         order = await tradier_trader.submit_order(
             symbol="AAPL",
             qty=10,
-            side="buy",
+            side=Order.FillSide.buy,
             order_type=OrderType.LIMIT,
             limit_price=last_price,
         )
@@ -406,3 +415,50 @@ async def test_aapl_order_limit_long_websocket():
     await tradier_trader.close()
 
     return True
+
+
+class _OrderResponse:
+    def json(self):
+        return {"order": {"id": 1}}
+
+
+@pytest.mark.asyncio
+async def test_submit_order_sells_short_and_buys_to_cover(monkeypatch):
+    logger.info("test_submit_order_sells_short_and_buys_to_cover")
+    monkeypatch.setattr(TradierTrader, "order_symbol", {})
+    monkeypatch.setattr(TradierTrader, "order_side", {})
+    sent: list = []
+    looked_up: list = []
+    monkeypatch.setattr(
+        tradier_trader,
+        "_post",
+        lambda url, params=None: sent.append(params) or _OrderResponse(),
+    )
+
+    for position, side, expected in [
+        (10.0, Order.FillSide.sell, "sell"),
+        (0.0, Order.FillSide.sell, "sell_short"),
+        (-10.0, Order.FillSide.sell, "sell_short"),
+        (0.0, Order.FillSide.buy, "buy"),
+        (10.0, Order.FillSide.buy, "buy"),
+        (-10.0, Order.FillSide.buy, "buy_to_cover"),
+    ]:
+        monkeypatch.setattr(
+            tradier_trader,
+            "get_position",
+            lambda symbol, position=position: looked_up.append(symbol)
+            or position,
+        )
+        order = await tradier_trader.submit_order(
+            symbol="aapl", qty=10, side=side, order_type=OrderType.MARKET
+        )
+        if sent[-1]["side"] != expected or order.side != side:
+            raise AssertionError(
+                f"{side} at position {position} sent {sent[-1]['side']} "
+                f"and recorded {order.side}, expected {expected} and {side}"
+            )
+        if TradierTrader.order_side[1] != side:
+            raise AssertionError(f"recorded {TradierTrader.order_side[1]}")
+
+    if set(looked_up) != {"AAPL"}:
+        raise AssertionError(f"looked up positions of {looked_up}")

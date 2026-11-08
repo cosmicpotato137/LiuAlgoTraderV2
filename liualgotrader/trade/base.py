@@ -258,19 +258,19 @@ class TraderAPI:
         self,
         symbol: str,
         qty: float,
-        side: str,
+        side: Order.FillSide,
         order_type: OrderType,
         time_in_force: str,
         limit_price: Optional[str] = None,
-        stop_price: str = None,
-        client_order_id: str = None,
-        extended_hours: bool = None,
-        order_class: str = None,
-        take_profit: dict = None,
-        stop_loss: dict = None,
-        trail_price: str = None,
-        trail_percent: str = None,
-        on_behalf_of: str = None,
+        stop_price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        extended_hours: Optional[bool] = None,
+        order_class: Optional[str] = None,
+        take_profit: Optional[dict] = None,
+        stop_loss: Optional[dict] = None,
+        trail_price: Optional[str] = None,
+        trail_percent: Optional[str] = None,
+        on_behalf_of: Optional[str] = None,
     ) -> Order:
         """Submit a new order to the broker.
 
@@ -283,31 +283,33 @@ class TraderAPI:
             The asset symbol.
         qty: float
             The order quantity.
-        side: str
-            The order direction, buy or sell.
+        side: Order.FillSide
+            Whether to buy or sell. Implementations for brokers that tell
+            selling short from selling, or buying to cover from buying, must
+            choose between them from the position.
         order_type: OrderType
             The order type, such as OrderType.MARKET or OrderType.LIMIT.
         time_in_force: str
             The order duration, such as day.
         limit_price: Optional[str], default None
             The limit price, for limit orders.
-        stop_price: str, default None
+        stop_price: Optional[str], default None
             The stop price, for stop orders.
-        client_order_id: str, default None
+        client_order_id: Optional[str], default None
             A client-assigned order identifier.
-        extended_hours: bool, default None
+        extended_hours: Optional[bool], default None
             Whether the order may fill outside regular hours.
-        order_class: str, default None
+        order_class: Optional[str], default None
             The order class, such as bracket.
-        take_profit: dict, default None
+        take_profit: Optional[dict], default None
             The take-profit leg of a bracket order.
-        stop_loss: dict, default None
+        stop_loss: Optional[dict], default None
             The stop-loss leg of a bracket order.
-        trail_price: str, default None
+        trail_price: Optional[str], default None
             The trailing stop offset in dollars.
-        trail_percent: str, default None
+        trail_percent: Optional[str], default None
             The trailing stop offset in percent.
-        on_behalf_of: str, default None
+        on_behalf_of: Optional[str], default None
             The external brokerage account to trade for, or None for the
             trader's own account.
 

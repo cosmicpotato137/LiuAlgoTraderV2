@@ -66,7 +66,20 @@
         that type `on_fill(trade)` import
         `OrderUpdate`, and the `NewTrade`
         model is renamed `Trade`. The table
-        is still `new_trades`.
+        is still `new_trades`,
+    12. `TraderAPI.submit_order` takes the
+        side as an `Order.FillSide`, in place
+        of a string such as `"buy"`. The
+        Tradier trader sells short a symbol
+        that the account does not hold long,
+        and buys to cover one that it holds
+        short,
+    13. `trader` logs a warning when
+        `NUM_CONSUMERS` is more than five
+        consumer processes per physical
+        core, and starts at least one
+        consumer process when it derives
+        the count from the CPU load.
 * - 0.4.35
   - 1. Switch to PDM for depency management
        and build.

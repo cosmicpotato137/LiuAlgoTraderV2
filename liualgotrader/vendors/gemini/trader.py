@@ -24,13 +24,13 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
-import websocket
 
 from liualgotrader.common import clock
 from liualgotrader.common.assets import get_asset_min_qty, round_asset
 from liualgotrader.common.types import (Order, OrderType, OrderUpdate,
                                         QueueMessageType, SymbolQueueMap,
                                         ThreadFlags)
+from liualgotrader.common.websocket_listener import WebSocketListener
 from liualgotrader.trade.base import TraderAPI
 from liualgotrader.vendors.gemini.config import GeminiConfig
 
@@ -55,14 +55,12 @@ class GeminiTrader(TraderAPI):
     ----------
     config: GeminiConfig
         The connection settings.
-    running_task: Optional[asyncio.Task]
+    listener: Optional[WebSocketListener]
         The order event listener, or None.
     hb_task: Optional[Thread]
         The heartbeat thread, or None.
     send_hb
         A heartbeat setting, always True.
-    ws
-        The order event WebSocket application, or None.
     flags: Optional[ThreadFlags]
         The flags that keep the heartbeat thread running, or None.
     last_nonce: Optional[int]
@@ -128,10 +126,9 @@ class GeminiTrader(TraderAPI):
             The queue mapper that receives trade updates.
         """
         self.config = config
-        self.running_task: Optional[asyncio.Task] = None
+        self.listener: Optional[WebSocketListener] = None
         self.hb_task: Optional[Thread] = None
         self.send_hb = True
-        self.ws: Optional[websocket.WebSocketApp] = None
         self.flags: Optional[ThreadFlags] = None
         self.last_nonce: Optional[int] = None
         super().__init__(qm)
@@ -617,50 +614,47 @@ class GeminiTrader(TraderAPI):
 
         Returns
         -------
-        Return the listener task; if it already exists, return it without
-        starting another.
+        Return the listener task; if the listener exists, return its task
+        without starting another.
 
         Raises
         ------
         Raise AssertionError if the API key or secret is not set.
         """
-        if not self.running_task:
+        if not self.listener:
             logger.info("starting Gemini listener")
             endpoint = "/v1/order/events"
             payload = {"request": endpoint}
             headers = self._generate_ws_headers(payload)
-            self.ws = websocket.WebSocketApp(
+            self.listener = WebSocketListener(
                 f"{self.config.trading_base_websocket}{endpoint}?eventTypeFilter=cancel_rejected&eventTypeFilter=cancelled&eventTypeFilter=rejected&eventTypeFilter=fill&eventTypeFilter=closed&heartbeat=true",
-                on_message=self.on_message,
-                on_error=self.on_error,
-                on_close=self.on_close,
+                self.on_message,
+                self.on_error,
+                self.on_close,
                 header=headers,
-            )
-            self.running_task = asyncio.create_task(
-                asyncio.to_thread(
-                    self.ws.run_forever, sslopt={"cert_reqs": ssl.CERT_NONE}
-                )
+                sslopt={"cert_reqs": ssl.CERT_NONE},
             )
             self.flags = ThreadFlags(run=True)
             self.hb_task = Thread(target=self._heartbeat, args=(self.flags,))
             self.hb_task.start()
 
-        return self.running_task
+        return self.listener.task
 
     async def close(self):
-        """Stop the listener and heartbeat thread if the listener is running.
+        """Stop the listener and heartbeat thread if the listener was started.
 
-        Wait until both have finished.
+        Wait until both have finished, so that run starts a new listener, even
+        if the connection had already closed.
         """
-        if self.running_task and not self.running_task.done():
-            logger.info("close task %s", self.running_task)
-            self.ws.keep_running = False
-            self.flags.run = False
-            await self.running_task
-            await asyncio.to_thread(self.hb_task.join)
+        if self.listener:
+            logger.info("close task %s", self.listener.task)
+            if self.flags:
+                self.flags.run = False
+            await self.listener.stop()
+            if self.hb_task:
+                await asyncio.to_thread(self.hb_task.join)
             logger.info("task terminated")
-            self.ws = None
-            self.running_task = None
+            self.listener = None
             self.hb_task = None
             self.flags = None
 
@@ -730,19 +724,19 @@ class GeminiTrader(TraderAPI):
         self,
         symbol: str,
         qty: float,
-        side: str,
+        side: Order.FillSide,
         order_type: OrderType,
-        time_in_force: str = None,
+        time_in_force: Optional[str] = None,
         limit_price: Optional[str] = None,
-        stop_price: str = None,
-        client_order_id: str = None,
-        extended_hours: bool = None,
-        order_class: str = None,
-        take_profit: dict = None,
-        stop_loss: dict = None,
-        trail_price: str = None,
-        trail_percent: str = None,
-        on_behalf_of: str = None,
+        stop_price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        extended_hours: Optional[bool] = None,
+        order_class: Optional[str] = None,
+        take_profit: Optional[dict] = None,
+        stop_loss: Optional[dict] = None,
+        trail_price: Optional[str] = None,
+        trail_percent: Optional[str] = None,
+        on_behalf_of: Optional[str] = None,
     ) -> Order:
         """Submit an exchange limit order to Gemini.
 
@@ -754,32 +748,32 @@ class GeminiTrader(TraderAPI):
             The asset symbol.
         qty: float
             The quantity, rounded to the precision of the asset.
-        side: str
-            Buy or sell.
+        side: Order.FillSide
+            Whether to buy or sell.
         order_type: OrderType
             The order type; market orders are rejected.
-        time_in_force: str, default None
+        time_in_force: Optional[str], default None
             Ignored.
         limit_price: Optional[str], default None
             The price of a limit order; other order types get a placeholder
             price.
-        stop_price: str, default None
+        stop_price: Optional[str], default None
             Ignored.
-        client_order_id: str, default None
+        client_order_id: Optional[str], default None
             The client identifier of the order.
-        extended_hours: bool, default None
+        extended_hours: Optional[bool], default None
             Ignored.
-        order_class: str, default None
+        order_class: Optional[str], default None
             Ignored.
-        take_profit: dict, default None
+        take_profit: Optional[dict], default None
             Ignored.
-        stop_loss: dict, default None
+        stop_loss: Optional[dict], default None
             Ignored.
-        trail_price: str, default None
+        trail_price: Optional[str], default None
             Ignored.
-        trail_percent: str, default None
+        trail_percent: Optional[str], default None
             Ignored.
-        on_behalf_of: str, default None
+        on_behalf_of: Optional[str], default None
             Ignored.
 
         Returns
@@ -814,7 +808,7 @@ class GeminiTrader(TraderAPI):
                 if order_type == OrderType.LIMIT
                 else str(60000.0 * qty)
             ),
-            "side": side,
+            "side": side.name,
             "type": GeminiOrderType.EXCHANGE_LIMIT.value,
             "client_order_id": client_order_id,
             "options": (

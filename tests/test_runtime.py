@@ -861,7 +861,7 @@ async def test_consumer_submits_and_applies_trade_updates(ctx) -> None:
 
     decisions = await consumer.state.decide_symbol("aapl", DAY_START)
     await consumer.state.submit_order(decisions, consumer._place)
-    if [o["side"] for o in trader.submitted] != ["buy"]:
+    if [o["side"] for o in trader.submitted] != [BUY]:
         raise AssertionError(f"unexpected orders {trader.submitted}")
 
     await consumer.state.handle_trade(fill("1", 1.0))

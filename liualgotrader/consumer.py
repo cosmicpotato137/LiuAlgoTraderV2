@@ -170,7 +170,7 @@ class Consumer:
         order = await self.trader.submit_order(
             symbol=request.symbol,
             qty=request.qty,
-            side=request.side.name,
+            side=request.side,
             order_type=request.type,
             time_in_force="day",
             limit_price=(

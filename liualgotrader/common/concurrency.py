@@ -19,18 +19,35 @@ from liualgotrader.common import config
 
 logger = logging.getLogger(__name__)
 
+# The most consumer processes to launch per idle physical core.
+_PROCESSES_PER_CORE = 5.0
+
 
 def calc_num_consumer_processes() -> int:
     """Return the number of consumer processes to launch.
 
-    Use config.num_consumers when it is positive. Otherwise, derive the count
-    from the physical cores and the idle CPU fraction, blocking for five
-    seconds to sample the load, or return 1 if the core count is unknown.
-    """
-    if config.num_consumers > 0:
-        return config.num_consumers
+    Use config.num_consumers when it is positive, and log a warning if it is
+    more than _PROCESSES_PER_CORE per physical core, the most that the
+    derived count can be. Otherwise, derive the count from the physical cores
+    and the idle CPU fraction, blocking for five seconds to sample the load,
+    or return 1 if the core count is unknown.
 
+    Returns
+    -------
+    Return at least 1.
+    """
     num_cpu = psutil.cpu_count(False)
+
+    if config.num_consumers > 0:
+        if num_cpu and config.num_consumers > _PROCESSES_PER_CORE * num_cpu:
+            logger.warning(
+                "NUM_CONSUMERS=%s is more than %s consumer processes per "
+                "physical core (%s cores)",
+                config.num_consumers,
+                _PROCESSES_PER_CORE,
+                num_cpu,
+            )
+        return config.num_consumers
 
     if not num_cpu:
         logger.info(
@@ -42,7 +59,7 @@ def calc_num_consumer_processes() -> int:
 
     logger.info("Total CPU Load:%s, num_cpu:%s", load_pct, num_cpu)
 
-    return int(5.0 * (1 - load_pct / 100.0) * num_cpu)
+    return max(1, int(_PROCESSES_PER_CORE * (1 - load_pct / 100.0) * num_cpu))
 
 
 def reset_event_loop() -> asyncio.AbstractEventLoop:
